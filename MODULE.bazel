@@ -30,7 +30,7 @@ git_override(
 # Rust toolchain setup
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
-    edition = "2021",
+    edition = "2024",
     extra_target_triples = [
         "wasm32-wasip2",  # WASI Preview 2 for component builds
     ],

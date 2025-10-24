@@ -337,11 +337,11 @@ impl PublicKeySet {
 
     /// Parse and add a key to the set, trying to guess its format.
     pub fn insert_any(&mut self, data: &[u8]) -> Result<(), WSError> {
-        if let Ok(s) = str::from_utf8(data) {
-            if let Ok(pk) = PublicKey::from_openssh(s) {
-                self.insert(pk)?;
-                return Ok(());
-            }
+        if let Ok(s) = str::from_utf8(data)
+            && let Ok(pk) = PublicKey::from_openssh(s)
+        {
+            self.insert(pk)?;
+            return Ok(());
         }
         let pk = PublicKey::from_any(data)?;
         self.insert(pk)

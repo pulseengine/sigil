@@ -51,11 +51,11 @@ impl Module {
             out_sections.push(section);
             last_was_delimiter = false;
         }
-        if let Some(last_section) = out_sections.last() {
-            if !last_section.is_signature_delimiter() {
-                let delimiter = new_delimiter_section()?;
-                out_sections.push(delimiter);
-            }
+        if let Some(last_section) = out_sections.last()
+            && !last_section.is_signature_delimiter()
+        {
+            let delimiter = new_delimiter_section()?;
+            out_sections.push(delimiter);
         }
         Ok(Module {
             header: self.header,
