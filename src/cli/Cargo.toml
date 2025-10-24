@@ -16,7 +16,7 @@ name = "wasmsign2"
 path = "main.rs"
 
 [dependencies]
-clap = { version = "3.2.25", default-features = false, features = [
+clap = { version = "4.5.50", default-features = false, features = [
     "std",
     "cargo",
     "wrap_help",
