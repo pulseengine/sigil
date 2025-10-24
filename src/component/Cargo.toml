@@ -15,4 +15,4 @@ crate-type = ["cdylib"]
 wasmsign2 = { version = "0.2.6", path = "../lib" }
 
 # WIT bindings generation
-wit-bindgen = { version = "0.38.0", default-features = false, features = ["realloc"] }
+wit-bindgen = { version = "0.47.0", default-features = false, features = ["realloc"] }
