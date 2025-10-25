@@ -5,7 +5,14 @@
       "Bash(cargo clippy:*)",
       "WebSearch",
       "Read(//Users/r/git/**)",
-      "WebFetch(domain:docs.rs)"
+      "WebFetch(domain:docs.rs)",
+      "Bash(gh run list:*)",
+      "Bash(xargs cat:*)",
+      "Bash(gh run watch:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh repo view:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(gh issue list:*)"
     ],
     "deny": [],
     "ask": []

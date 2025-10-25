@@ -4,7 +4,7 @@ use wasmsign2::{
 
 use wasmsign2::reexports::log;
 
-use clap::{Arg, Command, crate_description, crate_name, crate_version};
+use clap::{Arg, ArgAction, Command, crate_description, crate_name, crate_version};
 use regex::RegexBuilder;
 use std::fs::File;
 use std::io::{BufReader, prelude::*};
@@ -13,10 +13,11 @@ fn start() -> Result<(), WSError> {
     let matches = Command::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())
-        .arg(Arg::new("verbose").short('v').help("Verbose output"))
+        .arg(Arg::new("verbose").short('v').action(ArgAction::SetTrue).help("Verbose output"))
         .arg(
             Arg::new("debug")
                 .short('d')
+                .action(ArgAction::SetTrue)
                 .help("Prints debugging information"),
         )
         .subcommand(
@@ -116,6 +117,7 @@ fn start() -> Result<(), WSError> {
                     Arg::new("ssh")
                         .long("--ssh")
                         .short('Z')
+                        .action(ArgAction::SetTrue)
                         .help("Parse OpenSSH keys"),
                 )
                 .arg(
@@ -157,6 +159,7 @@ fn start() -> Result<(), WSError> {
                     Arg::new("ssh")
                         .long("--ssh")
                         .short('Z')
+                        .action(ArgAction::SetTrue)
                         .help("Parse OpenSSH keys"),
                 )
                 .arg(
@@ -262,6 +265,7 @@ fn start() -> Result<(), WSError> {
                     Arg::new("ssh")
                         .long("--ssh")
                         .short('Z')
+                        .action(ArgAction::SetTrue)
                         .help("Parse OpenSSH keys"),
                 )
                 .arg(
