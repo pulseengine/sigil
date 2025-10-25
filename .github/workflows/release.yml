@@ -60,25 +60,18 @@ jobs:
         echo "Building wasmsign2 WebAssembly component..."
         bazel build //src/component:signing_lib_release
 
-        # List all WASM files to debug
-        echo "Available WASM files:"
-        find bazel-out -name "*.wasm" -type f
-
-        # Copy the component WASM (not the base/intermediate files)
-        # The final component should have "signing_lib" in the name but not "wasm_base"
-        WASM_FILE=$(find bazel-out -name "*.wasm" -type f | grep signing_lib | grep -v wasm_base | grep -E "\.component\.wasm$|signing_lib\.wasm$" | head -n 1)
-
-        if [ -z "$WASM_FILE" ]; then
-          # Fallback: try any signing_lib wasm that's not wasm_base
-          WASM_FILE=$(find bazel-out -name "*.wasm" -type f | grep signing_lib | grep -v wasm_base | head -n 1)
-        fi
+        # The release build creates the WASM file in bazel-out with a config-specific path
+        # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
+        WASM_FILE=$(ls bazel-out/k8-fastbuild-ST-*/bin/src/component/*.wasm 2>/dev/null | head -n 1)
 
         if [ -z "$WASM_FILE" ]; then
           echo "Error: Could not find WASM component file"
+          echo "Searching for any WASM files in bazel-out:"
+          find bazel-out -name "*.wasm" -type f
           exit 1
         fi
 
-        echo "Using WASM file: $WASM_FILE"
+        echo "Found WASM file: $WASM_FILE"
         cp "$WASM_FILE" ./wasmsign2.wasm
 
         # Verify it's a valid WebAssembly module
