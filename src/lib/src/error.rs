@@ -65,6 +65,14 @@ pub enum WSError {
     UsageError(&'static str),
 }
 
+// WASI HTTP error conversion for wasm32-wasip2 target
+#[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
+impl From<wasi::http::types::ErrorCode> for WSError {
+    fn from(err: wasi::http::types::ErrorCode) -> Self {
+        WSError::InternalError(format!("WASI HTTP error: {:?}", err))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
