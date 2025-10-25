@@ -55,33 +55,56 @@ jobs:
     - name: Install Cosign
       uses: sigstore/cosign-installer@v3
 
-    - name: Build WASM Component
+    - name: Build WASM Components
       run: |
-        echo "Building wasmsign2 WebAssembly component..."
+        echo "Building wasmsign2 WebAssembly components..."
+
+        # Build component library (WIT interface)
+        echo "Building signing library component..."
         bazel build //src/component:signing_lib_release
 
-        # The release build creates the WASM file in bazel-out with a config-specific path
-        # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
-        WASM_FILE=$(ls bazel-out/k8-fastbuild-ST-*/bin/src/component/*.wasm 2>/dev/null | head -n 1)
+        # Build CLI WASM binary
+        echo "Building CLI WASM binary..."
+        bazel build //src/cli:wasmsign_cli_wasm || echo "CLI WASM build failed, continuing..."
 
-        if [ -z "$WASM_FILE" ]; then
-          echo "Error: Could not find WASM component file"
+        # Find and copy the component WASM
+        # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
+        COMPONENT_WASM=$(ls bazel-out/k8-fastbuild-ST-*/bin/src/component/*.wasm 2>/dev/null | head -n 1)
+
+        if [ -z "$COMPONENT_WASM" ]; then
+          echo "Error: Could not find component WASM file"
           echo "Searching for any WASM files in bazel-out:"
           find bazel-out -name "*.wasm" -type f
           exit 1
         fi
 
-        echo "Found WASM file: $WASM_FILE"
-        cp "$WASM_FILE" ./wasmsign2.wasm
+        echo "Found component WASM: $COMPONENT_WASM"
+        cp "$COMPONENT_WASM" ./wasmsign2-component.wasm
 
-        # Verify it's a valid WebAssembly module
-        file ./wasmsign2.wasm
-        ls -lh ./wasmsign2.wasm
+        # Find and copy the CLI WASM if it exists
+        CLI_WASM=$(ls bazel-out/k8-fastbuild-ST-*/bin/src/cli/*.wasm 2>/dev/null | head -n 1)
 
-    - name: Create SHA256 checksum
+        if [ -n "$CLI_WASM" ]; then
+          echo "Found CLI WASM: $CLI_WASM"
+          cp "$CLI_WASM" ./wasmsign2-cli.wasm
+        else
+          echo "Warning: CLI WASM not found, will only release component"
+        fi
+
+        # Verify files
+        echo "Built WASM files:"
+        ls -lh wasmsign2-*.wasm
+        file wasmsign2-*.wasm
+
+    - name: Create SHA256 checksums
       run: |
-        sha256sum wasmsign2.wasm > wasmsign2.wasm.sha256
-        cat wasmsign2.wasm.sha256
+        sha256sum wasmsign2-component.wasm > wasmsign2-component.wasm.sha256
+        cat wasmsign2-component.wasm.sha256
+
+        if [ -f wasmsign2-cli.wasm ]; then
+          sha256sum wasmsign2-cli.wasm > wasmsign2-cli.wasm.sha256
+          cat wasmsign2-cli.wasm.sha256
+        fi
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -116,28 +139,55 @@ jobs:
         IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}"
         IMAGE_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
 
-        # Push WASM file as OCI artifact
-        echo "Publishing wasmsign2 WASM component..."
+        # Push component WASM as OCI artifact
+        echo "Publishing wasmsign2 component..."
         oras push "${IMAGE_TAG}" \
           --artifact-type application/vnd.wasm.component.layer.v1+wasm \
-          wasmsign2.wasm:application/vnd.wasm.component.layer.v1+wasm
+          wasmsign2-component.wasm:application/vnd.wasm.component.layer.v1+wasm
 
         # Tag as latest
         oras tag "${IMAGE_TAG}" latest
 
+        # Push CLI WASM as OCI artifact if it exists
+        if [ -f wasmsign2-cli.wasm ]; then
+          CLI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-cli"
+          CLI_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-cli"
+
+          echo "Publishing wasmsign2 CLI..."
+          oras push "${CLI_TAG}" \
+            --artifact-type application/vnd.wasm.component.layer.v1+wasm \
+            wasmsign2-cli.wasm:application/vnd.wasm.component.layer.v1+wasm
+
+          # Tag as latest-cli
+          oras tag "${CLI_TAG}" latest-cli
+
+          echo "CLI_TAG=${CLI_TAG}" >> $GITHUB_ENV
+          echo "CLI_LATEST=${CLI_LATEST}" >> $GITHUB_ENV
+        fi
+
         echo "Published OCI artifacts:"
-        echo "  Tagged: ${IMAGE_TAG}"
-        echo "  Latest: ${IMAGE_LATEST}"
+        echo "  Component: ${IMAGE_TAG}"
+        echo "  Component (latest): ${IMAGE_LATEST}"
+        if [ -f wasmsign2-cli.wasm ]; then
+          echo "  CLI: ${CLI_TAG}"
+          echo "  CLI (latest): ${CLI_LATEST}"
+        fi
 
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
         echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
 
-    - name: Sign OCI Image with Cosign
+    - name: Sign OCI Images with Cosign
       run: |
         # Sign using keyless signing with GitHub OIDC
-        echo "Signing wasmsign2 WASM component..."
+        echo "Signing wasmsign2 component..."
         cosign sign --yes "${IMAGE_TAG}"
         cosign sign --yes "${IMAGE_LATEST}"
+
+        if [ -n "${CLI_TAG:-}" ]; then
+          echo "Signing wasmsign2 CLI..."
+          cosign sign --yes "${CLI_TAG}"
+          cosign sign --yes "${CLI_LATEST}"
+        fi
 
         echo "✅ OCI images signed with Cosign (keyless)"
 
@@ -177,11 +227,19 @@ jobs:
         }
         EOF
 
-        # Attest the provenance
+        # Attest the provenance for component
         cosign attest --yes \
           --predicate provenance.json \
           --type slsaprovenance \
           "${IMAGE_TAG}"
+
+        # Attest the provenance for CLI if it exists
+        if [ -n "${CLI_TAG:-}" ]; then
+          cosign attest --yes \
+            --predicate provenance.json \
+            --type slsaprovenance \
+            "${CLI_TAG}"
+        fi
 
         echo "✅ SLSA provenance attestation created"
 
@@ -200,17 +258,24 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          wasmsign2.wasm
-          wasmsign2.wasm.sha256
+          wasmsign2-component.wasm
+          wasmsign2-component.wasm.sha256
+          wasmsign2-cli.wasm
+          wasmsign2-cli.wasm.sha256
         body: |
-          ## 🎉 wasmsign2 WebAssembly Component Release
+          ## 🎉 wasmsign2 WebAssembly Components Release
 
           ### 📦 What's Included
 
-          **WASM Component:**
-          - `wasmsign2.wasm` - WebAssembly component for signing WASM modules
-          - `wasmsign2.wasm.sha256` - SHA256 checksum
+          **Component Library (WIT Interface):**
+          - `wasmsign2-component.wasm` - WebAssembly component library with WIT bindings
+          - `wasmsign2-component.wasm.sha256` - SHA256 checksum
           - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}`
+
+          **CLI Tool (WASI Binary):**
+          - `wasmsign2-cli.wasm` - WASI command-line tool for Wasmtime
+          - `wasmsign2-cli.wasm.sha256` - SHA256 checksum
+          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}-cli`
 
           ### 🔐 Security Features
 
