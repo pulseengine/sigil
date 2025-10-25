@@ -21,7 +21,5 @@ log = "0.4.28"
 regex = "1.12.2"
 ssh-keys = "0.1.4"
 thiserror = "2.0.17"
-
-# WASI HTTP support for wasm32-wasip2 target
-[target.'cfg(all(target_arch = "wasm32", target_os = "wasi"))'.dependencies]
+# WASI HTTP support - only used on wasm32-wasip2 via cfg guards
 wasi = "0.14.7"
