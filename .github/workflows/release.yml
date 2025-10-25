@@ -1,6 +1,12 @@
 name: Release
 
 on:
+  push:
+    branches:
+      - master
+      - feature/bazel-ci
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
@@ -81,8 +87,13 @@ jobs:
         # Determine tag
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           TAG="${{ inputs.tag }}"
-        else
+        elif [ "${{ github.event_name }}" = "release" ]; then
           TAG="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG="${{ github.ref_name }}"
+        else
+          # For push to branches, use branch name + short SHA
+          TAG="${{ github.ref_name }}-${GITHUB_SHA:0:7}"
         fi
 
         # Create OCI artifact references
@@ -169,6 +180,7 @@ jobs:
         echo "✅ Signature verification completed"
 
     - name: Upload Release Assets
+      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
       uses: softprops/action-gh-release@v2
       with:
         files: |
@@ -240,8 +252,13 @@ jobs:
         # Determine tag
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           TAG="${{ inputs.tag }}"
-        else
+        elif [ "${{ github.event_name }}" = "release" ]; then
           TAG="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG="${{ github.ref_name }}"
+        else
+          # For push to branches, use branch name + short SHA
+          TAG="${{ github.ref_name }}-${GITHUB_SHA:0:7}"
         fi
 
         echo "## 🚀 Release Summary" >> $GITHUB_STEP_SUMMARY
