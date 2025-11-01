@@ -36,6 +36,7 @@ rust_library(
         "@wasmsign2_deps//:rustls-pki-types",
         "@wasmsign2_deps//:rustls-webpki",
         "@wasmsign2_deps//:serde",
+        "@wasmsign2_deps//:serde_jcs",
         "@wasmsign2_deps//:serde_json",
         "@wasmsign2_deps//:spki",
         "@wasmsign2_deps//:time",
