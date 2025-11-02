@@ -26,7 +26,8 @@
       "WebFetch(domain:datatracker.ietf.org)",
       "Bash(cat:*)",
       "Bash(curl:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(xxd:*)"
     ],
     "deny": [],
     "ask": []
