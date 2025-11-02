@@ -27,7 +27,10 @@
       "Bash(cat:*)",
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(jq:*)",
+      "Bash(UUID=\"108e9186e8c5677a1b77086cce5d81d1fed81432617971b2c6993681aced1a044c89465e8c60fe20\")",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []
