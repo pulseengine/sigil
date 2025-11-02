@@ -1,4 +1,4 @@
-"""Core wasmsign2 library
+"""Core wsc library
 
 This library provides the core signing/verification functionality.
 """
@@ -8,9 +8,9 @@ load("@rules_rust//rust:defs.bzl", "rust_library")
 package(default_visibility = ["//visibility:public"])
 
 rust_library(
-    name = "wasmsign2",
+    name = "wsc",
     srcs = glob(["src/**/*.rs"]),
-    crate_name = "wasmsign2",
+    crate_name = "wsc",
     edition = "2024",
     compile_data = glob(["src/**/*.json"]),
     deps = [

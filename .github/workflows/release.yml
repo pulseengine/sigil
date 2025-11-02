@@ -3,8 +3,7 @@ name: Release
 on:
   push:
     branches:
-      - master
-      - feature/bazel-ci
+      - main
     tags:
       - 'v*'
   release:
@@ -18,7 +17,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: pulseengine/wasmsign2
+  IMAGE_NAME: pulseengine/wsc
   RUST_VERSION: "1.90.0"
 
 jobs:
@@ -52,7 +51,7 @@ jobs:
 
     - name: Build WASM Components
       run: |
-        echo "Building wasmsign2 WebAssembly components..."
+        echo "Building wsc WebAssembly components..."
 
         # Build component library (WIT interface)
         echo "Building signing library component..."
@@ -74,7 +73,7 @@ jobs:
         fi
 
         echo "Found component WASM: $COMPONENT_WASM"
-        cp "$COMPONENT_WASM" ./wasmsign2-component.wasm
+        cp "$COMPONENT_WASM" ./wsc-component.wasm
 
         # Find and copy the CLI WASM if it exists
         # After building with --platforms flag, it's at bazel-bin/src/cli/wasmsign_cli.wasm
@@ -82,33 +81,33 @@ jobs:
 
         if [ -f "$CLI_WASM" ]; then
           echo "Found CLI WASM: $CLI_WASM"
-          cp "$CLI_WASM" ./wasmsign2-cli.wasm
+          cp "$CLI_WASM" ./wsc-cli.wasm
         else
           echo "Warning: CLI WASM not found, will only release component"
         fi
 
         # Verify files
         echo "Built WASM files:"
-        ls -lh wasmsign2-*.wasm
-        file wasmsign2-*.wasm
+        ls -lh wsc-*.wasm
+        file wsc-*.wasm
 
     - name: Create SHA256 checksums
       run: |
-        sha256sum wasmsign2-component.wasm > wasmsign2-component.wasm.sha256
-        cat wasmsign2-component.wasm.sha256
+        sha256sum wsc-component.wasm > wsc-component.wasm.sha256
+        cat wsc-component.wasm.sha256
 
-        if [ -f wasmsign2-cli.wasm ]; then
-          sha256sum wasmsign2-cli.wasm > wasmsign2-cli.wasm.sha256
-          cat wasmsign2-cli.wasm.sha256
+        if [ -f wsc-cli.wasm ]; then
+          sha256sum wsc-cli.wasm > wsc-cli.wasm.sha256
+          cat wsc-cli.wasm.sha256
         fi
 
     - name: Build wasmsign2 Native CLI
       run: |
-        echo "Building wasmsign2 native CLI for signing..."
-        cargo build --release --bin wasmsign2
+        echo "Building wsc native CLI for signing..."
+        cargo build --release --bin wsc
 
         # Verify the CLI works
-        ./target/release/wasmsign2 --version || echo "CLI version check skipped"
+        ./target/release/wsc --version || echo "CLI version check skipped"
 
         echo "✅ Native wasmsign2 CLI built"
 
@@ -117,22 +116,22 @@ jobs:
         echo "🔐 Signing WASM artifacts with wasmsign2 keyless signing..."
 
         # Sign the component WASM with keyless signing
-        echo "Signing wasmsign2-component.wasm..."
-        ./target/release/wasmsign2 sign --keyless \
-          --input-file wasmsign2-component.wasm \
+        echo "Signing wsc-component.wasm..."
+        ./target/release/wsc sign --keyless \
+          --input-file wsc-component.wasm \
           --output-file wasmsign2-component.signed.wasm
 
         # Create a detached signature for verification
-        mv wasmsign2-component.signed.wasm wasmsign2-component.wasm
+        mv wasmsign2-component.signed.wasm wsc-component.wasm
 
         # Sign the CLI WASM if it exists
-        if [ -f wasmsign2-cli.wasm ]; then
-          echo "Signing wasmsign2-cli.wasm..."
-          ./target/release/wasmsign2 sign --keyless \
-            --input-file wasmsign2-cli.wasm \
+        if [ -f wsc-cli.wasm ]; then
+          echo "Signing wsc-cli.wasm..."
+          ./target/release/wsc sign --keyless \
+            --input-file wsc-cli.wasm \
             --output-file wasmsign2-cli.signed.wasm
 
-          mv wasmsign2-cli.signed.wasm wasmsign2-cli.wasm
+          mv wasmsign2-cli.signed.wasm wsc-cli.wasm
         fi
 
         echo "✅ WASM files signed with wasmsign2 (keyless)"
@@ -179,23 +178,23 @@ jobs:
         IMAGE_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
 
         # Push component WASM as OCI artifact
-        echo "Publishing wasmsign2 component..."
+        echo "Publishing wsc component..."
         oras push "${IMAGE_TAG}" \
           --artifact-type application/vnd.wasm.component.layer.v1+wasm \
-          wasmsign2-component.wasm:application/vnd.wasm.component.layer.v1+wasm
+          wsc-component.wasm:application/vnd.wasm.component.layer.v1+wasm
 
         # Tag as latest
         oras tag "${IMAGE_TAG}" latest
 
         # Push CLI WASM as OCI artifact if it exists
-        if [ -f wasmsign2-cli.wasm ]; then
+        if [ -f wsc-cli.wasm ]; then
           CLI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-cli"
           CLI_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-cli"
 
-          echo "Publishing wasmsign2 CLI..."
+          echo "Publishing wsc CLI..."
           oras push "${CLI_TAG}" \
             --artifact-type application/vnd.wasm.component.layer.v1+wasm \
-            wasmsign2-cli.wasm:application/vnd.wasm.component.layer.v1+wasm
+            wsc-cli.wasm:application/vnd.wasm.component.layer.v1+wasm
 
           # Tag as latest-cli
           oras tag "${CLI_TAG}" latest-cli
@@ -207,7 +206,7 @@ jobs:
         echo "Published OCI artifacts:"
         echo "  Component: ${IMAGE_TAG}"
         echo "  Component (latest): ${IMAGE_LATEST}"
-        if [ -f wasmsign2-cli.wasm ]; then
+        if [ -f wsc-cli.wasm ]; then
           echo "  CLI: ${CLI_TAG}"
           echo "  CLI (latest): ${CLI_LATEST}"
         fi
@@ -235,7 +234,7 @@ jobs:
         # Create provenance attestation
         cat > provenance.json <<EOF
         {
-          "buildType": "https://github.com/pulseengine/wasmsign2/release@v1",
+          "buildType": "https://github.com/pulseengine/wsc/release@v1",
           "builder": {
             "id": "https://github.com/actions/runner"
           },
@@ -297,23 +296,23 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          wasmsign2-component.wasm
-          wasmsign2-component.wasm.sha256
-          wasmsign2-cli.wasm
-          wasmsign2-cli.wasm.sha256
+          wsc-component.wasm
+          wsc-component.wasm.sha256
+          wsc-cli.wasm
+          wsc-cli.wasm.sha256
         body: |
-          ## 🎉 wasmsign2 WebAssembly Components Release
+          ## 🎉 wsc WebAssembly Components Release
 
           ### 📦 What's Included
 
           **Component Library (WIT Interface):**
-          - `wasmsign2-component.wasm` - WebAssembly component library with WIT bindings
-          - `wasmsign2-component.wasm.sha256` - SHA256 checksum
+          - `wsc-component.wasm` - WebAssembly component library with WIT bindings
+          - `wsc-component.wasm.sha256` - SHA256 checksum
           - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}`
 
           **CLI Tool (WASI Binary):**
-          - `wasmsign2-cli.wasm` - WASI command-line tool for Wasmtime
-          - `wasmsign2-cli.wasm.sha256` - SHA256 checksum
+          - `wsc-cli.wasm` - WASI command-line tool for Wasmtime
+          - `wsc-cli.wasm.sha256` - SHA256 checksum
           - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}-cli`
 
           ### 🔐 Security Features
@@ -334,9 +333,9 @@ jobs:
           ```bash
           # Download and verify checksum
           TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
-          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wasmsign2.wasm
-          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wasmsign2.wasm.sha256
-          sha256sum -c wasmsign2.wasm.sha256
+          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc.wasm
+          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc.wasm.sha256
+          sha256sum -c wsc.wasm.sha256
           ```
 
           #### Pull Signed OCI Artifact
@@ -368,7 +367,7 @@ jobs:
           # wasmsign2 verify --keyless \
           #   --identity "https://github.com/${{ github.repository }}" \
           #   --issuer "https://token.actions.githubusercontent.com" \
-          #   --input-file wasmsign2-component.wasm
+          #   --input-file wsc-component.wasm
 
           # For now, signatures are embedded but verification is pending implementation
           ```
@@ -425,7 +424,7 @@ jobs:
         echo "### 📦 Published Artifacts" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**WASM Component:**" >> $GITHUB_STEP_SUMMARY
-        echo "- **File**: \`wasmsign2.wasm\` ($(ls -lh wasmsign2.wasm | awk '{print $5}'))" >> $GITHUB_STEP_SUMMARY
+        echo "- **File**: \`wsc.wasm\` ($(ls -lh wsc.wasm | awk '{print $5}'))" >> $GITHUB_STEP_SUMMARY
         echo "- **OCI Artifact**: \`${IMAGE_TAG}\`" >> $GITHUB_STEP_SUMMARY
         echo "- **OCI Artifact (latest)**: \`${IMAGE_LATEST}\`" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ master, feature/bazel-ci ]
+    branches: [ main ]
   pull_request:
-    branches: [ master ]
+    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -44,7 +44,7 @@ jobs:
 
     - name: Build Core Library (Bazel)
       if: matrix.build-system == 'bazel'
-      run: bazel build //src/lib:wasmsign2
+      run: bazel build //src/lib:wsc
 
     - name: Build Signing Component (Bazel)
       if: matrix.build-system == 'bazel'
