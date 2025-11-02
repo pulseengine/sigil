@@ -11,7 +11,7 @@ use signing_lib_bindings::exports::wasm_signatures::wasmsign::signing::{
 #[cfg(target_arch = "wasm32")]
 use std::io::Cursor;
 #[cfg(target_arch = "wasm32")]
-use wasmsign2::{KeyPair as WS2KeyPair, Module, PublicKey, SecretKey};
+use wsc::{KeyPair as WS2KeyPair, Module, PublicKey, SecretKey};
 
 // Export the component implementation
 #[cfg(target_arch = "wasm32")]

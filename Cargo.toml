@@ -11,7 +11,7 @@ version = "0.2.7"
 edition = "2024"
 authors = ["Frank Denis <github@pureftpd.org>"]
 license = "MIT"
-repository = "https://github.com/wasm-signatures/wasmsign2"
+repository = "https://github.com/pulseengine/wsc"
 
 [profile.release]
 codegen-units = 1

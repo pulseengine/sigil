@@ -1,8 +1,8 @@
-"""Bazel Module for wasmsign2 WebAssembly Module Signing Tool"""
+"""Bazel Module for wsc - WebAssembly Signature Component"""
 
 module(
-    name = "wasmsign2",
-    version = "0.2.6",
+    name = "wsc",
+    version = "0.2.7",
 )
 
 # Dependencies

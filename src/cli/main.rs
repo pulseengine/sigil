@@ -1,8 +1,8 @@
-use wasmsign2::{
+use wsc::{
     BoxedPredicate, KeyPair, Module, PublicKey, PublicKeySet, SecretKey, Section, WSError,
 };
 
-use wasmsign2::reexports::log;
+use wsc::reexports::log;
 
 use clap::{Arg, ArgAction, Command, crate_description, crate_name, crate_version};
 use regex::RegexBuilder;
@@ -396,7 +396,7 @@ fn start() -> Result<(), WSError> {
 
         if matches.get_flag("keyless") {
             // Keyless signing path
-            use wasmsign2::keyless::{KeylessSigner, KeylessConfig};
+            use wsc::keyless::{KeylessSigner, KeylessConfig};
 
             println!("Using keyless signing...");
             let config = KeylessConfig::default();

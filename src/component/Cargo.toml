@@ -1,18 +1,18 @@
 [package]
-name = "wasmsign2-component"
+name = "wsc-component"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "WebAssembly component that exports the wasmsign signing interface"
+description = "WebAssembly component that exports the wsc signing interface"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
 # Core signing library
-wasmsign2 = { version = "0.2.7", path = "../lib" }
+wsc = { version = "0.2.7", path = "../lib" }
 
 # WIT bindings generation
 wit-bindgen = { version = "0.47.0", default-features = false, features = ["realloc"] }
