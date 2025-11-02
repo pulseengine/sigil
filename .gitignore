@@ -1,9 +1,33 @@
+# Cargo build artifacts
 /target
+src/lib/target
+
+# Bazel build artifacts
+bazel-*
+/bazel-*
+
+# Test coverage
+lcov.info
+*.profraw
+*.profdata
+
+# Temporary files
 *~
+*.swp
+*.swo
+
+# WASM artifacts (for development)
 *.wasm
+
+# Key files
 *.key
 *.key2
+
+# Scripts (local testing)
 *.sh
+
+# Signatures
 /signature
-src/lib/target
+
+# Old binary name
 wasmsign2
