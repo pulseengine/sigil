@@ -262,31 +262,48 @@ impl RekorKeyring {
         let proof: InclusionProof = serde_json::from_slice(&entry.inclusion_proof)
             .map_err(|e| WSError::RekorError(format!("Failed to parse inclusion proof: {}", e)))?;
 
-        // Decode the body (base64-encoded entry data)
-        let body_bytes = BASE64
-            .decode(&entry.body)
-            .map_err(|e| WSError::RekorError(format!("Failed to decode body: {}", e)))?;
-
         log::debug!("Inclusion proof verification:");
         log::debug!("  Log Index: {}", entry.log_index);
         log::debug!("  Tree Size: {}", proof.tree_size);
-        log::debug!("  Body size: {} bytes", body_bytes.len());
+        log::debug!("  UUID: {}", entry.uuid);
 
         #[cfg(test)]
         {
             println!("\n🔍 Inclusion Proof Debug Info:");
             println!("   Log Index: {}", entry.log_index);
             println!("   Tree Size: {}", proof.tree_size);
-            println!("   Body size: {} bytes", body_bytes.len());
-            println!("   Body (first 100 bytes): {:?}", &body_bytes[..std::cmp::min(100, body_bytes.len())]);
+            println!("   UUID: {}", entry.uuid);
         }
 
-        // Compute leaf hash (RFC 6962: SHA-256(0x00 || decoded_body))
-        // Rekor's Merkle tree is built over the decoded entry bodies
-        let leaf_hash = merkle::compute_leaf_hash(&body_bytes);
+        // The Rekor UUID is the actual Merkle tree leaf hash
+        // From Rekor docs: "The entry UUID is the hash of the Merkle Tree leaf node for the entry"
+        // Extract the leaf hash from the UUID (last 64 hex characters = 32 bytes SHA256)
+        let uuid_len = entry.uuid.len();
+        if uuid_len < 64 {
+            return Err(WSError::RekorError(format!(
+                "UUID too short to extract leaf hash: {} characters",
+                uuid_len
+            )));
+        }
+
+        // The UUID format is: <tree_id><leaf_hash>
+        // For Rekor, the leaf hash is the last 64 hex characters (32 bytes)
+        let leaf_hash_hex = &entry.uuid[uuid_len - 64..];
+        let leaf_hash_bytes = hex::decode(leaf_hash_hex)
+            .map_err(|e| WSError::RekorError(format!("Failed to decode leaf hash from UUID: {}", e)))?;
+
+        if leaf_hash_bytes.len() != 32 {
+            return Err(WSError::RekorError(format!(
+                "Invalid leaf hash length from UUID: {} bytes",
+                leaf_hash_bytes.len()
+            )));
+        }
+
+        let mut leaf_hash = [0u8; 32];
+        leaf_hash.copy_from_slice(&leaf_hash_bytes);
 
         #[cfg(test)]
-        println!("   Computed leaf hash: {}", hex::encode(&leaf_hash));
+        println!("   Leaf hash (from UUID): {}", hex::encode(&leaf_hash));
 
         // Decode proof hashes from hex
         let proof_hashes: Result<Vec<[u8; 32]>, _> = proof
@@ -330,8 +347,10 @@ impl RekorKeyring {
         #[cfg(test)]
         println!("\n⏳ Computing Merkle root from leaf...");
 
+        // Use the entry's log_index, not the proof's log_index
+        // The proof structure may have a different logIndex field for internal use
         merkle::verify_inclusion_proof(
-            proof.log_index,
+            entry.log_index,
             proof.tree_size,
             &leaf_hash,
             &proof_hashes,
