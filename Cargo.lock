@@ -1322,60 +1322,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wasmsign2"
-version = "0.2.7"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "const-oid",
- "ct-codecs",
- "ecdsa",
- "ed25519-compact",
- "getrandom 0.3.4",
- "hex",
- "hmac-sha256",
- "log",
- "p256",
- "pem",
- "regex",
- "rustls-pki-types",
- "rustls-webpki",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2",
- "spki",
- "ssh-keys",
- "thiserror 2.0.17",
- "time",
- "ureq",
- "wasi 0.14.7+wasi-0.2.4",
- "x509-parser",
-]
-
-[[package]]
-name = "wasmsign2-cli"
-version = "0.2.7"
-dependencies = [
- "clap",
- "env_logger",
- "regex",
- "ureq",
- "uri_encode",
- "wasi 0.14.7+wasi-0.2.4",
- "wasmsign2",
-]
-
-[[package]]
-name = "wasmsign2-component"
-version = "0.2.7"
-dependencies = [
- "wasmsign2",
- "wit-bindgen 0.47.0",
-]
-
-[[package]]
 name = "webpki-roots"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1613,6 +1559,60 @@ name = "wit-bindgen"
 version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a374235c3c0dff10537040b437073d09f1e38f13216b5f3cbc809c6226814e5c"
+
+[[package]]
+name = "wsc"
+version = "0.2.7"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "const-oid",
+ "ct-codecs",
+ "ecdsa",
+ "ed25519-compact",
+ "getrandom 0.3.4",
+ "hex",
+ "hmac-sha256",
+ "log",
+ "p256",
+ "pem",
+ "regex",
+ "rustls-pki-types",
+ "rustls-webpki",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+ "spki",
+ "ssh-keys",
+ "thiserror 2.0.17",
+ "time",
+ "ureq",
+ "wasi 0.14.7+wasi-0.2.4",
+ "x509-parser",
+]
+
+[[package]]
+name = "wsc-cli"
+version = "0.2.7"
+dependencies = [
+ "clap",
+ "env_logger",
+ "regex",
+ "ureq",
+ "uri_encode",
+ "wasi 0.14.7+wasi-0.2.4",
+ "wsc",
+]
+
+[[package]]
+name = "wsc-component"
+version = "0.2.7"
+dependencies = [
+ "wit-bindgen 0.47.0",
+ "wsc",
+]
 
 [[package]]
 name = "x509-parser"
