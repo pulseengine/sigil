@@ -4,7 +4,8 @@
 // The `SecretKey::sign()` function is what most 3rd-party signing tools can use or reimplement if they don't need support for multiple signatures.
 
 #![allow(clippy::vec_init_then_push)]
-#![forbid(unsafe_code)]
+// Deny unsafe code, but allow override in specific modules (e.g., allocator)
+#![deny(unsafe_code)]
 
 mod error;
 mod signature;
@@ -22,6 +23,10 @@ pub use wasm_module::*;
 
 // Re-export keyless module for public API
 pub use signature::keyless;
+
+// Phase-locked allocator for allocation-free verification
+#[cfg(feature = "allocation-guard")]
+pub mod allocator;
 
 pub mod reexports {
     pub use {anyhow, ct_codecs, getrandom, hmac_sha256, log, regex, thiserror};

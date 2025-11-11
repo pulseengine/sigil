@@ -45,7 +45,19 @@
       "Bash(git grep:*)",
       "Bash(find:*)",
       "Bash(UUID=\"108e9186e8c5677a1b77086cce5d81d1fed81432617971b2c6993681aced1a044c89465e8c60fe20\" curl -s \"https://rekor.sigstore.dev/api/v1/log/entries/$UUID\")",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh release:*)",
+      "Bash(gh search:*)",
+      "WebFetch(domain:eclipse-score.github.io)",
+      "WebFetch(domain:projects.eclipse.org)",
+      "Bash(gh repo list:*)",
+      "Bash(xargs curl -s)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:dev.dylibso.com)",
+      "WebFetch(domain:stealthrocket.tech)",
+      "WebFetch(domain:digitalcommons.calpoly.edu)",
+      "WebFetch(domain:docs.wasmtime.dev)"
     ],
     "deny": [],
     "ask": []

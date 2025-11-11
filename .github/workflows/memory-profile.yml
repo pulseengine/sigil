@@ -1,4 +1,4 @@
-name: Memory Profiling
+name: Memory Analysis
 
 on:
   workflow_dispatch:
@@ -8,11 +8,71 @@ on:
       - 'src/**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - '.github/workflows/memory-profile.yml'
 
 env:
   RUST_VERSION: "1.90.0"
+  BYTEHOUND_VERSION: "0.11.0"
 
 jobs:
+  # Fast allocation-free verification using phase-locked allocator
+  allocation-guard:
+    name: Allocation-Free Verification
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache target directory
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-target-allocation-guard-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run allocation-free verification tests
+      run: |
+        echo "## 🔒 Allocation-Free Verification" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Testing which operations are allocation-free..." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        cargo test --features allocation-guard --test real_world_allocation_free \
+          -- --test-threads=1 --nocapture 2>&1 | tee allocation_test.log
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Results" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        grep -E "(✅|❌)" allocation_test.log | head -20 >> $GITHUB_STEP_SUMMARY || echo "Tests completed" >> $GITHUB_STEP_SUMMARY
+        echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+    - name: Upload allocation test log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: allocation-guard-log
+        path: allocation_test.log
+        retention-days: 7
+
+  # Detailed profiling with ByteHound
   bytehound-profile:
     name: ByteHound Memory Profile
     runs-on: ubuntu-latest
@@ -21,29 +81,53 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc
+        sudo apt-get install -y build-essential gcc wget
 
-    - name: Install Rust nightly (for ByteHound build)
+    - name: Cache ByteHound binary
+      id: cache-bytehound
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/bytehound
+          ~/.cargo/bin/libbytehound.so
+        key: bytehound-${{ env.BYTEHOUND_VERSION }}-${{ runner.os }}
+
+    - name: Install ByteHound from pre-built binary
+      if: steps.cache-bytehound.outputs.cache-hit != 'true'
       run: |
-        rustup toolchain install nightly
-        rustup default nightly
+        wget https://github.com/koute/bytehound/releases/download/${{ env.BYTEHOUND_VERSION }}/bytehound-x86_64-unknown-linux-gnu.tgz
+        tar xzf bytehound-x86_64-unknown-linux-gnu.tgz
+        mkdir -p ~/.cargo/bin
+        mv bytehound ~/.cargo/bin/
+        mv libbytehound.so ~/.cargo/bin/
+        chmod +x ~/.cargo/bin/bytehound
 
-    - name: Clone and build ByteHound
-      run: |
-        git clone https://github.com/koute/bytehound.git /tmp/bytehound
-        cd /tmp/bytehound
-        cargo build --release -p bytehound-preload
-        cargo build --release -p bytehound-cli
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
 
-        # Copy binaries to accessible location
-        cp target/release/libbytehound.so $HOME/
-        cp target/release/bytehound $HOME/
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Switch back to stable Rust
-      run: rustup default stable
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache target directory
+      uses: actions/cache@v4
+      with:
+        path: target
+        key: ${{ runner.os }}-target-bytehound-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build wsc tests
       run: cargo test --no-run --release
@@ -51,33 +135,102 @@ jobs:
     - name: Run tests with ByteHound profiling
       env:
         MEMORY_PROFILER_LOG: warn
-        LD_PRELOAD: ${{ env.HOME }}/libbytehound.so
+        LD_PRELOAD: ${{ env.HOME }}/.cargo/bin/libbytehound.so
       run: |
-        # Run a subset of tests or specific test
-        cargo test --release -- --test-threads=1 --nocapture || true
+        echo "Starting ByteHound memory profiling..."
 
-        echo "ByteHound profiling data generated"
-        ls -lh memory-profiling_*.dat
+        # Run tests with profiling
+        cargo test --release -- --test-threads=1 --nocapture 2>&1 | tee bytehound_test.log || true
+
+        echo ""
+        echo "ByteHound profiling data generated:"
+        ls -lh memory-profiling_*.dat 2>/dev/null || echo "No profiling data generated"
+
+    - name: Generate ByteHound analysis
+      if: always()
+      run: |
+        echo "## 📊 ByteHound Memory Profile" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if ls memory-profiling_*.dat 1> /dev/null 2>&1; then
+          echo "✅ Memory profiling data collected successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Profile Files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          ls -lh memory-profiling_*.dat | awk '{print "- `" $9 "` (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### How to Analyze" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the \`bytehound-profiles\` artifact from this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Install ByteHound locally (Linux only):" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   wget https://github.com/koute/bytehound/releases/download/${{ env.BYTEHOUND_VERSION }}/bytehound-x86_64-unknown-linux-gnu.tgz" >> $GITHUB_STEP_SUMMARY
+          echo "   tar xzf bytehound-x86_64-unknown-linux-gnu.tgz" >> $GITHUB_STEP_SUMMARY
+          echo "   mv bytehound libbytehound.so ~/.cargo/bin/" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Start the viewer:" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "   bytehound server memory-profiling_*.dat" >> $GITHUB_STEP_SUMMARY
+          echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Open http://localhost:8080 in your browser" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What to Look For" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Allocations Tab**: All allocations sorted by size/count" >> $GITHUB_STEP_SUMMARY
+          echo "- **Flame Graph**: Visual call stacks showing allocation sources" >> $GITHUB_STEP_SUMMARY
+          echo "- **Timeline**: Allocation patterns over time" >> $GITHUB_STEP_SUMMARY
+          echo "- **Leaked Memory**: Filter for memory not freed (potential leaks)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ No profiling data was generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the test logs for errors." >> $GITHUB_STEP_SUMMARY
+        fi
 
     - name: Upload profiling data
+      if: always()
       uses: actions/upload-artifact@v4
       with:
         name: bytehound-profiles
         path: memory-profiling_*.dat
+        retention-days: 30
+        if-no-files-found: warn
+
+    - name: Upload test logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bytehound-test-logs
+        path: bytehound_test.log
         retention-days: 7
 
-    - name: Generate ByteHound summary
+  # Summary job
+  summary:
+    name: Memory Analysis Summary
+    runs-on: ubuntu-latest
+    needs: [allocation-guard, bytehound-profile]
+    if: always()
+
+    steps:
+    - name: Generate overall summary
       run: |
-        if [ -f memory-profiling_*.dat ]; then
-          echo "## 📊 ByteHound Memory Profile" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Memory profiling data has been collected." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### How to view:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the \`bytehound-profiles\` artifact" >> $GITHUB_STEP_SUMMARY
-          echo "2. Run: \`bytehound server memory-profiling_*.dat\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open http://localhost:8080 in your browser" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Files:**" >> $GITHUB_STEP_SUMMARY
-          ls -lh memory-profiling_*.dat | awk '{print "- " $9 " (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
-        fi
+        echo "## 🧪 Memory Analysis Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Two complementary approaches were used:" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 1. 🔒 Allocation-Free Verification (Phase-Locked Allocator)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Purpose**: Verify hot paths are allocation-free" >> $GITHUB_STEP_SUMMARY
+        echo "- **Speed**: Fast (< 1 minute)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Output**: Pass/fail for each operation" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ needs.allocation-guard.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 2. 📊 ByteHound Profiling (Detailed Analysis)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Purpose**: Identify allocation sources and patterns" >> $GITHUB_STEP_SUMMARY
+        echo "- **Speed**: Slower (~5 minutes)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Output**: Interactive web UI with flame graphs" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status**: ${{ needs.bytehound-profile.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Check individual job summaries above for details" >> $GITHUB_STEP_SUMMARY
+        echo "- Download artifacts to analyze profiling data" >> $GITHUB_STEP_SUMMARY
+        echo "- See \`docs/allocation_free_findings.md\` for interpretation guide" >> $GITHUB_STEP_SUMMARY

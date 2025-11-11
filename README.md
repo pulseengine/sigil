@@ -10,6 +10,7 @@ A tool and library for signing WebAssembly modules with enhanced Rekor verificat
 - **Bazel Integration**: Full BUILD and MODULE.bazel support for hermetic builds
 - **WIT Component Model**: Both library (`wsc-component.wasm`) and CLI (`wsc-cli.wasm`) builds
 - **Keyless Signing**: Full Sigstore/Fulcio integration with OIDC authentication
+- **Memory Analysis**: Allocation-free verification and ByteHound profiling in CI
 - **CI/CD Pipeline**: Automated testing and release workflows
 
 ## About This Project
@@ -203,12 +204,51 @@ bazel build //src/component:wsc-component.wasm
 bazel build //src/cli:wsc-cli.wasm
 ```
 
+### Memory Analysis & Allocation-Free Verification
+
+wsc includes comprehensive memory analysis tools for safety-critical and real-time applications:
+
+#### Automated CI Analysis
+
+Every pull request automatically runs:
+- **Phase-Locked Allocator** (< 1 min): Verifies which operations are allocation-free
+- **ByteHound Profiling** (~5 min): Generates detailed allocation reports with flame graphs
+
+View results in the workflow summary or download artifacts for local analysis.
+
+#### Local Testing
+
+```bash
+# Test which operations are allocation-free
+cargo test --features allocation-guard --test real_world_allocation_free -- --test-threads=1
+
+# Results:
+# ✅ SHA-256 hashing - allocation-free
+# ✅ Ed25519 signature verification - allocation-free
+# ❌ WASM module parsing - requires allocations
+# ❌ WASM signature verification - requires allocations
+```
+
+#### Use Cases
+
+- **Real-time systems**: Verify deterministic execution (no GC pressure)
+- **Safety-critical systems**: ASIL-B automotive requirements (Eclipse S-CORE approach)
+- **Performance hotpaths**: Minimize latency and memory overhead
+
+See [docs/memory_profiling.md](docs/memory_profiling.md) for complete guide.
+
 ## Documentation
 
+### Security & Verification
 - [Checkpoint Implementation](docs/checkpoint_implementation.md) - Checkpoint-based verification details
 - [Security Audit](docs/checkpoint_security_audit.md) - Security vulnerabilities found and fixed
 - [Checkpoint Format](docs/rekor_checkpoint_format.md) - Complete format specification
 - [sigstore-rs Comparison](docs/sigstore_comparison.md) - Comparison with official Rust implementation
+
+### Memory Analysis
+- [Memory Profiling Guide](docs/memory_profiling.md) - ByteHound, allocator, and profiling tools
+- [Allocation-Free Findings](docs/allocation_free_findings.md) - What's allocation-free, what's not
+- [CI Memory Analysis](docs/ci_memory_analysis.md) - Using the automated CI workflow
 
 ## Development Status
 
