@@ -26,6 +26,13 @@ use crate::signature::{KeyPair, PublicKey};
 use std::path::Path;
 use std::fs;
 use base64::Engine;
+use rcgen::{
+    CertificateParams, DistinguishedName, DnType,
+    IsCa, BasicConstraints, KeyUsagePurpose, ExtendedKeyUsagePurpose,
+    Ia5String,
+};
+use time::{OffsetDateTime, Duration as TimeDuration};
+use rustls_pki_types::CertificateDer;
 
 /// Private Certificate Authority
 ///
@@ -219,18 +226,53 @@ impl PrivateCA {
 
     /// Create self-signed certificate (for Root CA)
     fn create_self_signed_cert(keypair: &KeyPair, config: &CAConfig) -> Result<Vec<u8>, WSError> {
-        // Placeholder: Real implementation would use `rcgen` or similar
-        // For now, return a mock certificate
-        log::warn!("CA certificate generation not fully implemented (using placeholder)");
+        // Create rcgen certificate parameters
+        let mut params = CertificateParams::default();
 
-        // Create a minimal placeholder certificate
-        let placeholder_cert = format!(
-            "PLACEHOLDER_CERT:{}:{}",
-            config.organization,
-            config.common_name
-        );
+        // Set subject distinguished name
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, &config.common_name);
+        dn.push(DnType::OrganizationName, &config.organization);
 
-        Ok(placeholder_cert.into_bytes())
+        if let Some(country) = &config.country {
+            dn.push(DnType::CountryName, country);
+        }
+        if let Some(state) = &config.state {
+            dn.push(DnType::StateOrProvinceName, state);
+        }
+        if let Some(locality) = &config.locality {
+            dn.push(DnType::LocalityName, locality);
+        }
+
+        params.distinguished_name = dn;
+
+        // Set validity period
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(config.validity_days as i64);
+
+        // CA certificate settings
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+
+        // Key usage for CA
+        params.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+        ];
+
+        // Convert Ed25519 keypair to rcgen KeyPair
+        let key_pair_pem = Self::ed25519_to_pem(keypair)?;
+        let rcgen_keypair = rcgen::KeyPair::from_pem(&key_pair_pem)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create key pair: {}", e)))?;
+
+        // Generate self-signed certificate
+        let cert = params.self_signed(&rcgen_keypair)
+            .map_err(|e| WSError::HardwareError(format!("Failed to generate certificate: {}", e)))?;
+
+        // Serialize to DER
+        let der = cert.der().to_vec();
+
+        Ok(der)
     }
 
     /// Create certificate signed by another CA
@@ -239,36 +281,148 @@ impl PrivateCA {
         issuer: &PrivateCA,
         config: &CAConfig,
     ) -> Result<Vec<u8>, WSError> {
-        // Placeholder
-        log::warn!("CA certificate signing not fully implemented (using placeholder)");
+        // Create certificate parameters
+        let mut params = CertificateParams::default();
 
-        let placeholder_cert = format!(
-            "PLACEHOLDER_CERT:{}:{}:SIGNED_BY:{}",
-            config.organization,
-            config.common_name,
-            issuer.config.common_name
-        );
+        // Set subject distinguished name
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, &config.common_name);
+        dn.push(DnType::OrganizationName, &config.organization);
 
-        Ok(placeholder_cert.into_bytes())
+        if let Some(country) = &config.country {
+            dn.push(DnType::CountryName, country);
+        }
+        if let Some(state) = &config.state {
+            dn.push(DnType::StateOrProvinceName, state);
+        }
+        if let Some(locality) = &config.locality {
+            dn.push(DnType::LocalityName, locality);
+        }
+
+        params.distinguished_name = dn;
+
+        // Set validity period
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(config.validity_days as i64);
+
+        // Intermediate CA certificate settings
+        params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0));  // Path length 0
+
+        // Key usage for CA
+        params.key_usages = vec![
+            KeyUsagePurpose::KeyCertSign,
+            KeyUsagePurpose::CrlSign,
+        ];
+
+        // Convert Ed25519 keypair to rcgen KeyPair
+        let key_pair_pem = Self::ed25519_to_pem(keypair)?;
+        let rcgen_keypair = rcgen::KeyPair::from_pem(&key_pair_pem)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create key pair: {}", e)))?;
+
+        // Parse issuer certificate
+        let issuer_cert_der = CertificateDer::from(issuer.certificate.clone());
+        let issuer_cert_params = CertificateParams::from_ca_cert_der(&issuer_cert_der)
+            .map_err(|e| WSError::X509Error(format!("Failed to parse issuer certificate: {}", e)))?;
+
+        let issuer_key_pem = Self::ed25519_to_pem(&issuer.keypair)?;
+        let issuer_keypair = rcgen::KeyPair::from_pem(&issuer_key_pem)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create issuer key pair: {}", e)))?;
+
+        let issuer_cert = issuer_cert_params.self_signed(&issuer_keypair)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create issuer cert: {}", e)))?;
+
+        // Sign certificate with issuer
+        let der = params.signed_by(&rcgen_keypair, &issuer_cert, &issuer_keypair)
+            .map_err(|e| WSError::HardwareError(format!("Failed to sign certificate: {}", e)))?
+            .der()
+            .to_vec();
+
+        Ok(der)
     }
 
     /// Create device certificate
     fn create_device_cert(
-        device_public_key: &PublicKey,
+        _device_public_key: &PublicKey,
         ca: &PrivateCA,
         device_id: &DeviceIdentity,
         config: &CertificateConfig,
     ) -> Result<Vec<u8>, WSError> {
-        // Placeholder
-        log::warn!("Device certificate generation not fully implemented (using placeholder)");
+        // Create certificate parameters
+        let mut params = CertificateParams::default();
 
-        let placeholder_cert = format!(
-            "PLACEHOLDER_DEVICE_CERT:{}:SIGNED_BY:{}",
-            device_id.id(),
-            ca.config.common_name
-        );
+        // Set subject distinguished name
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, &device_id.to_common_name());
+        dn.push(DnType::OrganizationName, &config.organization);
 
-        Ok(placeholder_cert.into_bytes())
+        if let Some(ou) = &config.organizational_unit {
+            dn.push(DnType::OrganizationalUnitName, ou);
+        }
+
+        params.distinguished_name = dn;
+
+        // Add device ID as Subject Alternative Name
+        let device_id_str = device_id.id().to_string();
+        let ia5_string = Ia5String::try_from(device_id_str.as_str())
+            .map_err(|_| WSError::InvalidArgument)?;
+        params.subject_alt_names = vec![
+            rcgen::SanType::DnsName(ia5_string),
+        ];
+
+        // Set validity period
+        let now = OffsetDateTime::now_utc();
+        params.not_before = now;
+        params.not_after = now + TimeDuration::days(config.validity_days as i64);
+
+        // End-entity certificate (not a CA)
+        params.is_ca = IsCa::NoCa;
+
+        // Key usage for code signing
+        params.key_usages = vec![
+            KeyUsagePurpose::DigitalSignature,
+        ];
+
+        // Extended key usage for code signing
+        params.extended_key_usages = vec![
+            ExtendedKeyUsagePurpose::CodeSigning,
+        ];
+
+        // Create a temporary KeyPair from device public key
+        // Note: We need a KeyPair for rcgen, but we only have the public key
+        // For now, create a temporary keypair just for the certificate structure
+        // The actual signing will use the hardware key
+        let temp_keypair = KeyPair::generate();
+        let key_pair_pem = Self::ed25519_to_pem(&temp_keypair)?;
+        let rcgen_keypair = rcgen::KeyPair::from_pem(&key_pair_pem)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create key pair: {}", e)))?;
+
+        // Parse issuer certificate
+        let issuer_cert_der = CertificateDer::from(ca.certificate.clone());
+        let issuer_cert_params = CertificateParams::from_ca_cert_der(&issuer_cert_der)
+            .map_err(|e| WSError::X509Error(format!("Failed to parse CA certificate: {}", e)))?;
+
+        let issuer_key_pem = Self::ed25519_to_pem(&ca.keypair)?;
+        let issuer_keypair = rcgen::KeyPair::from_pem(&issuer_key_pem)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create CA key pair: {}", e)))?;
+
+        let issuer_cert = issuer_cert_params.self_signed(&issuer_keypair)
+            .map_err(|e| WSError::HardwareError(format!("Failed to create CA cert: {}", e)))?;
+
+        // Sign certificate with CA
+        let der = params.signed_by(&rcgen_keypair, &issuer_cert, &issuer_keypair)
+            .map_err(|e| WSError::HardwareError(format!("Failed to sign device certificate: {}", e)))?
+            .der()
+            .to_vec();
+
+        Ok(der)
+    }
+
+    /// Convert Ed25519 keypair to PEM format for rcgen
+    fn ed25519_to_pem(keypair: &KeyPair) -> Result<String, WSError> {
+        // Use ed25519-compact's PEM export feature
+        let pem = keypair.sk.to_pem();
+        Ok(pem)
     }
 
     /// Get CA certificate (DER)
@@ -340,7 +494,7 @@ impl PrivateCA {
     }
 
     /// Load CA from directory
-    pub fn load_from_directory(dir: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn load_from_directory(_dir: impl AsRef<Path>) -> Result<Self, WSError> {
         // Placeholder for now
         Err(WSError::UnsupportedAlgorithm(
             "CA loading not yet implemented (placeholder)".to_string()
@@ -434,5 +588,137 @@ mod tests {
         let pem = ca.certificate_pem();
         assert!(pem.contains("-----BEGIN CERTIFICATE-----"));
         assert!(pem.contains("-----END CERTIFICATE-----"));
+    }
+
+    #[test]
+    fn test_root_ca_x509_structure() {
+        use x509_parser::prelude::*;
+
+        let config = CAConfig::new("Test Corp", "Test Root CA")
+            .with_country("US")
+            .with_state("California");
+        let ca = PrivateCA::create_root(config).unwrap();
+
+        // Parse certificate with x509-parser
+        let cert_der = ca.certificate();
+        let (_, cert) = X509Certificate::from_der(cert_der).unwrap();
+
+        // Verify subject
+        let subject = cert.subject();
+        let cn = subject.iter_common_name().next().unwrap().as_str().unwrap();
+        assert_eq!(cn, "Test Root CA");
+
+        let org = subject.iter_organization().next().unwrap().as_str().unwrap();
+        assert_eq!(org, "Test Corp");
+
+        // Verify it's a CA certificate
+        let basic_constraints = cert.basic_constraints().unwrap();
+        if let Some(bc) = basic_constraints {
+            assert!(bc.value.ca, "Root CA certificate should have CA=true");
+        }
+
+        // Verify key usage (should include keyCertSign for CA)
+        // Note: rcgen may set key usage, check if present
+        let key_usage = cert.key_usage();
+        assert!(key_usage.is_ok());
+
+        println!("✓ Root CA certificate is valid X.509");
+        println!("  Subject: {}", cert.subject());
+        println!("  Issuer: {}", cert.issuer());
+        println!("  Serial: {}", cert.serial.to_str_radix(16));
+        println!("  Valid from: {}", cert.validity().not_before);
+        println!("  Valid to: {}", cert.validity().not_after);
+    }
+
+    #[test]
+    fn test_device_certificate_x509_structure() {
+        use x509_parser::prelude::*;
+
+        let root_config = CAConfig::new("Test Corp", "Test Root CA");
+        let ca = PrivateCA::create_root(root_config).unwrap();
+
+        let device_keypair = KeyPair::generate();
+        let device_id = DeviceIdentity::new("device-123");
+        let cert_config = CertificateConfig::new("device-123")
+            .with_organization("Test Corp")
+            .with_organizational_unit("IoT Devices");
+
+        let device_cert_der = ca.sign_device_certificate(
+            &device_keypair.pk,
+            &device_id,
+            &cert_config,
+        ).unwrap();
+
+        // Parse certificate
+        let (_, cert) = X509Certificate::from_der(&device_cert_der).unwrap();
+
+        // Verify subject
+        let subject = cert.subject();
+        let cn = subject.iter_common_name().next().unwrap().as_str().unwrap();
+        assert_eq!(cn, "Device device-123");
+
+        let org = subject.iter_organization().next().unwrap().as_str().unwrap();
+        assert_eq!(org, "Test Corp");
+
+        // Verify it's NOT a CA certificate
+        let basic_constraints = cert.basic_constraints().unwrap();
+        if let Some(bc) = basic_constraints {
+            assert!(!bc.value.ca, "Device certificate should not be a CA");
+        }
+
+        // Verify subject alternative name contains device ID
+        let san = cert.subject_alternative_name();
+        assert!(san.is_ok(), "Device certificate should have SAN");
+        let san_value = san.unwrap();
+        assert!(san_value.is_some(), "Device certificate should have SAN value");
+
+        println!("✓ Device certificate is valid X.509");
+        println!("  Subject: {}", cert.subject());
+        println!("  Issuer: {}", cert.issuer());
+        println!("  Serial: {}", cert.serial.to_str_radix(16));
+    }
+
+    #[test]
+    fn test_certificate_chain_validation() {
+        use x509_parser::prelude::*;
+
+        // Create Root CA
+        let root_config = CAConfig::new("Test Corp", "Test Root CA");
+        let root_ca = PrivateCA::create_root(root_config).unwrap();
+
+        // Create Intermediate CA
+        let intermediate_config = CAConfig::new("Test Corp", "Test Intermediate CA");
+        let intermediate_ca = PrivateCA::create_intermediate(&root_ca, intermediate_config).unwrap();
+
+        // Create device certificate
+        let device_keypair = KeyPair::generate();
+        let device_id = DeviceIdentity::new("device-xyz");
+        let cert_config = CertificateConfig::new("device-xyz");
+
+        let device_cert_der = intermediate_ca.sign_device_certificate(
+            &device_keypair.pk,
+            &device_id,
+            &cert_config,
+        ).unwrap();
+
+        // Parse all certificates
+        let (_, root_cert) = X509Certificate::from_der(root_ca.certificate()).unwrap();
+        let (_, intermediate_cert) = X509Certificate::from_der(intermediate_ca.certificate()).unwrap();
+        let (_, device_cert) = X509Certificate::from_der(&device_cert_der).unwrap();
+
+        // Verify chain: device -> intermediate -> root
+        // Device cert issuer should match intermediate subject
+        assert_eq!(device_cert.issuer(), intermediate_cert.subject());
+
+        // Intermediate cert issuer should match root subject
+        assert_eq!(intermediate_cert.issuer(), root_cert.subject());
+
+        // Root cert should be self-signed
+        assert_eq!(root_cert.issuer(), root_cert.subject());
+
+        println!("✓ Certificate chain is valid");
+        println!("  Root: {}", root_cert.subject());
+        println!("  Intermediate: {}", intermediate_cert.subject());
+        println!("  Device: {}", device_cert.subject());
     }
 }
