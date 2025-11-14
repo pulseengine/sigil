@@ -78,7 +78,11 @@ pub use csr::CertificateSigningRequest;
 pub use device::DeviceIdentity;
 pub use session::ProvisioningSession;
 pub use verification::{OfflineVerifier, OfflineVerifierBuilder};
-pub use wasm_signing::{sign_with_certificate, verify_with_certificate};
+pub use wasm_signing::{
+    sign_with_certificate, verify_with_certificate,
+    verify_all_certificates, inspect_signatures,
+    SignatureInfo, VerificationResult,
+};
 
 /// Configuration for certificate generation
 #[derive(Debug, Clone)]
