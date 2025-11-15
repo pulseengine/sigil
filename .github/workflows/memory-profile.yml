@@ -94,18 +94,18 @@ jobs:
             # Common commands: server, strip, etc.
 
             # Create a summary text file with basic info
-            cat > "${profile}.summary.txt" <<EOF
-Profile: $profile
-Size: $size bytes
-Generated: $(date)
-
-To view detailed analysis:
-  bytehound server $profile
-  # Then open http://localhost:8080
-
-Note: Full interactive analysis requires downloading the .dat file
-and running ByteHound server locally.
-EOF
+            {
+              echo "Profile: $profile"
+              echo "Size: $size bytes"
+              echo "Generated: $(date)"
+              echo ""
+              echo "To view detailed analysis:"
+              echo "  bytehound server $profile"
+              echo "  # Then open http://localhost:8080"
+              echo ""
+              echo "Note: Full interactive analysis requires downloading the .dat file"
+              echo "and running ByteHound server locally."
+            } > "${profile}.summary.txt"
 
             echo "Summary saved to ${profile}.summary.txt"
           done
