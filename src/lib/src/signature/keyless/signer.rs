@@ -8,16 +8,15 @@
 //! 5. Rekor transparency log upload
 
 use super::{
-    detect_oidc_provider, FulcioClient, KeylessSignature, OidcProvider,
-    RekorClient, RekorEntry,
+    FulcioClient, KeylessSignature, OidcProvider, RekorClient, RekorEntry, detect_oidc_provider,
 };
 use crate::{Module, WSError};
 use ecdsa::SigningKey;
 use p256::ecdsa::Signature;
 use sha2::{Digest, Sha256};
-use zeroize::Zeroizing;
 
 /// Configuration for keyless signing
+#[derive(Default)]
 pub struct KeylessConfig {
     /// Fulcio server URL (uses default if None)
     pub fulcio_url: Option<String>,
@@ -27,15 +26,6 @@ pub struct KeylessConfig {
     pub skip_rekor: bool,
 }
 
-impl Default for KeylessConfig {
-    fn default() -> Self {
-        Self {
-            fulcio_url: None,
-            rekor_url: None,
-            skip_rekor: false,
-        }
-    }
-}
 
 /// Main keyless signing interface
 pub struct KeylessSigner {
@@ -132,10 +122,7 @@ impl KeylessSigner {
     /// println!("Rekor entry: {}", signature.rekor_entry.uuid);
     /// # Ok::<(), wsc::WSError>(())
     /// ```
-    pub fn sign_module(
-        &self,
-        module: Module,
-    ) -> Result<(Module, KeylessSignature), WSError> {
+    pub fn sign_module(&self, module: Module) -> Result<(Module, KeylessSignature), WSError> {
         log::info!("Starting keyless signing process");
 
         // Step 1: Generate ephemeral keypair
@@ -153,7 +140,8 @@ impl KeylessSigner {
         // The zeroization happens automatically even in panic/error scenarios because
         // Rust's drop mechanism is exception-safe.
         log::debug!("Generating ephemeral ECDSA P-256 keypair");
-        let signing_key = SigningKey::<p256::NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let signing_key =
+            SigningKey::<p256::NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
         let verifying_key = signing_key.verifying_key();
 
         // Encode public key in uncompressed form (0x04 || x || y)
@@ -177,11 +165,9 @@ impl KeylessSigner {
 
         // Step 4: Request certificate from Fulcio
         log::debug!("Requesting certificate from Fulcio");
-        let certificate = self.fulcio.get_certificate(
-            &oidc_token,
-            public_key,
-            &proof.to_bytes(),
-        )?;
+        let certificate =
+            self.fulcio
+                .get_certificate(&oidc_token, public_key, &proof.to_bytes())?;
         log::info!(
             "Certificate obtained with {} certs in chain",
             certificate.cert_chain.len()
@@ -220,12 +206,14 @@ impl KeylessSigner {
             }
         } else {
             log::debug!("Uploading signature to Rekor");
-            let entry = self.rekor.upload_entry(
-                &module_hash,
-                &signature.to_bytes(),
-                &certificate,
-            )?;
-            log::info!("Rekor entry created: {} (index: {})", entry.uuid, entry.log_index);
+            let entry =
+                self.rekor
+                    .upload_entry(&module_hash, &signature.to_bytes(), &certificate)?;
+            log::info!(
+                "Rekor entry created: {} (index: {})",
+                entry.uuid,
+                entry.log_index
+            );
             entry
         };
 
@@ -415,13 +403,12 @@ mod tests {
 
         // Generate a key in a scope
         {
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
             let verifying_key = signing_key.verifying_key();
 
             // Verify we can use the key
-            assert!(verifying_key.to_encoded_point(false).as_bytes().len() > 0);
+            assert!(!verifying_key.to_encoded_point(false).as_bytes().is_empty());
 
             // signing_key goes out of scope here
             // Its internal SecretKey implements ZeroizeOnDrop
@@ -441,9 +428,8 @@ mod tests {
 
         let signature: Signature = {
             // Generate key in inner scope
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
 
             // Sign the message
             let sig: Signature = signing_key.sign(message);
@@ -464,14 +450,13 @@ mod tests {
         use p256::NistP256;
 
         fn operation_with_key() -> Result<Vec<u8>, WSError> {
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
             let verifying_key = signing_key.verifying_key();
             let public_bytes = verifying_key.to_encoded_point(false);
 
             // Simulate an error after using the key
-            if public_bytes.as_bytes().len() > 0 {
+            if !public_bytes.as_bytes().is_empty() {
                 return Err(WSError::OidcError("Simulated error".to_string()));
             }
 
@@ -497,9 +482,8 @@ mod tests {
 
         for _ in 0..5 {
             let sig: Signature = {
-                let signing_key = SigningKey::<NistP256>::random(
-                    &mut p256::elliptic_curve::rand_core::OsRng
-                );
+                let signing_key =
+                    SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
                 signing_key.sign(message)
                 // key zeroized here
             };
@@ -519,9 +503,8 @@ mod tests {
         use p256::NistP256;
 
         let public_key_bytes = {
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
             let verifying_key = signing_key.verifying_key();
 
             // Extract public key (safe to keep)
@@ -531,7 +514,7 @@ mod tests {
         };
 
         // We can keep the public key, but the private key is gone
-        assert!(public_key_bytes.len() > 0);
+        assert!(!public_key_bytes.is_empty());
 
         // This would not compile (key doesn't escape scope):
         // let leaked_key = signing_key; // ERROR: signing_key not in scope
@@ -549,9 +532,8 @@ mod tests {
         let data = b"data to hash and sign";
 
         let signature: Signature = {
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
 
             // Create digest
             let mut hasher = Sha256::new();
@@ -575,9 +557,8 @@ mod tests {
         use p256::NistP256;
 
         let (verifying_key_bytes, signature_made) = {
-            let signing_key = SigningKey::<NistP256>::random(
-                &mut p256::elliptic_curve::rand_core::OsRng
-            );
+            let signing_key =
+                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
 
             // Extract verifying key (this is safe to keep)
             let verifying_key = signing_key.verifying_key();
@@ -594,7 +575,7 @@ mod tests {
         };
 
         // We kept the public key and verified a signature was made
-        assert!(verifying_key_bytes.len() > 0);
+        assert!(!verifying_key_bytes.is_empty());
         assert!(signature_made);
     }
 
@@ -611,9 +592,8 @@ mod tests {
             // key dropped and zeroized here
         }
 
-        let signing_key = SigningKey::<NistP256>::random(
-            &mut p256::elliptic_curve::rand_core::OsRng
-        );
+        let signing_key =
+            SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
 
         let len = consume_key(signing_key);
         // signing_key was moved into consume_key and zeroized there

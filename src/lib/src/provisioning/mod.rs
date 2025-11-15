@@ -61,7 +61,6 @@
 ///
 /// // Certificate is now in device, key locked in secure element
 /// ```
-
 use crate::error::WSError;
 use crate::platform::KeyHandle;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -79,9 +78,8 @@ pub use device::DeviceIdentity;
 pub use session::ProvisioningSession;
 pub use verification::{OfflineVerifier, OfflineVerifierBuilder};
 pub use wasm_signing::{
-    sign_with_certificate, verify_with_certificate,
-    verify_all_certificates, inspect_signatures,
-    SignatureInfo, VerificationResult,
+    SignatureInfo, VerificationResult, inspect_signatures, sign_with_certificate,
+    verify_all_certificates, verify_with_certificate,
 };
 
 /// Configuration for certificate generation
@@ -189,7 +187,7 @@ pub(crate) fn current_timestamp() -> Result<u64, WSError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .map_err(|e| WSError::InvalidArgument)
+        .map_err(|_e| WSError::InvalidArgument)
 }
 
 #[cfg(test)]
@@ -212,7 +210,10 @@ mod tests {
 
         assert_eq!(config.device_id, "device-123");
         assert_eq!(config.organization, "Acme Corp");
-        assert_eq!(config.organizational_unit, Some("Manufacturing".to_string()));
+        assert_eq!(
+            config.organizational_unit,
+            Some("Manufacturing".to_string())
+        );
         assert_eq!(config.validity_days, 730);
     }
 

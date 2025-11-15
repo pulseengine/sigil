@@ -15,8 +15,8 @@
 //! The inclusion proof proves that the entry exists in the transparency log.
 
 use crate::error::WSError;
-use crate::signature::keyless::{merkle, RekorEntry};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use crate::signature::keyless::{RekorEntry, merkle};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use p256::ecdsa::{Signature, VerifyingKey, signature::DigestVerifier};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -135,7 +135,8 @@ impl Checkpoint {
         let parts: Vec<&str> = s.split("\n\n").collect();
         if parts.len() != 2 {
             return Err(WSError::RekorError(
-                "Invalid checkpoint format: expected note and signature separated by blank line".to_string()
+                "Invalid checkpoint format: expected note and signature separated by blank line"
+                    .to_string(),
             ));
         }
 
@@ -152,22 +153,24 @@ impl CheckpointNote {
         let lines: Vec<&str> = s.split('\n').collect();
         if lines.len() < 3 {
             return Err(WSError::RekorError(
-                "Invalid checkpoint note: expected at least 3 lines".to_string()
+                "Invalid checkpoint note: expected at least 3 lines".to_string(),
             ));
         }
 
         let origin = lines[0].to_string();
         if origin.is_empty() {
             return Err(WSError::RekorError(
-                "Invalid checkpoint: empty origin".to_string()
+                "Invalid checkpoint: empty origin".to_string(),
             ));
         }
 
-        let size: u64 = lines[1].parse()
-            .map_err(|_| WSError::RekorError("Invalid checkpoint: size not a valid u64".to_string()))?;
+        let size: u64 = lines[1].parse().map_err(|_| {
+            WSError::RekorError("Invalid checkpoint: size not a valid u64".to_string())
+        })?;
 
-        let hash_bytes = BASE64.decode(lines[2])
-            .map_err(|e| WSError::RekorError(format!("Invalid checkpoint: failed to decode hash: {}", e)))?;
+        let hash_bytes = BASE64.decode(lines[2]).map_err(|e| {
+            WSError::RekorError(format!("Invalid checkpoint: failed to decode hash: {}", e))
+        })?;
 
         if hash_bytes.len() != 32 {
             return Err(WSError::RekorError(format!(
@@ -198,7 +201,7 @@ impl CheckpointNote {
     ///
     /// This is the exact bytes that get signed.
     fn marshal(&self) -> String {
-        let hash_b64 = BASE64.encode(&self.hash);
+        let hash_b64 = BASE64.encode(self.hash);
         let mut result = format!("{}\n{}\n{}\n", self.origin, self.size, hash_b64);
 
         for line in &self.other_content {
@@ -229,19 +232,20 @@ impl CheckpointSignature {
         // Verify em dash marker
         if parts[0] != "—" {
             return Err(WSError::RekorError(
-                "Invalid checkpoint signature: expected em dash (—)".to_string()
+                "Invalid checkpoint signature: expected em dash (—)".to_string(),
             ));
         }
 
         let name = parts[1].to_string();
 
         // Decode base64 signature (fingerprint + raw signature)
-        let sig_bytes = BASE64.decode(parts[2])
-            .map_err(|e| WSError::RekorError(format!("Failed to decode checkpoint signature: {}", e)))?;
+        let sig_bytes = BASE64.decode(parts[2]).map_err(|e| {
+            WSError::RekorError(format!("Failed to decode checkpoint signature: {}", e))
+        })?;
 
         if sig_bytes.len() < 5 {
             return Err(WSError::RekorError(
-                "Checkpoint signature too short (need at least 5 bytes)".to_string()
+                "Checkpoint signature too short (need at least 5 bytes)".to_string(),
             ));
         }
 
@@ -285,8 +289,9 @@ impl RekorKeyring {
         let tree_id_hex = &uuid[0..16];
 
         // Convert hex to u64 (tree ID is 8 bytes)
-        let tree_id = u64::from_str_radix(tree_id_hex, 16)
-            .map_err(|e| WSError::RekorError(format!("Failed to parse tree ID from UUID: {}", e)))?;
+        let tree_id = u64::from_str_radix(tree_id_hex, 16).map_err(|e| {
+            WSError::RekorError(format!("Failed to parse tree ID from UUID: {}", e))
+        })?;
 
         // Return as decimal string for comparison with checkpoint origin
         Ok(tree_id.to_string())
@@ -300,7 +305,10 @@ impl RekorKeyring {
     /// 3. Tree ID matches the tree ID in the entry's UUID
     ///
     /// This prevents accepting checkpoints from wrong logs or shards.
-    fn validate_checkpoint_origin(checkpoint: &Checkpoint, entry_uuid: &str) -> Result<(), WSError> {
+    fn validate_checkpoint_origin(
+        checkpoint: &Checkpoint,
+        entry_uuid: &str,
+    ) -> Result<(), WSError> {
         // Parse origin: should be "<hostname> - <tree_id>"
         let parts: Vec<&str> = checkpoint.note.origin.split(" - ").collect();
         if parts.len() != 2 {
@@ -402,8 +410,9 @@ impl RekorKeyring {
     /// Load Rekor public keys from embedded trusted_root.json
     pub fn from_embedded_trust_root() -> Result<Self, WSError> {
         let trusted_root_json = include_str!("trust_root/trusted_root.json");
-        let trusted_root: TrustedRoot = serde_json::from_str(trusted_root_json)
-            .map_err(|e| WSError::RekorError(format!("Failed to parse trusted_root.json: {}", e)))?;
+        let trusted_root: TrustedRoot = serde_json::from_str(trusted_root_json).map_err(|e| {
+            WSError::RekorError(format!("Failed to parse trusted_root.json: {}", e))
+        })?;
 
         Self::from_trusted_root(trusted_root)
     }
@@ -434,8 +443,9 @@ impl RekorKeyring {
                     spki::SubjectPublicKeyInfoRef::try_from(key_bytes.as_slice())
                         .map_err(|e| WSError::RekorError(format!("Failed to parse SPKI: {}", e)))
                         .and_then(|spki| {
-                            VerifyingKey::try_from(spki)
-                                .map_err(|e| WSError::RekorError(format!("Failed to parse key: {}", e)))
+                            VerifyingKey::try_from(spki).map_err(|e| {
+                                WSError::RekorError(format!("Failed to parse key: {}", e))
+                            })
                         })
                 })
                 .map_err(|e| WSError::RekorError(format!("Failed to parse ECDSA key: {}", e)))?;
@@ -498,21 +508,20 @@ impl RekorKeyring {
             .map_err(|e| WSError::RekorError(format!("Failed to decode SET signature: {}", e)))?;
 
         // Parse as ECDSA signature (DER format)
-        let signature = Signature::from_der(&signature_bytes)
-            .or_else(|_| {
-                // Try as raw 64-byte signature (r || s)
-                if signature_bytes.len() == 64 {
-                    let mut arr = [0u8; 64];
-                    arr.copy_from_slice(&signature_bytes);
-                    Signature::from_bytes(&arr.into())
-                        .map_err(|e| WSError::RekorError(format!("Failed to parse signature: {}", e)))
-                } else {
-                    Err(WSError::RekorError(format!(
-                        "Invalid signature format: {} bytes",
-                        signature_bytes.len()
-                    )))
-                }
-            })?;
+        let signature = Signature::from_der(&signature_bytes).or_else(|_| {
+            // Try as raw 64-byte signature (r || s)
+            if signature_bytes.len() == 64 {
+                let mut arr = [0u8; 64];
+                arr.copy_from_slice(&signature_bytes);
+                Signature::from_bytes(&arr.into())
+                    .map_err(|e| WSError::RekorError(format!("Failed to parse signature: {}", e)))
+            } else {
+                Err(WSError::RekorError(format!(
+                    "Invalid signature format: {} bytes",
+                    signature_bytes.len()
+                )))
+            }
+        })?;
 
         // Find the matching public key for this log
         let verifying_key = self
@@ -521,10 +530,7 @@ impl RekorKeyring {
             .find(|(key_id, _)| key_id == &entry.log_id)
             .map(|(_, key)| key)
             .ok_or_else(|| {
-                WSError::RekorError(format!(
-                    "No public key found for log ID: {}",
-                    entry.log_id
-                ))
+                WSError::RekorError(format!("No public key found for log ID: {}", entry.log_id))
             })?;
 
         // Parse integrated_time from RFC3339 to Unix timestamp
@@ -546,7 +552,10 @@ impl RekorKeyring {
             .map_err(|e| WSError::RekorError(format!("Failed to canonicalize JSON: {}", e)))?;
 
         #[cfg(test)]
-        println!("🔍 Canonical JSON for SET: {}", String::from_utf8_lossy(&canonical_json));
+        println!(
+            "🔍 Canonical JSON for SET: {}",
+            String::from_utf8_lossy(&canonical_json)
+        );
 
         // Hash the canonical JSON
         let mut hasher = Sha256::new();
@@ -581,10 +590,7 @@ impl RekorKeyring {
             .find(|(key_id, _)| key_id == log_id)
             .map(|(_, key)| key)
             .ok_or_else(|| {
-                WSError::RekorError(format!(
-                    "No public key found for log ID: {}",
-                    log_id
-                ))
+                WSError::RekorError(format!("No public key found for log ID: {}", log_id))
             })?;
 
         // SECURITY: Validate key fingerprint matches the public key
@@ -595,8 +601,10 @@ impl RekorKeyring {
             // Only show first 2 bytes to aid debugging without leaking full key IDs
             return Err(WSError::RekorError(format!(
                 "Checkpoint key fingerprint mismatch: expected {:02x}{:02x}..., got {:02x}{:02x}...",
-                computed_fingerprint[0], computed_fingerprint[1],
-                checkpoint.signature.key_fingerprint[0], checkpoint.signature.key_fingerprint[1]
+                computed_fingerprint[0],
+                computed_fingerprint[1],
+                checkpoint.signature.key_fingerprint[0],
+                checkpoint.signature.key_fingerprint[1]
             )));
         }
 
@@ -604,21 +612,21 @@ impl RekorKeyring {
         let signed_bytes = checkpoint.note.marshal();
 
         // Parse the signature (ECDSA DER or raw format)
-        let signature = Signature::from_der(&checkpoint.signature.raw)
-            .or_else(|_| {
-                // Try as raw 64-byte signature (r || s)
-                if checkpoint.signature.raw.len() == 64 {
-                    let mut arr = [0u8; 64];
-                    arr.copy_from_slice(&checkpoint.signature.raw);
-                    Signature::from_bytes(&arr.into())
-                        .map_err(|e| WSError::RekorError(format!("Failed to parse checkpoint signature: {}", e)))
-                } else {
-                    Err(WSError::RekorError(format!(
-                        "Invalid checkpoint signature format: {} bytes",
-                        checkpoint.signature.raw.len()
-                    )))
-                }
-            })?;
+        let signature = Signature::from_der(&checkpoint.signature.raw).or_else(|_| {
+            // Try as raw 64-byte signature (r || s)
+            if checkpoint.signature.raw.len() == 64 {
+                let mut arr = [0u8; 64];
+                arr.copy_from_slice(&checkpoint.signature.raw);
+                Signature::from_bytes(&arr.into()).map_err(|e| {
+                    WSError::RekorError(format!("Failed to parse checkpoint signature: {}", e))
+                })
+            } else {
+                Err(WSError::RekorError(format!(
+                    "Invalid checkpoint signature format: {} bytes",
+                    checkpoint.signature.raw.len()
+                )))
+            }
+        })?;
 
         // Hash the signed bytes
         let mut hasher = Sha256::new();
@@ -669,8 +677,7 @@ impl RekorKeyring {
                 let proof_preview = hex::encode(&proof_root_hash[..8]);
                 return Err(WSError::RekorError(format!(
                     "Checkpoint root hash mismatch (showing first 8 bytes):\n  Checkpoint: {}...\n  Proof:      {}...",
-                    checkpoint_preview,
-                    proof_preview
+                    checkpoint_preview, proof_preview
                 )));
             }
             log::debug!("Checkpoint matches inclusion proof (same tree size)");
@@ -709,9 +716,7 @@ impl RekorKeyring {
     /// `Ok(())` if the inclusion proof is valid, `Err(WSError)` otherwise
     pub fn verify_inclusion_proof(&self, entry: &RekorEntry) -> Result<(), WSError> {
         if entry.inclusion_proof.is_empty() {
-            return Err(WSError::RekorError(
-                "Missing inclusion proof".to_string(),
-            ));
+            return Err(WSError::RekorError("Missing inclusion proof".to_string()));
         }
 
         // Deserialize the inclusion proof from JSON
@@ -746,15 +751,19 @@ impl RekorKeyring {
         let leaf_hash = merkle::compute_leaf_hash(&body_bytes);
 
         #[cfg(test)]
-        println!("   Leaf hash (computed from body): {}", hex::encode(&leaf_hash));
+        println!(
+            "   Leaf hash (computed from body): {}",
+            hex::encode(leaf_hash)
+        );
 
         // Decode proof hashes from hex
         let proof_hashes: Result<Vec<[u8; 32]>, _> = proof
             .hashes
             .iter()
             .map(|h| {
-                let bytes = hex::decode(h)
-                    .map_err(|e| WSError::RekorError(format!("Failed to decode proof hash: {}", e)))?;
+                let bytes = hex::decode(h).map_err(|e| {
+                    WSError::RekorError(format!("Failed to decode proof hash: {}", e))
+                })?;
                 if bytes.len() != 32 {
                     return Err(WSError::RekorError(format!(
                         "Invalid proof hash length: {}",
@@ -784,7 +793,7 @@ impl RekorKeyring {
         root_arr.copy_from_slice(&expected_root);
 
         #[cfg(test)]
-        println!("   Expected root hash: {}", hex::encode(&root_arr));
+        println!("   Expected root hash: {}", hex::encode(root_arr));
 
         // If checkpoint is present, use checkpoint-based verification (more robust)
         // Otherwise, fall back to direct root hash comparison
@@ -801,9 +810,12 @@ impl RekorKeyring {
             {
                 println!("   Checkpoint origin: {}", checkpoint.note.origin);
                 println!("   Checkpoint size: {}", checkpoint.note.size);
-                println!("   Checkpoint root hash: {}", hex::encode(&checkpoint.note.hash));
+                println!(
+                    "   Checkpoint root hash: {}",
+                    hex::encode(checkpoint.note.hash)
+                );
                 println!("   Proof tree size: {}", proof.tree_size);
-                println!("   Proof root hash: {}", hex::encode(&root_arr));
+                println!("   Proof root hash: {}", hex::encode(root_arr));
                 println!("   Signature name: {}", checkpoint.signature.name);
             }
 
@@ -891,7 +903,11 @@ mod tests {
     #[test]
     fn test_load_rekor_keys() {
         let keyring = RekorKeyring::from_embedded_trust_root();
-        assert!(keyring.is_ok(), "Failed to load Rekor keys: {:?}", keyring.err());
+        assert!(
+            keyring.is_ok(),
+            "Failed to load Rekor keys: {:?}",
+            keyring.err()
+        );
 
         let keyring = keyring.unwrap();
         assert!(!keyring.keys.is_empty(), "No Rekor keys loaded");
@@ -907,7 +923,11 @@ mod tests {
         let trusted_root_json = include_str!("trust_root/trusted_root.json");
         let result: Result<TrustedRoot, _> = serde_json::from_str(trusted_root_json);
 
-        assert!(result.is_ok(), "Failed to parse trusted_root.json: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse trusted_root.json: {:?}",
+            result.err()
+        );
 
         let trusted_root = result.unwrap();
         assert!(!trusted_root.tlogs.is_empty(), "No transparency logs found");
@@ -963,8 +983,8 @@ mod tests {
         println!("Integrated Time: {}", real_entry.integrated_time);
 
         // Load the keyring
-        let keyring = RekorKeyring::from_embedded_trust_root()
-            .expect("Failed to load Rekor keyring");
+        let keyring =
+            RekorKeyring::from_embedded_trust_root().expect("Failed to load Rekor keyring");
 
         // **THE CRITICAL MOMENT**: Verify against real production data
         println!("\n⏳ Verifying SET signature...");
@@ -1028,12 +1048,15 @@ mod tests {
             integrated_time: "2025-09-19T19:02:07Z".to_string(),
         };
 
-        println!("\n🔐 Testing with FRESH Rekor entry WITH CHECKPOINT (logIndex {}, fetched 2025-11-02)", entry.log_index);
+        println!(
+            "\n🔐 Testing with FRESH Rekor entry WITH CHECKPOINT (logIndex {}, fetched 2025-11-02)",
+            entry.log_index
+        );
         println!("UUID: {}", entry.uuid);
         println!("Integrated Time: {}", entry.integrated_time);
 
-        let keyring = RekorKeyring::from_embedded_trust_root()
-            .expect("Failed to load Rekor keyring");
+        let keyring =
+            RekorKeyring::from_embedded_trust_root().expect("Failed to load Rekor keyring");
 
         println!("\n⏳ Verifying SET signature...");
         let set_result = keyring.verify_set(&entry);
@@ -1084,13 +1107,16 @@ mod tests {
             integrated_time: "2025-11-15T09:42:11Z".to_string(),
         };
 
-        println!("\n🔐 Testing FAILING entry from GitHub Actions (logIndex {})", entry.log_index);
+        println!(
+            "\n🔐 Testing FAILING entry from GitHub Actions (logIndex {})",
+            entry.log_index
+        );
         println!("UUID: {}", entry.uuid);
         println!("Integrated Time: {}", entry.integrated_time);
         println!("Tree size: 580105391, Proof log index: 580097209");
 
-        let keyring = RekorKeyring::from_embedded_trust_root()
-            .expect("Failed to load Rekor keyring");
+        let keyring =
+            RekorKeyring::from_embedded_trust_root().expect("Failed to load Rekor keyring");
 
         println!("\n⏳ Verifying SET signature...");
         let set_result = keyring.verify_set(&entry);

@@ -3,7 +3,6 @@
 /// This module creates X.509 CSRs (PKCS#10) from hardware-backed keys.
 /// The CSR is signed by the device's private key (in secure element) and sent
 /// to the CA for certificate issuance.
-
 use crate::error::WSError;
 use crate::platform::{KeyHandle, SecureKeyProvider};
 use crate::provisioning::{CertificateConfig, DeviceIdentity};
@@ -130,21 +129,27 @@ impl CertificateSigningRequest {
     ///
     /// Example:
     /// CN=Device device-123, O=Acme Corp, OU=IoT Devices
-    fn build_subject(device_id: &DeviceIdentity, config: &CertificateConfig) -> Result<Vec<u8>, WSError> {
+    fn build_subject(
+        device_id: &DeviceIdentity,
+        config: &CertificateConfig,
+    ) -> Result<Vec<u8>, WSError> {
         use der_encode::*;
 
         let mut rdns = Vec::new();
 
         // CN (Common Name) = "Device {id}"
         let cn = device_id.to_common_name();
-        rdns.push(encode_attribute_type_and_value(&OID_CN, &cn));
+        rdns.push(encode_attribute_type_and_value(OID_CN, &cn));
 
         // O (Organization)
-        rdns.push(encode_attribute_type_and_value(&OID_O, &config.organization));
+        rdns.push(encode_attribute_type_and_value(
+            OID_O,
+            &config.organization,
+        ));
 
         // OU (Organizational Unit) - optional
         if let Some(ou) = &config.organizational_unit {
-            rdns.push(encode_attribute_type_and_value(&OID_OU, ou));
+            rdns.push(encode_attribute_type_and_value(OID_OU, ou));
         }
 
         // Wrap in SEQUENCE
@@ -157,19 +162,19 @@ impl CertificateSigningRequest {
     ///   algorithm AlgorithmIdentifier,
     ///   subjectPublicKey BIT STRING
     /// }
-    fn build_subject_public_key_info(public_key: &PublicKey) -> Result<Vec<u8>, WSError> {
+    fn build_subject_public_key_info(_public_key: &PublicKey) -> Result<Vec<u8>, WSError> {
         // For now, return a placeholder
         // TODO: Implement full SPKI encoding for Ed25519/P-256
         Err(WSError::UnsupportedAlgorithm(
-            "CSR generation not yet fully implemented (placeholder)".to_string()
+            "CSR generation not yet fully implemented (placeholder)".to_string(),
         ))
     }
 
     /// Build complete CSR DER
-    fn build_csr_der(csr_info: &[u8], signature: &[u8]) -> Result<Vec<u8>, WSError> {
+    fn build_csr_der(_csr_info: &[u8], _signature: &[u8]) -> Result<Vec<u8>, WSError> {
         // Placeholder for now
         Err(WSError::UnsupportedAlgorithm(
-            "CSR DER building not yet fully implemented (placeholder)".to_string()
+            "CSR DER building not yet fully implemented (placeholder)".to_string(),
         ))
     }
 
@@ -268,12 +273,7 @@ mod tests {
         let device = DeviceIdentity::new("device-123");
         let config = CertificateConfig::new("device-123");
 
-        let result = CertificateSigningRequest::new(
-            &provider,
-            handle,
-            device,
-            &config,
-        );
+        let result = CertificateSigningRequest::new(&provider, handle, device, &config);
 
         // Expected to fail with UnsupportedAlgorithm for now
         assert!(result.is_err());

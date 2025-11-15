@@ -39,10 +39,9 @@
 /// let verifier = OfflineVerifier::new(root_ca_cert)?;
 /// verify_with_certificate(&mut signed_module.as_slice(), &verifier)?;
 /// ```
-
 use crate::error::WSError;
 use crate::platform::{KeyHandle, SecureKeyProvider};
-use crate::provisioning::{OfflineVerifier, ProvisioningResult};
+use crate::provisioning::OfflineVerifier;
 use crate::signature::*;
 use crate::wasm_module::*;
 use crate::*;
@@ -223,9 +222,7 @@ pub fn verify_with_certificate(
     // Read signature header
     let signature_header_section = sections.next().ok_or(WSError::ParseError)??;
     let signature_header = match signature_header_section {
-        Section::Custom(custom_section) if custom_section.is_signature_header() => {
-            custom_section
-        }
+        Section::Custom(custom_section) if custom_section.is_signature_header() => custom_section,
         _ => {
             debug!("This module is not signed");
             return Err(WSError::NoSignatures);
@@ -257,18 +254,17 @@ pub fn verify_with_certificate(
                 continue; // Hash mismatch, try next
             }
 
-            for sig_for_hash in &signed_hashes.signatures {
+            if let Some(sig_for_hash) = signed_hashes.signatures.first() {
                 // Check if certificate chain is present
-                let cert_chain = sig_for_hash.certificate_chain.as_ref()
-                    .ok_or_else(|| {
-                        WSError::VerificationError(
-                            "No certificate chain found in signature".to_string()
-                        )
-                    })?;
+                let cert_chain = sig_for_hash.certificate_chain.as_ref().ok_or_else(|| {
+                    WSError::VerificationError(
+                        "No certificate chain found in signature".to_string(),
+                    )
+                })?;
 
                 if cert_chain.is_empty() {
                     return Err(WSError::VerificationError(
-                        "Empty certificate chain".to_string()
+                        "Empty certificate chain".to_string(),
                     ));
                 }
 
@@ -375,9 +371,7 @@ pub fn verify_all_certificates(
     // Read signature header
     let signature_header_section = sections.next().ok_or(WSError::ParseError)??;
     let signature_header = match signature_header_section {
-        Section::Custom(custom_section) if custom_section.is_signature_header() => {
-            custom_section
-        }
+        Section::Custom(custom_section) if custom_section.is_signature_header() => custom_section,
         _ => {
             debug!("This module is not signed");
             return Err(WSError::NoSignatures);
@@ -418,11 +412,13 @@ pub fn verify_all_certificates(
                 let info = SignatureInfo {
                     index: sig_index,
                     has_certificate_chain: sig_for_hash.certificate_chain.is_some(),
-                    certificate_count: sig_for_hash.certificate_chain
+                    certificate_count: sig_for_hash
+                        .certificate_chain
                         .as_ref()
                         .map(|c| c.len())
                         .unwrap_or(0),
-                    subject_dn: sig_for_hash.certificate_chain
+                    subject_dn: sig_for_hash
+                        .certificate_chain
                         .as_ref()
                         .and_then(|chain| chain.first())
                         .and_then(|cert| extract_subject_dn(cert).ok()),
@@ -449,7 +445,8 @@ pub fn verify_all_certificates(
                         // Verify certificate chain
                         let chain_result = verifier.verify_certificate_chain(cert_chain, None);
                         if let Err(e) = chain_result {
-                            last_error = Some(format!("Certificate chain verification failed: {:?}", e));
+                            last_error =
+                                Some(format!("Certificate chain verification failed: {:?}", e));
                             continue;
                         }
 
@@ -472,13 +469,14 @@ pub fn verify_all_certificates(
                         ]);
                         msg.extend_from_slice(hash);
 
-                        let signature = match ed25519_compact::Signature::from_slice(&sig_for_hash.signature) {
-                            Ok(sig) => sig,
-                            Err(_) => {
-                                last_error = Some("Invalid signature format".to_string());
-                                continue;
-                            }
-                        };
+                        let signature =
+                            match ed25519_compact::Signature::from_slice(&sig_for_hash.signature) {
+                                Ok(sig) => sig,
+                                Err(_) => {
+                                    last_error = Some("Invalid signature format".to_string());
+                                    continue;
+                                }
+                            };
 
                         if public_key.pk.verify(&msg, &signature).is_ok() {
                             verified = true;
@@ -488,7 +486,8 @@ pub fn verify_all_certificates(
                         }
                     }
                 } else {
-                    last_error = Some("No certificate chain (use regular verification)".to_string());
+                    last_error =
+                        Some("No certificate chain (use regular verification)".to_string());
                 }
 
                 results.push(VerificationResult {
@@ -524,18 +523,14 @@ pub fn verify_all_certificates(
 ///     }
 /// }
 /// ```
-pub fn inspect_signatures(
-    reader: &mut impl Read,
-) -> Result<Vec<SignatureInfo>, WSError> {
+pub fn inspect_signatures(reader: &mut impl Read) -> Result<Vec<SignatureInfo>, WSError> {
     let stream = Module::init_from_reader(reader)?;
     let mut sections = Module::iterate(stream)?;
 
     // Read signature header
     let signature_header_section = sections.next().ok_or(WSError::ParseError)??;
     let signature_header = match signature_header_section {
-        Section::Custom(custom_section) if custom_section.is_signature_header() => {
-            custom_section
-        }
+        Section::Custom(custom_section) if custom_section.is_signature_header() => custom_section,
         _ => {
             debug!("This module is not signed");
             return Err(WSError::NoSignatures);
@@ -553,11 +548,13 @@ pub fn inspect_signatures(
             signatures.push(SignatureInfo {
                 index: sig_index,
                 has_certificate_chain: sig_for_hash.certificate_chain.is_some(),
-                certificate_count: sig_for_hash.certificate_chain
+                certificate_count: sig_for_hash
+                    .certificate_chain
                     .as_ref()
                     .map(|c| c.len())
                     .unwrap_or(0),
-                subject_dn: sig_for_hash.certificate_chain
+                subject_dn: sig_for_hash
+                    .certificate_chain
                     .as_ref()
                     .and_then(|chain| chain.first())
                     .and_then(|cert| extract_subject_dn(cert).ok()),
@@ -604,28 +601,26 @@ fn extract_public_key_from_certificate(cert_der: &[u8]) -> Result<PublicKey, WSE
 
     // For Ed25519, the public key is 32 bytes
     if public_key_bytes.len() != 32 {
-        return Err(WSError::X509Error(
-            format!("Invalid public key length: {} (expected 32 for Ed25519)", public_key_bytes.len())
-        ));
+        return Err(WSError::X509Error(format!(
+            "Invalid public key length: {} (expected 32 for Ed25519)",
+            public_key_bytes.len()
+        )));
     }
 
     // Create Ed25519 public key
-    let pk = ed25519_compact::PublicKey::from_slice(&public_key_bytes)
-        .map_err(|e| WSError::CryptoError(e))?;
+    let pk = ed25519_compact::PublicKey::from_slice(public_key_bytes)
+        .map_err(WSError::CryptoError)?;
 
-    Ok(PublicKey {
-        pk,
-        key_id: None,
-    })
+    Ok(PublicKey { pk, key_id: None })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::platform::software::SoftwareProvider;
-    use crate::provisioning::ca::{PrivateCA, CAConfig};
-    use crate::provisioning::{DeviceIdentity, CertificateConfig, ProvisioningSession};
     use crate::provisioning::OfflineVerifierBuilder;
+    use crate::provisioning::ca::{CAConfig, PrivateCA};
+    use crate::provisioning::{CertificateConfig, DeviceIdentity, ProvisioningResult, ProvisioningSession};
 
     #[test]
     fn test_sign_and_verify_with_certificate() {
@@ -643,11 +638,9 @@ mod tests {
         let cert_config = CertificateConfig::new("device-test");
 
         // Create certificate with the actual device keypair (for testing)
-        let device_cert = root_ca.sign_device_certificate_with_keypair(
-            &device_keypair,
-            &device_id,
-            &cert_config,
-        ).unwrap();
+        let device_cert = root_ca
+            .sign_device_certificate_with_keypair(&device_keypair, &device_id, &cert_config)
+            .unwrap();
 
         // Build result manually for testing
         let prov_result = ProvisioningResult {
@@ -660,24 +653,22 @@ mod tests {
 
         // Create test WASM module (minimal valid WASM: magic + version)
         let wasm_bytes: Vec<u8> = vec![
-            0x00, 0x61, 0x73, 0x6D,  // Magic: \0asm
-            0x01, 0x00, 0x00, 0x00,  // Version: 1
+            0x00, 0x61, 0x73, 0x6D, // Magic: \0asm
+            0x01, 0x00, 0x00, 0x00, // Version: 1
         ];
         let module = Module::deserialize(&mut wasm_bytes.as_slice()).unwrap();
 
         // Sign with certificate
         let cert_chain = prov_result.full_chain();
-        let signed_module = sign_with_certificate(
-            &provider,
-            prov_result.key_handle,
-            module,
-            &cert_chain,
-        ).unwrap();
+        let signed_module =
+            sign_with_certificate(&provider, prov_result.key_handle, module, &cert_chain).unwrap();
 
         // Verify with certificate
         let verifier = OfflineVerifierBuilder::new()
-            .with_root(root_ca.certificate()).unwrap()
-            .build().unwrap();
+            .with_root(root_ca.certificate())
+            .unwrap()
+            .build()
+            .unwrap();
 
         // Serialize module to bytes
         let mut module_bytes = Vec::new();
@@ -693,7 +684,8 @@ mod tests {
         // Scenario: Component owner signs, then integrator adds their signature
 
         // 1. Owner signs
-        let owner_ca = PrivateCA::create_root(CAConfig::new("Owner Corp", "Owner Root CA")).unwrap();
+        let owner_ca =
+            PrivateCA::create_root(CAConfig::new("Owner Corp", "Owner Root CA")).unwrap();
         let owner_provider = SoftwareProvider::new();
         let owner_key = owner_provider.generate_key().unwrap();
         let owner_keypair = owner_provider.export_keypair(owner_key).unwrap();
@@ -701,16 +693,14 @@ mod tests {
         let owner_id = DeviceIdentity::new("owner-device");
         let owner_config = CertificateConfig::new("owner-device");
 
-        let owner_cert = owner_ca.sign_device_certificate_with_keypair(
-            &owner_keypair,
-            &owner_id,
-            &owner_config,
-        ).unwrap();
+        let owner_cert = owner_ca
+            .sign_device_certificate_with_keypair(&owner_keypair, &owner_id, &owner_config)
+            .unwrap();
 
         // Create test WASM module
         let wasm_bytes: Vec<u8> = vec![
-            0x00, 0x61, 0x73, 0x6D,  // Magic: \0asm
-            0x01, 0x00, 0x00, 0x00,  // Version: 1
+            0x00, 0x61, 0x73, 0x6D, // Magic: \0asm
+            0x01, 0x00, 0x00, 0x00, // Version: 1
         ];
         let module = Module::deserialize(&mut wasm_bytes.as_slice()).unwrap();
 
@@ -720,10 +710,12 @@ mod tests {
             owner_key,
             module,
             &[owner_cert.clone(), owner_ca.certificate().to_vec()],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 2. Integrator adds signature
-        let integrator_ca = PrivateCA::create_root(CAConfig::new("Integrator Inc", "Integrator Root CA")).unwrap();
+        let integrator_ca =
+            PrivateCA::create_root(CAConfig::new("Integrator Inc", "Integrator Root CA")).unwrap();
         let integrator_provider = SoftwareProvider::new();
         let integrator_key = integrator_provider.generate_key().unwrap();
         let integrator_keypair = integrator_provider.export_keypair(integrator_key).unwrap();
@@ -731,11 +723,13 @@ mod tests {
         let integrator_id = DeviceIdentity::new("integrator-device");
         let integrator_config = CertificateConfig::new("integrator-device");
 
-        let integrator_cert = integrator_ca.sign_device_certificate_with_keypair(
-            &integrator_keypair,
-            &integrator_id,
-            &integrator_config,
-        ).unwrap();
+        let integrator_cert = integrator_ca
+            .sign_device_certificate_with_keypair(
+                &integrator_keypair,
+                &integrator_id,
+                &integrator_config,
+            )
+            .unwrap();
 
         // Integrator signs the already-signed module
         let dual_signed = sign_with_certificate(
@@ -743,7 +737,8 @@ mod tests {
             integrator_key,
             owner_signed,
             &[integrator_cert, integrator_ca.certificate().to_vec()],
-        ).unwrap();
+        )
+        .unwrap();
 
         // 3. Inspect signatures
         let mut dual_bytes = Vec::new();
@@ -753,14 +748,27 @@ mod tests {
         assert_eq!(signatures.len(), 2, "Should have 2 signatures");
 
         for (i, sig) in signatures.iter().enumerate() {
-            assert!(sig.has_certificate_chain, "Signature {} should have certificate chain", i);
-            assert_eq!(sig.certificate_count, 2, "Signature {} should have 2 certificates (device + root)", i);
-            assert!(sig.subject_dn.is_some(), "Signature {} should have subject DN", i);
+            assert!(
+                sig.has_certificate_chain,
+                "Signature {} should have certificate chain",
+                i
+            );
+            assert_eq!(
+                sig.certificate_count, 2,
+                "Signature {} should have 2 certificates (device + root)",
+                i
+            );
+            assert!(
+                sig.subject_dn.is_some(),
+                "Signature {} should have subject DN",
+                i
+            );
         }
 
         println!("✓ Found 2 signatures:");
         for sig in &signatures {
-            println!("  - Signature {}: {} ({}  certs)",
+            println!(
+                "  - Signature {}: {} ({}  certs)",
                 sig.index,
                 sig.subject_dn.as_ref().unwrap(),
                 sig.certificate_count
@@ -769,26 +777,31 @@ mod tests {
 
         // 4. Verify all signatures
         let owner_verifier = OfflineVerifierBuilder::new()
-            .with_root(owner_ca.certificate()).unwrap()
-            .build().unwrap();
+            .with_root(owner_ca.certificate())
+            .unwrap()
+            .build()
+            .unwrap();
 
         let integrator_verifier = OfflineVerifierBuilder::new()
-            .with_root(integrator_ca.certificate()).unwrap()
-            .build().unwrap();
+            .with_root(integrator_ca.certificate())
+            .unwrap()
+            .build()
+            .unwrap();
 
         let results = verify_all_certificates(
             &mut dual_bytes.as_slice(),
             &[&owner_verifier, &integrator_verifier],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(results.len(), 2, "Should have 2 verification results");
 
         // Check all signatures verified
         for result in &results {
-            assert!(result.verified,
+            assert!(
+                result.verified,
                 "Signature {} failed: {:?}",
-                result.info.index,
-                result.error
+                result.info.index, result.error
             );
         }
 
@@ -806,13 +819,9 @@ mod tests {
         let device_id = DeviceIdentity::new("device-pk-test");
         let cert_config = CertificateConfig::new("device-pk-test");
 
-        let prov_result = ProvisioningSession::provision(
-            &root_ca,
-            &provider,
-            device_id,
-            cert_config,
-            false,
-        ).unwrap();
+        let prov_result =
+            ProvisioningSession::provision(&root_ca, &provider, device_id, cert_config, false)
+                .unwrap();
 
         // Extract public key from certificate
         let public_key = extract_public_key_from_certificate(&prov_result.certificate);

@@ -2,7 +2,6 @@
 ///
 /// This module provides device identity abstraction for certificate provisioning.
 /// Each IoT device has a unique identifier that's embedded in its certificate.
-
 use crate::error::WSError;
 use std::fmt;
 
@@ -90,11 +89,22 @@ impl DeviceIdentity {
 
         let uuid_str = format!(
             "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-            uuid[0], uuid[1], uuid[2], uuid[3],
-            uuid[4], uuid[5],
-            uuid[6], uuid[7],
-            uuid[8], uuid[9],
-            uuid[10], uuid[11], uuid[12], uuid[13], uuid[14], uuid[15]
+            uuid[0],
+            uuid[1],
+            uuid[2],
+            uuid[3],
+            uuid[4],
+            uuid[5],
+            uuid[6],
+            uuid[7],
+            uuid[8],
+            uuid[9],
+            uuid[10],
+            uuid[11],
+            uuid[12],
+            uuid[13],
+            uuid[14],
+            uuid[15]
         );
 
         Ok(Self::new(uuid_str))
@@ -154,9 +164,10 @@ impl DeviceIdentity {
         }
 
         // Check for safe characters only
-        let is_safe = self.id.chars().all(|c| {
-            c.is_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.'
-        });
+        let is_safe = self
+            .id
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ':' || c == '.');
 
         if !is_safe {
             return Err(WSError::InvalidArgument);
@@ -239,11 +250,8 @@ mod tests {
     #[test]
     fn test_from_uuid() {
         let uuid = [
-            0x55, 0x0e, 0x84, 0x00,
-            0xe2, 0x9b,
-            0x41, 0xd4,
-            0xa7, 0x16,
-            0x44, 0x66, 0x55, 0x44, 0x00, 0x00,
+            0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4, 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44,
+            0x00, 0x00,
         ];
         let device = DeviceIdentity::from_uuid(&uuid).unwrap();
         assert_eq!(device.id(), "550e8400-e29b-41d4-a716-446655440000");

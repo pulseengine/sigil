@@ -37,7 +37,6 @@
 /// 2. **Minimal trust**: Reduce trusted computing base
 /// 3. **Defense in depth**: Multiple security layers
 /// 4. **Fail secure**: Errors never expose key material
-
 use crate::error::WSError;
 use crate::signature::PublicKey;
 use std::fmt;
@@ -401,7 +400,10 @@ pub fn list_available_providers() -> Vec<(String, Box<dyn SecureKeyProvider>)> {
     #[cfg(feature = "tpm2")]
     {
         if let Ok(provider) = tpm2::Tpm2Provider::new() {
-            providers.push(("TPM 2.0".to_string(), Box::new(provider) as Box<dyn SecureKeyProvider>));
+            providers.push((
+                "TPM 2.0".to_string(),
+                Box::new(provider) as Box<dyn SecureKeyProvider>,
+            ));
         }
     }
 
@@ -496,7 +498,11 @@ mod tests {
         assert!(!providers.is_empty(), "Should have at least one provider");
 
         for (name, provider) in providers {
-            println!("Available provider: {} ({})", name, provider.security_level());
+            println!(
+                "Available provider: {} ({})",
+                name,
+                provider.security_level()
+            );
         }
     }
 }

@@ -15,7 +15,6 @@
 /// - Development and testing
 /// - CI/CD pipelines (ephemeral keys)
 /// - Scenarios where key security is not required
-
 use super::{Attestation, KeyHandle, SecureKeyProvider, SecurityLevel};
 use crate::error::WSError;
 use crate::signature::{KeyPair, PublicKey};
@@ -344,7 +343,10 @@ mod tests {
         let attestation = provider
             .attestation(handle)
             .expect("Attestation check failed");
-        assert!(attestation.is_none(), "Software keys should not support attestation");
+        assert!(
+            attestation.is_none(),
+            "Software keys should not support attestation"
+        );
     }
 
     #[test]
