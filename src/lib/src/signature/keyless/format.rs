@@ -234,22 +234,21 @@ impl KeylessSignature {
         // Look for Subject Alternative Name extension
         if let Some(san_ext) =
             cert.get_extension_unique(&oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?
+            && let ParsedExtension::SubjectAlternativeName(san) = san_ext.parsed_extension()
         {
-            if let ParsedExtension::SubjectAlternativeName(san) = san_ext.parsed_extension() {
-                // Try different SAN types in order of preference
-                for name in &san.general_names {
-                    match name {
-                        GeneralName::RFC822Name(email) => {
-                            return Ok(email.to_string());
-                        }
-                        GeneralName::URI(uri) => {
-                            return Ok(uri.to_string());
-                        }
-                        GeneralName::DNSName(dns) => {
-                            return Ok(dns.to_string());
-                        }
-                        _ => continue,
+            // Try different SAN types in order of preference
+            for name in &san.general_names {
+                match name {
+                    GeneralName::RFC822Name(email) => {
+                        return Ok(email.to_string());
                     }
+                    GeneralName::URI(uri) => {
+                        return Ok(uri.to_string());
+                    }
+                    GeneralName::DNSName(dns) => {
+                        return Ok(dns.to_string());
+                    }
+                    _ => continue,
                 }
             }
         }

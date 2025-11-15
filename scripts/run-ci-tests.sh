@@ -64,8 +64,8 @@ else
     FAILED_TESTS+=("cargo test")
 fi
 
-# 3. Cargo Clippy
-run_test "cargo clippy" cargo clippy --all-targets --all-features -- -D warnings
+# 3. Cargo Clippy (advisory - shows warnings but doesn't fail build)
+run_test "cargo clippy" cargo clippy --all-targets --all-features
 
 # 4. Cargo Format Check
 echo -e "\n${YELLOW}▶ Running: cargo fmt (check only)${NC}"

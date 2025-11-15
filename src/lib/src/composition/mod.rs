@@ -310,22 +310,24 @@ impl CompositionManifest {
         serde_json::to_string_pretty(self)
     }
 
-    /// Serialize to CBOR (compact binary format)
-    #[cfg(feature = "cbor")]
-    pub fn to_cbor(&self) -> Result<Vec<u8>, serde_cbor::Error> {
-        serde_cbor::to_vec(self)
-    }
+    // /// Serialize to CBOR (compact binary format)
+    // /// TODO: Re-enable when cbor feature and serde_cbor dependency are added
+    // #[cfg(feature = "cbor")]
+    // pub fn to_cbor(&self) -> Result<Vec<u8>, serde_cbor::Error> {
+    //     serde_cbor::to_vec(self)
+    // }
 
     /// Deserialize from JSON
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
     }
 
-    /// Deserialize from CBOR
-    #[cfg(feature = "cbor")]
-    pub fn from_cbor(bytes: &[u8]) -> Result<Self, serde_cbor::Error> {
-        serde_cbor::from_slice(bytes)
-    }
+    // /// Deserialize from CBOR
+    // /// TODO: Re-enable when cbor feature and serde_cbor dependency are added
+    // #[cfg(feature = "cbor")]
+    // pub fn from_cbor(bytes: &[u8]) -> Result<Self, serde_cbor::Error> {
+    //     serde_cbor::from_slice(bytes)
+    // }
 }
 
 /// Custom section name for composition manifest
@@ -1019,8 +1021,8 @@ impl DependencyGraph {
         }
 
         // Version policy validation
-        if let Some(policy) = &config.version_policy {
-            for (component_id, _) in &self.expected_hashes {
+        if let Some(_policy) = &config.version_policy {
+            for (_component_id, _) in &self.expected_hashes {
                 // Extract version from component metadata (would need to be stored)
                 // For now, we'll add a placeholder for version validation
                 // This would integrate with the ComponentRef which already has version info

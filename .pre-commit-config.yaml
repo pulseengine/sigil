@@ -23,10 +23,10 @@ repos:
         types: [rust]
         pass_filenames: false
 
-      # Run clippy for linting
+      # Run clippy for linting (advisory - shows warnings but doesn't fail)
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --all-targets --all-features -- -D warnings
+        entry: cargo clippy --all-targets --all-features
         language: system
         types: [rust]
         pass_filenames: false

@@ -41,7 +41,7 @@
 /// ```
 use crate::error::WSError;
 use crate::platform::{KeyHandle, SecureKeyProvider};
-use crate::provisioning::{OfflineVerifier, ProvisioningResult};
+use crate::provisioning::OfflineVerifier;
 use crate::signature::*;
 use crate::wasm_module::*;
 use crate::*;
@@ -254,6 +254,8 @@ pub fn verify_with_certificate(
                 continue; // Hash mismatch, try next
             }
 
+            // Verify with the first valid signature (intentional early return)
+            #[allow(clippy::never_loop)]
             for sig_for_hash in &signed_hashes.signatures {
                 // Check if certificate chain is present
                 let cert_chain = sig_for_hash.certificate_chain.as_ref().ok_or_else(|| {
@@ -620,7 +622,9 @@ mod tests {
     use crate::platform::software::SoftwareProvider;
     use crate::provisioning::OfflineVerifierBuilder;
     use crate::provisioning::ca::{CAConfig, PrivateCA};
-    use crate::provisioning::{CertificateConfig, DeviceIdentity, ProvisioningSession};
+    use crate::provisioning::{
+        CertificateConfig, DeviceIdentity, ProvisioningResult, ProvisioningSession,
+    };
 
     #[test]
     fn test_sign_and_verify_with_certificate() {

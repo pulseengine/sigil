@@ -162,7 +162,7 @@ impl CertificateSigningRequest {
     ///   algorithm AlgorithmIdentifier,
     ///   subjectPublicKey BIT STRING
     /// }
-    fn build_subject_public_key_info(public_key: &PublicKey) -> Result<Vec<u8>, WSError> {
+    fn build_subject_public_key_info(_public_key: &PublicKey) -> Result<Vec<u8>, WSError> {
         // For now, return a placeholder
         // TODO: Implement full SPKI encoding for Ed25519/P-256
         Err(WSError::UnsupportedAlgorithm(
@@ -171,7 +171,7 @@ impl CertificateSigningRequest {
     }
 
     /// Build complete CSR DER
-    fn build_csr_der(csr_info: &[u8], signature: &[u8]) -> Result<Vec<u8>, WSError> {
+    fn build_csr_der(_csr_info: &[u8], _signature: &[u8]) -> Result<Vec<u8>, WSError> {
         // Placeholder for now
         Err(WSError::UnsupportedAlgorithm(
             "CSR DER building not yet fully implemented (placeholder)".to_string(),

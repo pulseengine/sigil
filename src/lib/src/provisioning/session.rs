@@ -233,7 +233,7 @@ impl ProvisioningSession {
         let signature = provider.sign(result.key_handle, test_data)?;
 
         // Get public key
-        let public_key = provider.get_public_key(result.key_handle)?;
+        let _public_key = provider.get_public_key(result.key_handle)?;
 
         // Verify signature
         // Note: This requires implementing verification in PublicKey

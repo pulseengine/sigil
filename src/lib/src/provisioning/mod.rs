@@ -187,7 +187,7 @@ pub(crate) fn current_timestamp() -> Result<u64, WSError> {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
-        .map_err(|e| WSError::InvalidArgument)
+        .map_err(|_e| WSError::InvalidArgument)
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@
 /// ```
 use crate::error::WSError;
 use crate::provisioning::{CertificateConfig, DeviceIdentity};
-use crate::signature::{KeyPair, PublicKey, SecretKey};
+use crate::signature::{KeyPair, PublicKey};
 use base64::Engine;
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose,
