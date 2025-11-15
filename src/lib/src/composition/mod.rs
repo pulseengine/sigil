@@ -338,6 +338,275 @@ pub const SBOM_SECTION: &str = "wsc.sbom";
 pub const INTOTO_ATTESTATION_SECTION: &str = "wsc.intoto.attestation";
 
 // ============================================================================
+// Dependency Graph and Validation
+// ============================================================================
+
+/// Dependency graph for component composition
+///
+/// Tracks dependencies between components to enable:
+/// - Cycle detection
+/// - Substitution detection
+/// - Dependency validation
+#[derive(Debug, Clone)]
+pub struct DependencyGraph {
+    /// Map from component ID to its dependencies
+    dependencies: HashMap<String, Vec<String>>,
+
+    /// Map from component ID to its expected hash
+    expected_hashes: HashMap<String, String>,
+
+    /// Map from component ID to actual hash (for validation)
+    actual_hashes: HashMap<String, String>,
+}
+
+impl DependencyGraph {
+    /// Create a new empty dependency graph
+    pub fn new() -> Self {
+        Self {
+            dependencies: HashMap::new(),
+            expected_hashes: HashMap::new(),
+            actual_hashes: HashMap::new(),
+        }
+    }
+
+    /// Add a component with its expected hash
+    pub fn add_component(&mut self, id: impl Into<String>, expected_hash: impl Into<String>) {
+        let id = id.into();
+        self.expected_hashes.insert(id.clone(), expected_hash.into());
+        self.dependencies.entry(id).or_insert_with(Vec::new);
+    }
+
+    /// Add a dependency between two components
+    pub fn add_dependency(&mut self, from: impl Into<String>, to: impl Into<String>) {
+        let from = from.into();
+        let to = to.into();
+        self.dependencies.entry(from).or_insert_with(Vec::new).push(to);
+    }
+
+    /// Set the actual hash for a component (for validation)
+    pub fn set_actual_hash(&mut self, id: impl Into<String>, actual_hash: impl Into<String>) {
+        self.actual_hashes.insert(id.into(), actual_hash.into());
+    }
+
+    /// Build a dependency graph from a composition manifest
+    pub fn from_manifest(manifest: &CompositionManifest) -> Self {
+        let mut graph = Self::new();
+
+        for component in &manifest.components {
+            graph.add_component(&component.id, &component.hash);
+        }
+
+        graph
+    }
+
+    /// Detect cycles in the dependency graph using depth-first search
+    ///
+    /// Returns the first cycle found, if any.
+    pub fn detect_cycles(&self) -> Option<Vec<String>> {
+        let mut visited = HashMap::new();
+        let mut rec_stack = HashMap::new();
+
+        for node in self.dependencies.keys() {
+            if !visited.contains_key(node) {
+                if let Some(cycle) = self.dfs_cycle_detection(
+                    node,
+                    &mut visited,
+                    &mut rec_stack,
+                    &mut Vec::new(),
+                ) {
+                    return Some(cycle);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// DFS helper for cycle detection
+    fn dfs_cycle_detection(
+        &self,
+        node: &str,
+        visited: &mut HashMap<String, bool>,
+        rec_stack: &mut HashMap<String, bool>,
+        path: &mut Vec<String>,
+    ) -> Option<Vec<String>> {
+        visited.insert(node.to_string(), true);
+        rec_stack.insert(node.to_string(), true);
+        path.push(node.to_string());
+
+        if let Some(neighbors) = self.dependencies.get(node) {
+            for neighbor in neighbors {
+                if !visited.contains_key(neighbor.as_str()) {
+                    if let Some(cycle) = self.dfs_cycle_detection(
+                        neighbor,
+                        visited,
+                        rec_stack,
+                        path,
+                    ) {
+                        return Some(cycle);
+                    }
+                } else if *rec_stack.get(neighbor.as_str()).unwrap_or(&false) {
+                    // Found a cycle - extract it from the path
+                    let cycle_start = path.iter().position(|x| x == neighbor).unwrap();
+                    let mut cycle = path[cycle_start..].to_vec();
+                    cycle.push(neighbor.clone());
+                    return Some(cycle);
+                }
+            }
+        }
+
+        rec_stack.insert(node.to_string(), false);
+        path.pop();
+        None
+    }
+
+    /// Detect component substitution by comparing expected vs actual hashes
+    ///
+    /// Returns a list of components that have been substituted.
+    pub fn detect_substitutions(&self) -> Vec<ComponentSubstitution> {
+        let mut substitutions = Vec::new();
+
+        for (id, expected_hash) in &self.expected_hashes {
+            if let Some(actual_hash) = self.actual_hashes.get(id) {
+                if expected_hash != actual_hash {
+                    substitutions.push(ComponentSubstitution {
+                        component_id: id.clone(),
+                        expected_hash: expected_hash.clone(),
+                        actual_hash: actual_hash.clone(),
+                    });
+                }
+            }
+        }
+
+        substitutions
+    }
+
+    /// Validate the dependency graph
+    ///
+    /// Returns an error if:
+    /// - Cycles are detected
+    /// - Component substitutions are detected
+    /// - Components are missing
+    pub fn validate(&self) -> Result<ValidationResult, ValidationError> {
+        let mut warnings = Vec::new();
+        let mut errors = Vec::new();
+
+        // Check for cycles
+        if let Some(cycle) = self.detect_cycles() {
+            errors.push(format!("Cycle detected: {}", cycle.join(" -> ")));
+        }
+
+        // Check for substitutions
+        let substitutions = self.detect_substitutions();
+        if !substitutions.is_empty() {
+            for sub in &substitutions {
+                errors.push(format!(
+                    "Component '{}' substituted: expected hash '{}', actual hash '{}'",
+                    sub.component_id, sub.expected_hash, sub.actual_hash
+                ));
+            }
+        }
+
+        // Check for missing components
+        for (id, deps) in &self.dependencies {
+            for dep in deps {
+                if !self.dependencies.contains_key(dep) {
+                    warnings.push(format!(
+                        "Component '{}' depends on missing component '{}'",
+                        id, dep
+                    ));
+                }
+            }
+        }
+
+        Ok(ValidationResult {
+            valid: errors.is_empty(),
+            errors,
+            warnings,
+        })
+    }
+
+    /// Get all components in topological order (dependencies first)
+    ///
+    /// Returns None if there are cycles.
+    pub fn topological_sort(&self) -> Option<Vec<String>> {
+        // Check for cycles first
+        if self.detect_cycles().is_some() {
+            return None;
+        }
+
+        let mut result = Vec::new();
+        let mut visited = HashMap::new();
+        let mut temp_mark = HashMap::new();
+
+        for node in self.dependencies.keys() {
+            if !visited.contains_key(node) {
+                self.topological_visit(node, &mut visited, &mut temp_mark, &mut result);
+            }
+        }
+
+        // Don't reverse - topological_visit already gives us dependencies-first order
+        Some(result)
+    }
+
+    /// Helper for topological sort
+    fn topological_visit(
+        &self,
+        node: &str,
+        visited: &mut HashMap<String, bool>,
+        temp_mark: &mut HashMap<String, bool>,
+        result: &mut Vec<String>,
+    ) {
+        if temp_mark.contains_key(node) {
+            return; // Cycle detected (shouldn't happen if we checked first)
+        }
+
+        if !visited.contains_key(node) {
+            temp_mark.insert(node.to_string(), true);
+
+            if let Some(neighbors) = self.dependencies.get(node) {
+                for neighbor in neighbors {
+                    self.topological_visit(neighbor, visited, temp_mark, result);
+                }
+            }
+
+            visited.insert(node.to_string(), true);
+            temp_mark.remove(node);
+            result.push(node.to_string());
+        }
+    }
+}
+
+impl Default for DependencyGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Component substitution detected
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ComponentSubstitution {
+    pub component_id: String,
+    pub expected_hash: String,
+    pub actual_hash: String,
+}
+
+/// Validation result
+#[derive(Debug, Clone)]
+pub struct ValidationResult {
+    pub valid: bool,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Validation error
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ValidationError {
+    #[error("Validation failed: {0}")]
+    Failed(String),
+}
+
+// ============================================================================
 // SBOM Generation (CycloneDX Format)
 // ============================================================================
 
@@ -1371,5 +1640,329 @@ mod tests {
 
         assert!(found_existing, "Existing section was lost");
         assert!(found_manifest, "Manifest section was not added");
+    }
+
+    // ========================================================================
+    // Dependency Graph Tests
+    // ========================================================================
+
+    #[test]
+    fn test_dependency_graph_creation() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+
+        // Graph should have two components
+        assert_eq!(graph.expected_hashes.len(), 2);
+    }
+
+    #[test]
+    fn test_dependency_graph_from_manifest() {
+        let mut manifest = CompositionManifest::new("wac", "0.5.0");
+        manifest.add_component("comp-a", "hash-a");
+        manifest.add_component("comp-b", "hash-b");
+        manifest.add_component("comp-c", "hash-c");
+
+        let graph = DependencyGraph::from_manifest(&manifest);
+
+        assert_eq!(graph.expected_hashes.len(), 3);
+        assert_eq!(graph.expected_hashes.get("comp-a"), Some(&"hash-a".to_string()));
+    }
+
+    #[test]
+    fn test_cycle_detection_no_cycle() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+        graph.add_component("c", "hash-c");
+
+        // a -> b -> c (no cycle)
+        graph.add_dependency("a", "b");
+        graph.add_dependency("b", "c");
+
+        let cycle = graph.detect_cycles();
+        assert!(cycle.is_none(), "No cycle should be detected");
+    }
+
+    #[test]
+    fn test_cycle_detection_simple_cycle() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+
+        // a -> b -> a (simple cycle)
+        graph.add_dependency("a", "b");
+        graph.add_dependency("b", "a");
+
+        let cycle = graph.detect_cycles();
+        assert!(cycle.is_some(), "Cycle should be detected");
+
+        let cycle = cycle.unwrap();
+        assert!(cycle.len() >= 2, "Cycle should have at least 2 nodes");
+        assert!(cycle.contains(&"a".to_string()));
+        assert!(cycle.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn test_cycle_detection_complex_cycle() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+        graph.add_component("c", "hash-c");
+        graph.add_component("d", "hash-d");
+
+        // a -> b -> c -> d -> b (cycle involving b, c, d)
+        graph.add_dependency("a", "b");
+        graph.add_dependency("b", "c");
+        graph.add_dependency("c", "d");
+        graph.add_dependency("d", "b");
+
+        let cycle = graph.detect_cycles();
+        assert!(cycle.is_some(), "Cycle should be detected");
+
+        let cycle = cycle.unwrap();
+        // The cycle should be b -> c -> d -> b
+        assert!(cycle.contains(&"b".to_string()));
+        assert!(cycle.contains(&"c".to_string()));
+        assert!(cycle.contains(&"d".to_string()));
+    }
+
+    #[test]
+    fn test_substitution_detection_no_substitution() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+
+        // Set actual hashes that match expected
+        graph.set_actual_hash("comp-a", "hash-a");
+        graph.set_actual_hash("comp-b", "hash-b");
+
+        let substitutions = graph.detect_substitutions();
+        assert!(substitutions.is_empty(), "No substitutions should be detected");
+    }
+
+    #[test]
+    fn test_substitution_detection_with_substitution() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+
+        // Set actual hash for comp-a that doesn't match expected
+        graph.set_actual_hash("comp-a", "hash-a-modified");
+        graph.set_actual_hash("comp-b", "hash-b");
+
+        let substitutions = graph.detect_substitutions();
+        assert_eq!(substitutions.len(), 1, "One substitution should be detected");
+
+        let sub = &substitutions[0];
+        assert_eq!(sub.component_id, "comp-a");
+        assert_eq!(sub.expected_hash, "hash-a");
+        assert_eq!(sub.actual_hash, "hash-a-modified");
+    }
+
+    #[test]
+    fn test_substitution_detection_multiple() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+        graph.add_component("comp-c", "hash-c");
+
+        // Two components have been substituted
+        graph.set_actual_hash("comp-a", "hash-a-wrong");
+        graph.set_actual_hash("comp-b", "hash-b");
+        graph.set_actual_hash("comp-c", "hash-c-wrong");
+
+        let substitutions = graph.detect_substitutions();
+        assert_eq!(substitutions.len(), 2, "Two substitutions should be detected");
+    }
+
+    #[test]
+    fn test_validation_success() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+        graph.add_dependency("comp-a", "comp-b");
+
+        // Set matching actual hashes
+        graph.set_actual_hash("comp-a", "hash-a");
+        graph.set_actual_hash("comp-b", "hash-b");
+
+        let result = graph.validate().unwrap();
+        assert!(result.valid, "Validation should pass");
+        assert!(result.errors.is_empty(), "No errors should be present");
+    }
+
+    #[test]
+    fn test_validation_cycle_error() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_component("comp-b", "hash-b");
+
+        // Create a cycle
+        graph.add_dependency("comp-a", "comp-b");
+        graph.add_dependency("comp-b", "comp-a");
+
+        let result = graph.validate().unwrap();
+        assert!(!result.valid, "Validation should fail due to cycle");
+        assert!(!result.errors.is_empty(), "Errors should be present");
+        assert!(result.errors[0].contains("Cycle detected"));
+    }
+
+    #[test]
+    fn test_validation_substitution_error() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+
+        // Set wrong actual hash
+        graph.set_actual_hash("comp-a", "hash-wrong");
+
+        let result = graph.validate().unwrap();
+        assert!(!result.valid, "Validation should fail due to substitution");
+        assert!(!result.errors.is_empty(), "Errors should be present");
+        assert!(result.errors[0].contains("substituted"));
+    }
+
+    #[test]
+    fn test_validation_missing_dependency_warning() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("comp-a", "hash-a");
+        graph.add_dependency("comp-a", "comp-b"); // comp-b doesn't exist
+
+        let result = graph.validate().unwrap();
+        assert!(result.valid, "Should still be valid (just a warning)");
+        assert!(!result.warnings.is_empty(), "Warning should be present");
+        assert!(result.warnings[0].contains("missing component"));
+    }
+
+    #[test]
+    fn test_topological_sort_simple() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+        graph.add_component("c", "hash-c");
+
+        // a -> b -> c
+        graph.add_dependency("a", "b");
+        graph.add_dependency("b", "c");
+
+        let sorted = graph.topological_sort();
+        assert!(sorted.is_some(), "Should be able to sort");
+
+        let sorted = sorted.unwrap();
+        assert_eq!(sorted.len(), 3);
+
+        // In a DAG a -> b -> c, topological sort puts leaves first
+        // So c (leaf) comes before b, and b comes before a (root)
+        let c_pos = sorted.iter().position(|x| x == "c").unwrap();
+        let b_pos = sorted.iter().position(|x| x == "b").unwrap();
+        let a_pos = sorted.iter().position(|x| x == "a").unwrap();
+
+        // Verify: c < b < a in sorted order (dependencies first)
+        assert!(c_pos < b_pos, "c (no deps) should come before b (depends on c)");
+        assert!(b_pos < a_pos, "b (depends on c) should come before a (depends on b)");
+    }
+
+    #[test]
+    fn test_topological_sort_with_cycle() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+
+        // Create a cycle
+        graph.add_dependency("a", "b");
+        graph.add_dependency("b", "a");
+
+        let sorted = graph.topological_sort();
+        assert!(sorted.is_none(), "Should not be able to sort with cycle");
+    }
+
+    #[test]
+    fn test_topological_sort_complex() {
+        let mut graph = DependencyGraph::new();
+        graph.add_component("a", "hash-a");
+        graph.add_component("b", "hash-b");
+        graph.add_component("c", "hash-c");
+        graph.add_component("d", "hash-d");
+
+        // Complex DAG:
+        // a -> b
+        // a -> c
+        // b -> d
+        // c -> d
+        graph.add_dependency("a", "b");
+        graph.add_dependency("a", "c");
+        graph.add_dependency("b", "d");
+        graph.add_dependency("c", "d");
+
+        let sorted = graph.topological_sort();
+        assert!(sorted.is_some(), "Should be able to sort");
+
+        let sorted = sorted.unwrap();
+        assert_eq!(sorted.len(), 4);
+
+        // d should be first (no dependencies)
+        // a should be last (depends on everything)
+        let d_pos = sorted.iter().position(|x| x == "d").unwrap();
+        let a_pos = sorted.iter().position(|x| x == "a").unwrap();
+
+        assert!(d_pos < a_pos, "d should come before a");
+    }
+
+    #[test]
+    fn test_dependency_graph_comprehensive() {
+        // Create a realistic composition scenario
+        let mut graph = DependencyGraph::new();
+
+        // Add components
+        graph.add_component("http-client", "sha256:abc123");
+        graph.add_component("json-parser", "sha256:def456");
+        graph.add_component("app-logic", "sha256:ghi789");
+        graph.add_component("main-app", "sha256:jkl012");
+
+        // Set up dependencies
+        graph.add_dependency("main-app", "app-logic");
+        graph.add_dependency("app-logic", "http-client");
+        graph.add_dependency("app-logic", "json-parser");
+
+        // Set actual hashes (all correct)
+        graph.set_actual_hash("http-client", "sha256:abc123");
+        graph.set_actual_hash("json-parser", "sha256:def456");
+        graph.set_actual_hash("app-logic", "sha256:ghi789");
+        graph.set_actual_hash("main-app", "sha256:jkl012");
+
+        // Validate
+        let result = graph.validate().unwrap();
+        assert!(result.valid);
+        assert!(result.errors.is_empty());
+
+        // Check topological sort
+        let sorted = graph.topological_sort();
+        assert!(sorted.is_some());
+
+        let sorted = sorted.unwrap();
+        // main-app should be last
+        assert_eq!(sorted.last(), Some(&"main-app".to_string()));
+    }
+
+    #[test]
+    fn test_attack_scenario_substitution() {
+        // Simulating an attack where a component has been substituted
+        let mut graph = DependencyGraph::new();
+
+        // Original manifest
+        graph.add_component("crypto-lib", "sha256:trusted-hash");
+        graph.add_component("app", "sha256:app-hash");
+        graph.add_dependency("app", "crypto-lib");
+
+        // Attacker substitutes crypto-lib with malicious version
+        graph.set_actual_hash("crypto-lib", "sha256:malicious-hash");
+        graph.set_actual_hash("app", "sha256:app-hash");
+
+        // Validation should catch this
+        let result = graph.validate().unwrap();
+        assert!(!result.valid, "Attack should be detected");
+        assert!(!result.errors.is_empty());
+        assert!(result.errors[0].contains("crypto-lib"));
+        assert!(result.errors[0].contains("malicious-hash"));
     }
 }
