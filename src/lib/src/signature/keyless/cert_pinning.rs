@@ -46,10 +46,9 @@
 /// export WSC_REQUIRE_CERT_PINNING=1
 /// ```
 /// This will cause an error if pinning cannot be enforced due to HTTP client limitations.
-
 use crate::error::WSError;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerifier};
-use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, CryptoProvider};
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use sha2::{Digest, Sha256};
@@ -145,7 +144,10 @@ impl PinningConfig {
                         env_var
                     );
                 }
-                defaults.iter().map(|s| s.to_lowercase().to_string()).collect()
+                defaults
+                    .iter()
+                    .map(|s| s.to_lowercase().to_string())
+                    .collect()
             }
         };
 
@@ -186,23 +188,21 @@ impl PinningConfig {
                 &fingerprint_hex[..16]
             );
             Ok(())
+        } else if self.enforce {
+            // SECURITY (Issue #9): Only show first 16 hex chars (8 bytes) of fingerprint
+            Err(WSError::CertificatePinningError(format!(
+                "Certificate pin mismatch for {}: got {}..., expected one of {} configured pins",
+                self.service_name,
+                &fingerprint_hex[..16],
+                self.pins.len()
+            )))
         } else {
-            if self.enforce {
-                // SECURITY (Issue #9): Only show first 16 hex chars (8 bytes) of fingerprint
-                Err(WSError::CertificatePinningError(format!(
-                    "Certificate pin mismatch for {}: got {}..., expected one of {} configured pins",
-                    self.service_name,
-                    &fingerprint_hex[..16],
-                    self.pins.len()
-                )))
-            } else {
-                log::warn!(
-                    "Certificate pin mismatch for {} (warn-only mode): {}...",
-                    self.service_name,
-                    &fingerprint_hex[..16]
-                );
-                Ok(())
-            }
+            log::warn!(
+                "Certificate pin mismatch for {} (warn-only mode): {}...",
+                self.service_name,
+                &fingerprint_hex[..16]
+            );
+            Ok(())
         }
     }
 }
@@ -379,10 +379,7 @@ mod tests {
 
     #[test]
     fn test_pinning_config_creation() {
-        let pins = vec![
-            "a".repeat(64),
-            "b".repeat(64),
-        ];
+        let pins = vec!["a".repeat(64), "b".repeat(64)];
         let config = PinningConfig::custom(pins.clone(), "test-service".to_string());
 
         assert_eq!(config.service_name, "test-service");
@@ -431,7 +428,11 @@ mod tests {
         let pins = vec!["ABCDEF".to_string() + &"0".repeat(58)];
         let config = PinningConfig::custom(pins, "test".to_string());
 
-        assert!(config.pins.contains(&("abcdef".to_string() + &"0".repeat(58))));
+        assert!(
+            config
+                .pins
+                .contains(&("abcdef".to_string() + &"0".repeat(58)))
+        );
     }
 
     #[test]
@@ -462,14 +463,27 @@ mod tests {
         let fp1 = hex::encode(Sha256::digest(&cert1));
         let fp2 = hex::encode(Sha256::digest(&cert2));
 
-        let config = PinningConfig::custom(vec![fp1.clone(), fp2.clone()], "multi-test".to_string());
+        let config =
+            PinningConfig::custom(vec![fp1.clone(), fp2.clone()], "multi-test".to_string());
 
         // Both certificates should pass
-        assert!(config.verify_certificate(&CertificateDer::from(cert1)).is_ok());
-        assert!(config.verify_certificate(&CertificateDer::from(cert2)).is_ok());
+        assert!(
+            config
+                .verify_certificate(&CertificateDer::from(cert1))
+                .is_ok()
+        );
+        assert!(
+            config
+                .verify_certificate(&CertificateDer::from(cert2))
+                .is_ok()
+        );
 
         // Wrong certificate should fail
         let cert3 = vec![0x30, 0x82, 0x01, 0x03];
-        assert!(config.verify_certificate(&CertificateDer::from(cert3)).is_err());
+        assert!(
+            config
+                .verify_certificate(&CertificateDer::from(cert3))
+                .is_err()
+        );
     }
 }

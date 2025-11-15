@@ -60,7 +60,6 @@
 /// // Public key can be exported
 /// let public_key = se.get_public_key(handle)?;
 /// ```
-
 use crate::error::WSError;
 use crate::platform::{Attestation, KeyHandle, SecureKeyProvider, SecurityLevel};
 use crate::signature::PublicKey;
@@ -127,7 +126,12 @@ pub trait I2cBus: Send + Sync {
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), WSError>;
 
     /// Write then read (common pattern for secure elements)
-    fn write_read(&mut self, address: u8, write_data: &[u8], read_buffer: &mut [u8]) -> Result<(), WSError>;
+    fn write_read(
+        &mut self,
+        address: u8,
+        write_data: &[u8],
+        read_buffer: &mut [u8],
+    ) -> Result<(), WSError>;
 }
 
 /// Unified secure element provider

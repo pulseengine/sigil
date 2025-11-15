@@ -1,5 +1,5 @@
 use crate::error::WSError;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use std::env;
 use zeroize::Zeroize;
@@ -210,9 +210,10 @@ impl GitHubOidcProvider {
             })?;
 
         // Parse the JSON response
-        let body = response.into_body().read_to_string().map_err(|e| {
-            WSError::OidcError(format!("Failed to read response body: {}", e))
-        })?;
+        let body = response
+            .into_body()
+            .read_to_string()
+            .map_err(|e| WSError::OidcError(format!("Failed to read response body: {}", e)))?;
 
         let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
             WSError::OidcError(format!("Failed to parse GitHub OIDC response: {}", e))
@@ -251,7 +252,10 @@ impl GitHubOidcProvider {
         let headers = Fields::new();
         let auth_value = format!("Bearer {}", self.request_token);
         headers
-            .append(&"Authorization".to_string(), &auth_value.as_bytes().to_vec())
+            .append(
+                &"Authorization".to_string(),
+                &auth_value.as_bytes().to_vec(),
+            )
             .map_err(|_| WSError::OidcError("Failed to set Authorization header".to_string()))?;
 
         // Create outgoing request
@@ -301,8 +305,9 @@ impl GitHubOidcProvider {
         }
 
         // Parse JSON response
-        let json: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|e| WSError::OidcError(format!("Failed to parse GitHub OIDC response: {}", e)))?;
+        let json: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+            WSError::OidcError(format!("Failed to parse GitHub OIDC response: {}", e))
+        })?;
 
         // Extract the token value
         json.get("value")
@@ -466,7 +471,8 @@ mod tests {
 
     #[test]
     fn test_parse_jwt_issuer() {
-        let payload = r#"{"email":"test@example.com","iss":"https://token.actions.githubusercontent.com"}"#;
+        let payload =
+            r#"{"email":"test@example.com","iss":"https://token.actions.githubusercontent.com"}"#;
         let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
         let token = format!("header.{}.signature", encoded_payload);
 

@@ -53,10 +53,9 @@
 /// // Sign data (happens in secure element)
 /// let signature = se.sign(handle, b"data to sign")?;
 /// ```
-
 use super::{I2cBus, KeySlot, KeyUsage, SlotConfig};
 use crate::error::WSError;
-use crate::platform::{Attestation, KeyHandle, SecureKeyProvider, SecurityLevel, AttestationType};
+use crate::platform::{Attestation, AttestationType, KeyHandle, SecureKeyProvider, SecurityLevel};
 use crate::signature::PublicKey;
 
 /// ATECC608 command opcodes
@@ -113,7 +112,8 @@ impl Atecc608Provider {
         {
             return Err(WSError::HardwareError(
                 "ATECC608 support requires hardware I2C implementation. \
-                 Enable 'atecc608' feature and provide I2C bus.".to_string(),
+                 Enable 'atecc608' feature and provide I2C bus."
+                    .to_string(),
             ));
         }
 
@@ -193,7 +193,13 @@ impl Atecc608Provider {
     }
 
     /// Send command to device
-    fn send_command(&mut self, opcode: Command, param1: u8, param2: u16, data: &[u8]) -> Result<Vec<u8>, WSError> {
+    fn send_command(
+        &mut self,
+        opcode: Command,
+        param1: u8,
+        param2: u16,
+        data: &[u8],
+    ) -> Result<Vec<u8>, WSError> {
         // Wake device
         self.wake()?;
 
@@ -269,12 +275,7 @@ impl Atecc608Provider {
         let mode = if lock { 0x04 } else { 0x00 };
 
         // Send GenKey command
-        let _response = self.send_command(
-            Command::GenKey,
-            mode,
-            slot.0 as u16,
-            &[],
-        )?;
+        let _response = self.send_command(Command::GenKey, mode, slot.0 as u16, &[])?;
 
         // Mark slot as used
         self.used_slots[slot.0 as usize] = true;
@@ -339,7 +340,7 @@ impl SecureKeyProvider for Atecc608Provider {
         // Cast to mut (in real impl, would use interior mutability)
         // This is a design compromise - should use RefCell or Mutex
         Err(WSError::InternalError(
-            "Use generate_in_slot() for ATECC608 to specify key slot".to_string()
+            "Use generate_in_slot() for ATECC608 to specify key slot".to_string(),
         ))
     }
 
@@ -399,7 +400,7 @@ impl SecureKeyProvider for Atecc608Provider {
         // OR extend PublicKey to support P-256
 
         Err(WSError::InternalError(
-            "ATECC608 uses ECDSA P-256, conversion to Ed25519 PublicKey needed".to_string()
+            "ATECC608 uses ECDSA P-256, conversion to Ed25519 PublicKey needed".to_string(),
         ))
     }
 
@@ -422,9 +423,10 @@ impl SecureKeyProvider for Atecc608Provider {
         // ATECC608 doesn't support key deletion once locked
         // Can only overwrite if slot is not locked
 
-        Err(WSError::HardwareError(
-            format!("ATECC608 slot {} cannot be deleted if locked", slot.0)
-        ))
+        Err(WSError::HardwareError(format!(
+            "ATECC608 slot {} cannot be deleted if locked",
+            slot.0
+        )))
     }
 
     fn list_keys(&self) -> Result<Vec<KeyHandle>, WSError> {
@@ -441,8 +443,8 @@ impl SecureKeyProvider for Atecc608Provider {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::MockI2cBus;
+    use super::*;
 
     fn create_test_provider() -> Atecc608Provider {
         Atecc608Provider::new("/dev/i2c-1", 0x60).unwrap()
@@ -477,10 +479,18 @@ mod tests {
 
         // Valid slots
         assert!(provider.handle_to_slot(KeyHandle::from_raw(0)).is_ok());
-        assert!(provider.handle_to_slot(KeyHandle::from_raw(15u64 << 56)).is_ok());
+        assert!(
+            provider
+                .handle_to_slot(KeyHandle::from_raw(15u64 << 56))
+                .is_ok()
+        );
 
         // Invalid slots
-        assert!(provider.handle_to_slot(KeyHandle::from_raw(16u64 << 56)).is_err());
+        assert!(
+            provider
+                .handle_to_slot(KeyHandle::from_raw(16u64 << 56))
+                .is_err()
+        );
     }
 
     #[test]

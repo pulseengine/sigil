@@ -1,3 +1,6 @@
+use crate::error::WSError;
+use crate::wasm_module::{CustomSection, Module, Section, SectionLike};
+use base64::Engine;
 /// Component composition and provenance tracking
 ///
 /// This module provides support for WebAssembly component composition with
@@ -66,13 +69,9 @@
 /// // Embed in composed WASM
 /// let composed_with_manifest = embed_composition_manifest(composed, &manifest)?;
 /// ```
-
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::wasm_module::{Module, Section, CustomSection, SectionLike};
-use crate::error::WSError;
 use x509_parser::prelude::FromDer;
-use base64::Engine;
 
 /// Build provenance for a WASM component
 ///
@@ -181,7 +180,9 @@ impl ProvenanceBuilder {
             source_repo: self.source_repo,
             commit_sha: self.commit_sha,
             build_tool: self.build_tool.unwrap_or_else(|| "unknown".to_string()),
-            build_tool_version: self.build_tool_version.unwrap_or_else(|| "unknown".to_string()),
+            build_tool_version: self
+                .build_tool_version
+                .unwrap_or_else(|| "unknown".to_string()),
             builder: self.builder,
             build_timestamp: chrono::Utc::now().to_rfc3339(),
             metadata: self.metadata,
@@ -374,15 +375,19 @@ impl DependencyGraph {
     /// Add a component with its expected hash
     pub fn add_component(&mut self, id: impl Into<String>, expected_hash: impl Into<String>) {
         let id = id.into();
-        self.expected_hashes.insert(id.clone(), expected_hash.into());
-        self.dependencies.entry(id).or_insert_with(Vec::new);
+        self.expected_hashes
+            .insert(id.clone(), expected_hash.into());
+        self.dependencies.entry(id).or_default();
     }
 
     /// Add a dependency between two components
     pub fn add_dependency(&mut self, from: impl Into<String>, to: impl Into<String>) {
         let from = from.into();
         let to = to.into();
-        self.dependencies.entry(from).or_insert_with(Vec::new).push(to);
+        self.dependencies
+            .entry(from)
+            .or_default()
+            .push(to);
     }
 
     /// Set the actual hash for a component (for validation)
@@ -409,16 +414,12 @@ impl DependencyGraph {
         let mut rec_stack = HashMap::new();
 
         for node in self.dependencies.keys() {
-            if !visited.contains_key(node) {
-                if let Some(cycle) = self.dfs_cycle_detection(
-                    node,
-                    &mut visited,
-                    &mut rec_stack,
-                    &mut Vec::new(),
-                ) {
+            if !visited.contains_key(node)
+                && let Some(cycle) =
+                    self.dfs_cycle_detection(node, &mut visited, &mut rec_stack, &mut Vec::new())
+                {
                     return Some(cycle);
                 }
-            }
         }
 
         None
@@ -439,12 +440,9 @@ impl DependencyGraph {
         if let Some(neighbors) = self.dependencies.get(node) {
             for neighbor in neighbors {
                 if !visited.contains_key(neighbor.as_str()) {
-                    if let Some(cycle) = self.dfs_cycle_detection(
-                        neighbor,
-                        visited,
-                        rec_stack,
-                        path,
-                    ) {
+                    if let Some(cycle) =
+                        self.dfs_cycle_detection(neighbor, visited, rec_stack, path)
+                    {
                         return Some(cycle);
                     }
                 } else if *rec_stack.get(neighbor.as_str()).unwrap_or(&false) {
@@ -469,15 +467,14 @@ impl DependencyGraph {
         let mut substitutions = Vec::new();
 
         for (id, expected_hash) in &self.expected_hashes {
-            if let Some(actual_hash) = self.actual_hashes.get(id) {
-                if expected_hash != actual_hash {
+            if let Some(actual_hash) = self.actual_hashes.get(id)
+                && expected_hash != actual_hash {
                     substitutions.push(ComponentSubstitution {
                         component_id: id.clone(),
                         expected_hash: expected_hash.clone(),
                         actual_hash: actual_hash.clone(),
                     });
                 }
-            }
         }
 
         substitutions
@@ -645,11 +642,8 @@ impl VersionConstraint {
     /// Simple semantic version comparison (major.minor.patch)
     /// Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
     fn compare_versions(v1: &str, v2: &str) -> i32 {
-        let parse_version = |v: &str| -> Vec<u32> {
-            v.split('.')
-                .filter_map(|s| s.parse::<u32>().ok())
-                .collect()
-        };
+        let parse_version =
+            |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse::<u32>().ok()).collect() };
 
         let v1_parts = parse_version(v1);
         let v2_parts = parse_version(v2);
@@ -686,20 +680,26 @@ impl VersionPolicy {
 
     /// Require an exact version for a component
     pub fn require_exact(&mut self, component_id: impl Into<String>, version: impl Into<String>) {
-        self.constraints
-            .insert(component_id.into(), VersionConstraint::Exact(version.into()));
+        self.constraints.insert(
+            component_id.into(),
+            VersionConstraint::Exact(version.into()),
+        );
     }
 
     /// Require a minimum version for a component
     pub fn require_minimum(&mut self, component_id: impl Into<String>, version: impl Into<String>) {
-        self.constraints
-            .insert(component_id.into(), VersionConstraint::Minimum(version.into()));
+        self.constraints.insert(
+            component_id.into(),
+            VersionConstraint::Minimum(version.into()),
+        );
     }
 
     /// Require a maximum version for a component
     pub fn require_maximum(&mut self, component_id: impl Into<String>, version: impl Into<String>) {
-        self.constraints
-            .insert(component_id.into(), VersionConstraint::Maximum(version.into()));
+        self.constraints.insert(
+            component_id.into(),
+            VersionConstraint::Maximum(version.into()),
+        );
     }
 
     /// Require a version range for a component
@@ -1017,8 +1017,8 @@ impl DependencyGraph {
         }
 
         // Version policy validation
-        if let Some(policy) = &config.version_policy {
-            for (component_id, _) in &self.expected_hashes {
+        if let Some(_policy) = &config.version_policy {
+            for _component_id in self.expected_hashes.keys() {
                 // Extract version from component metadata (would need to be stored)
                 // For now, we'll add a placeholder for version validation
                 // This would integrate with the ComponentRef which already has version info
@@ -1129,7 +1129,11 @@ pub struct SbomComponent {
     pub hashes: Vec<SbomHash>,
 
     /// External references
-    #[serde(rename = "externalReferences", skip_serializing_if = "Vec::is_empty", default)]
+    #[serde(
+        rename = "externalReferences",
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
     pub external_references: Vec<SbomExternalReference>,
 }
 
@@ -1422,7 +1426,10 @@ impl InTotoAttestation {
 // ============================================================================
 
 /// Embed a composition manifest in a WASM module as a custom section
-pub fn embed_composition_manifest(mut module: Module, manifest: &CompositionManifest) -> Result<Module, WSError> {
+pub fn embed_composition_manifest(
+    mut module: Module,
+    manifest: &CompositionManifest,
+) -> Result<Module, WSError> {
     let json = manifest.to_json().map_err(|e| {
         WSError::InternalError(format!("Failed to serialize composition manifest: {}", e))
     })?;
@@ -1437,27 +1444,34 @@ pub fn embed_composition_manifest(mut module: Module, manifest: &CompositionMani
 }
 
 /// Extract a composition manifest from a WASM module
-pub fn extract_composition_manifest(module: &Module) -> Result<Option<CompositionManifest>, WSError> {
+pub fn extract_composition_manifest(
+    module: &Module,
+) -> Result<Option<CompositionManifest>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == COMPOSITION_MANIFEST_SECTION {
+        if let Section::Custom(custom) = section
+            && custom.name() == COMPOSITION_MANIFEST_SECTION {
                 let json = std::str::from_utf8(custom.payload()).map_err(|e| {
                     WSError::InternalError(format!("Invalid UTF-8 in composition manifest: {}", e))
                 })?;
 
                 let manifest = CompositionManifest::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize composition manifest: {}", e))
+                    WSError::InternalError(format!(
+                        "Failed to deserialize composition manifest: {}",
+                        e
+                    ))
                 })?;
 
                 return Ok(Some(manifest));
             }
-        }
     }
     Ok(None)
 }
 
 /// Embed a build provenance in a WASM module as a custom section
-pub fn embed_build_provenance(mut module: Module, provenance: &BuildProvenance) -> Result<Module, WSError> {
+pub fn embed_build_provenance(
+    mut module: Module,
+    provenance: &BuildProvenance,
+) -> Result<Module, WSError> {
     let json = serde_json::to_string_pretty(provenance).map_err(|e| {
         WSError::InternalError(format!("Failed to serialize build provenance: {}", e))
     })?;
@@ -1474,8 +1488,8 @@ pub fn embed_build_provenance(mut module: Module, provenance: &BuildProvenance) 
 /// Extract build provenance from a WASM module
 pub fn extract_build_provenance(module: &Module) -> Result<Option<BuildProvenance>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == BUILD_PROVENANCE_SECTION {
+        if let Section::Custom(custom) = section
+            && custom.name() == BUILD_PROVENANCE_SECTION {
                 let json = std::str::from_utf8(custom.payload()).map_err(|e| {
                     WSError::InternalError(format!("Invalid UTF-8 in build provenance: {}", e))
                 })?;
@@ -1486,21 +1500,17 @@ pub fn extract_build_provenance(module: &Module) -> Result<Option<BuildProvenanc
 
                 return Ok(Some(provenance));
             }
-        }
     }
     Ok(None)
 }
 
 /// Embed an SBOM in a WASM module as a custom section
 pub fn embed_sbom(mut module: Module, sbom: &Sbom) -> Result<Module, WSError> {
-    let json = sbom.to_json().map_err(|e| {
-        WSError::InternalError(format!("Failed to serialize SBOM: {}", e))
-    })?;
+    let json = sbom
+        .to_json()
+        .map_err(|e| WSError::InternalError(format!("Failed to serialize SBOM: {}", e)))?;
 
-    let custom_section = CustomSection::new(
-        SBOM_SECTION.to_string(),
-        json.as_bytes().to_vec(),
-    );
+    let custom_section = CustomSection::new(SBOM_SECTION.to_string(), json.as_bytes().to_vec());
 
     module.sections.push(Section::Custom(custom_section));
     Ok(module)
@@ -1509,11 +1519,10 @@ pub fn embed_sbom(mut module: Module, sbom: &Sbom) -> Result<Module, WSError> {
 /// Extract an SBOM from a WASM module
 pub fn extract_sbom(module: &Module) -> Result<Option<Sbom>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == SBOM_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in SBOM: {}", e))
-                })?;
+        if let Section::Custom(custom) = section
+            && custom.name() == SBOM_SECTION {
+                let json = std::str::from_utf8(custom.payload())
+                    .map_err(|e| WSError::InternalError(format!("Invalid UTF-8 in SBOM: {}", e)))?;
 
                 let sbom = Sbom::from_json(json).map_err(|e| {
                     WSError::InternalError(format!("Failed to deserialize SBOM: {}", e))
@@ -1521,13 +1530,15 @@ pub fn extract_sbom(module: &Module) -> Result<Option<Sbom>, WSError> {
 
                 return Ok(Some(sbom));
             }
-        }
     }
     Ok(None)
 }
 
 /// Embed an in-toto attestation in a WASM module as a custom section
-pub fn embed_intoto_attestation(mut module: Module, attestation: &InTotoAttestation) -> Result<Module, WSError> {
+pub fn embed_intoto_attestation(
+    mut module: Module,
+    attestation: &InTotoAttestation,
+) -> Result<Module, WSError> {
     let json = attestation.to_json().map_err(|e| {
         WSError::InternalError(format!("Failed to serialize in-toto attestation: {}", e))
     })?;
@@ -1544,19 +1555,21 @@ pub fn embed_intoto_attestation(mut module: Module, attestation: &InTotoAttestat
 /// Extract an in-toto attestation from a WASM module
 pub fn extract_intoto_attestation(module: &Module) -> Result<Option<InTotoAttestation>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == INTOTO_ATTESTATION_SECTION {
+        if let Section::Custom(custom) = section
+            && custom.name() == INTOTO_ATTESTATION_SECTION {
                 let json = std::str::from_utf8(custom.payload()).map_err(|e| {
                     WSError::InternalError(format!("Invalid UTF-8 in in-toto attestation: {}", e))
                 })?;
 
                 let attestation = InTotoAttestation::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize in-toto attestation: {}", e))
+                    WSError::InternalError(format!(
+                        "Failed to deserialize in-toto attestation: {}",
+                        e
+                    ))
                 })?;
 
                 return Ok(Some(attestation));
             }
-        }
     }
     Ok(None)
 }
@@ -1579,18 +1592,19 @@ pub fn embed_all_provenance(
     Ok(module)
 }
 
-/// Extract all provenance data from a WASM module
-///
-/// Returns a tuple of (manifest, provenance, sbom, attestation).
-/// Any component that is not found will be None.
-pub fn extract_all_provenance(
-    module: &Module,
-) -> Result<(
+/// Type alias for the result of extracting all provenance data
+pub type AllProvenanceData = (
     Option<CompositionManifest>,
     Option<BuildProvenance>,
     Option<Sbom>,
     Option<InTotoAttestation>,
-), WSError> {
+);
+
+/// Extract all provenance data from a WASM module
+///
+/// Returns a tuple of (manifest, provenance, sbom, attestation).
+/// Any component that is not found will be None.
+pub fn extract_all_provenance(module: &Module) -> Result<AllProvenanceData, WSError> {
     let manifest = extract_composition_manifest(module)?;
     let provenance = extract_build_provenance(module)?;
     let sbom = extract_sbom(module)?;
@@ -1612,7 +1626,10 @@ pub fn validate_manifest_timestamps(
 
     // Validate integrator timestamp if present
     if let Some(integrator) = &manifest.integrator {
-        policy.validate_timestamp(&integrator.verification_timestamp, "Integrator verification")?;
+        policy.validate_timestamp(
+            &integrator.verification_timestamp,
+            "Integrator verification",
+        )?;
     }
 
     Ok(())
@@ -1633,11 +1650,10 @@ pub fn validate_attestation_timestamps(
     policy: &TimestampPolicy,
 ) -> Result<(), String> {
     // Validate metadata timestamps
-    if let Some(finished_on_value) = attestation.predicate.metadata.get("finishedOn") {
-        if let Some(finished_on) = finished_on_value.as_str() {
+    if let Some(finished_on_value) = attestation.predicate.metadata.get("finishedOn")
+        && let Some(finished_on) = finished_on_value.as_str() {
             policy.validate_timestamp(finished_on, "Build completion")?;
         }
-    }
 
     Ok(())
 }
@@ -1663,18 +1679,16 @@ pub fn validate_all_timestamps(
     }
 
     // Validate build provenance timestamps
-    if let Some(ref p) = provenance {
-        if let Err(e) = validate_provenance_timestamps(p, policy) {
+    if let Some(ref p) = provenance
+        && let Err(e) = validate_provenance_timestamps(p, policy) {
             errors.push(e);
         }
-    }
 
     // Validate attestation timestamps
-    if let Some(ref a) = attestation {
-        if let Err(e) = validate_attestation_timestamps(a, policy) {
+    if let Some(ref a) = attestation
+        && let Err(e) = validate_attestation_timestamps(a, policy) {
             errors.push(e);
         }
-    }
 
     Ok(ValidationResult {
         valid: errors.is_empty(),
@@ -1747,15 +1761,14 @@ impl SignatureFreshnessPolicy {
         }
 
         // Check minimum timestamp
-        if let Some(min_ts) = &self.minimum_timestamp {
-            if timestamp_utc < *min_ts {
+        if let Some(min_ts) = &self.minimum_timestamp
+            && timestamp_utc < *min_ts {
                 return Err(format!(
                     "{} signature was created before minimum acceptable time ({})",
                     context,
                     min_ts.to_rfc3339()
                 ));
             }
-        }
 
         Ok(())
     }
@@ -1842,15 +1855,14 @@ impl CertificateValidityPolicy {
             .with_timezone(&chrono::Utc);
 
         // Check if certificate is not yet valid
-        if now < not_before_time {
-            if !self.allow_not_yet_valid {
+        if now < not_before_time
+            && !self.allow_not_yet_valid {
                 return Err(format!(
                     "{} certificate is not yet valid (valid from: {})",
                     context,
                     not_before_time.to_rfc3339()
                 ));
             }
-        }
 
         // Check if certificate is expired
         if now > not_after_time {
@@ -1881,11 +1893,7 @@ impl CertificateValidityPolicy {
     ///
     /// This function parses a DER-encoded X.509 certificate and validates
     /// its validity period.
-    pub fn validate_certificate_der(
-        &self,
-        cert_der: &[u8],
-        context: &str,
-    ) -> Result<(), String> {
+    pub fn validate_certificate_der(&self, cert_der: &[u8], context: &str) -> Result<(), String> {
         // Parse the certificate using x509_parser
         let (_, cert) = x509_parser::certificate::X509Certificate::from_der(cert_der)
             .map_err(|e| format!("Failed to parse {} certificate: {:?}", context, e))?;
@@ -1895,15 +1903,13 @@ impl CertificateValidityPolicy {
         let not_after = cert.validity().not_after;
 
         // Convert to chrono DateTime for easier comparison
-        let not_before_chrono = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            not_before.timestamp(),
-            0,
-        ).ok_or_else(|| format!("Invalid not_before timestamp for {}", context))?;
+        let not_before_chrono =
+            chrono::DateTime::<chrono::Utc>::from_timestamp(not_before.timestamp(), 0)
+                .ok_or_else(|| format!("Invalid not_before timestamp for {}", context))?;
 
-        let not_after_chrono = chrono::DateTime::<chrono::Utc>::from_timestamp(
-            not_after.timestamp(),
-            0,
-        ).ok_or_else(|| format!("Invalid not_after timestamp for {}", context))?;
+        let not_after_chrono =
+            chrono::DateTime::<chrono::Utc>::from_timestamp(not_after.timestamp(), 0)
+                .ok_or_else(|| format!("Invalid not_after timestamp for {}", context))?;
 
         // Validate using our policy
         self.validate_certificate_times(
@@ -1914,16 +1920,12 @@ impl CertificateValidityPolicy {
     }
 
     /// Validate a certificate in PEM format
-    pub fn validate_certificate_pem(
-        &self,
-        cert_pem: &str,
-        context: &str,
-    ) -> Result<(), String> {
+    pub fn validate_certificate_pem(&self, cert_pem: &str, context: &str) -> Result<(), String> {
         // Parse PEM to get DER
         let pem = pem::parse(cert_pem)
             .map_err(|e| format!("Failed to parse {} PEM certificate: {}", context, e))?;
 
-        self.validate_certificate_der(&pem.contents(), context)
+        self.validate_certificate_der(pem.contents(), context)
     }
 }
 
@@ -1997,7 +1999,8 @@ impl DeviceAttestation {
 
     /// Set attestation signature (will be base64-encoded)
     pub fn with_signature(mut self, signature: &[u8]) -> Self {
-        self.attestation_signature = Some(base64::engine::general_purpose::STANDARD.encode(signature));
+        self.attestation_signature =
+            Some(base64::engine::general_purpose::STANDARD.encode(signature));
         self
     }
 
@@ -2176,19 +2179,21 @@ pub fn embed_device_attestation(
 /// Extract device attestation from a WASM module
 pub fn extract_device_attestation(module: &Module) -> Result<Option<DeviceAttestation>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == DEVICE_ATTESTATION_SECTION {
+        if let Section::Custom(custom) = section
+            && custom.name() == DEVICE_ATTESTATION_SECTION {
                 let json = std::str::from_utf8(custom.payload()).map_err(|e| {
                     WSError::InternalError(format!("Invalid UTF-8 in device attestation: {}", e))
                 })?;
 
                 let attestation = DeviceAttestation::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize device attestation: {}", e))
+                    WSError::InternalError(format!(
+                        "Failed to deserialize device attestation: {}",
+                        e
+                    ))
                 })?;
 
                 return Ok(Some(attestation));
             }
-        }
     }
     Ok(None)
 }
@@ -2212,21 +2217,28 @@ pub fn embed_transparency_log_entry(
 }
 
 /// Extract transparency log entry from a WASM module
-pub fn extract_transparency_log_entry(module: &Module) -> Result<Option<TransparencyLogEntry>, WSError> {
+pub fn extract_transparency_log_entry(
+    module: &Module,
+) -> Result<Option<TransparencyLogEntry>, WSError> {
     for section in &module.sections {
-        if let Section::Custom(custom) = section {
-            if custom.name() == TRANSPARENCY_LOG_SECTION {
+        if let Section::Custom(custom) = section
+            && custom.name() == TRANSPARENCY_LOG_SECTION {
                 let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in transparency log entry: {}", e))
+                    WSError::InternalError(format!(
+                        "Invalid UTF-8 in transparency log entry: {}",
+                        e
+                    ))
                 })?;
 
                 let entry = TransparencyLogEntry::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize transparency log entry: {}", e))
+                    WSError::InternalError(format!(
+                        "Failed to deserialize transparency log entry: {}",
+                        e
+                    ))
                 })?;
 
                 return Ok(Some(entry));
             }
-        }
     }
     Ok(None)
 }
@@ -2246,14 +2258,13 @@ pub fn validate_device_attestation(
     }
 
     // Validate device ID matches expected (if provided)
-    if let Some(expected) = _expected_device_id {
-        if attestation.device_id != expected {
+    if let Some(expected) = _expected_device_id
+        && attestation.device_id != expected {
             return Err(format!(
                 "Device ID mismatch: expected '{}', got '{}'",
                 expected, attestation.device_id
             ));
         }
-    }
 
     // Validate timestamp format
     if chrono::DateTime::parse_from_rfc3339(&attestation.timestamp).is_err() {
@@ -2285,10 +2296,16 @@ mod tests {
 
         assert_eq!(prov.name, "test-component");
         assert_eq!(prov.version, "1.0.0");
-        assert_eq!(prov.source_repo, Some("https://github.com/test/comp".to_string()));
+        assert_eq!(
+            prov.source_repo,
+            Some("https://github.com/test/comp".to_string())
+        );
         assert_eq!(prov.commit_sha, Some("abc123".to_string()));
         assert_eq!(prov.build_tool, "cargo");
-        assert_eq!(prov.metadata.get("platform"), Some(&"wasm32-wasi".to_string()));
+        assert_eq!(
+            prov.metadata.get("platform"),
+            Some(&"wasm32-wasi".to_string())
+        );
     }
 
     #[test]
@@ -2306,7 +2323,10 @@ mod tests {
 
         assert_eq!(manifest.components.len(), 2);
         assert_eq!(manifest.components[0].id, "comp-a");
-        assert_eq!(manifest.components[1].source, Some("https://github.com/test/comp-b".to_string()));
+        assert_eq!(
+            manifest.components[1].source,
+            Some("https://github.com/test/comp-b".to_string())
+        );
         assert!(manifest.integrator.is_some());
     }
 
@@ -2389,26 +2409,23 @@ mod tests {
 
     #[test]
     fn test_intoto_attestation_creation() {
-        let attestation = InTotoAttestation::new_composition(
-            "composed.wasm",
-            "abc123def456",
-            "wsc-builder",
-        );
+        let attestation =
+            InTotoAttestation::new_composition("composed.wasm", "abc123def456", "wsc-builder");
 
         assert_eq!(attestation.payload_type, "application/vnd.in-toto+json");
         assert_eq!(attestation.subject.len(), 1);
         assert_eq!(attestation.subject[0].name, "composed.wasm");
-        assert_eq!(attestation.subject[0].digest.get("sha256"), Some(&"abc123def456".to_string()));
+        assert_eq!(
+            attestation.subject[0].digest.get("sha256"),
+            Some(&"abc123def456".to_string())
+        );
         assert_eq!(attestation.predicate.builder.id, "wsc-builder");
     }
 
     #[test]
     fn test_intoto_add_materials() {
-        let mut attestation = InTotoAttestation::new_composition(
-            "composed.wasm",
-            "abc123",
-            "builder",
-        );
+        let mut attestation =
+            InTotoAttestation::new_composition("composed.wasm", "abc123", "builder");
 
         attestation.add_material("component-a.wasm", "hash-a");
         attestation.add_material("component-b.wasm", "hash-b");
@@ -2424,11 +2441,8 @@ mod tests {
 
     #[test]
     fn test_intoto_json_serialization() {
-        let mut attestation = InTotoAttestation::new_composition(
-            "test.wasm",
-            "hash123",
-            "test-builder",
-        );
+        let mut attestation =
+            InTotoAttestation::new_composition("test.wasm", "hash123", "test-builder");
         attestation.add_material("input.wasm", "input-hash");
 
         let json = attestation.to_json().unwrap();
@@ -2462,12 +2476,7 @@ mod tests {
         let mut sbom = Sbom::new("composed-app", "1.0.0");
         for component in &manifest.components {
             if let Some(source) = &component.source {
-                sbom.add_component_with_source(
-                    &component.id,
-                    "1.0.0",
-                    &component.hash,
-                    source,
-                );
+                sbom.add_component_with_source(&component.id, "1.0.0", &component.hash, source);
             } else {
                 sbom.add_component(&component.id, "1.0.0", &component.hash);
             }
@@ -2480,7 +2489,7 @@ mod tests {
             "wsc-integrator",
         );
         for component in &manifest.components {
-            attestation.add_material(&format!("{}.wasm", component.id), &component.hash);
+            attestation.add_material(format!("{}.wasm", component.id), &component.hash);
         }
 
         // Verify everything is consistent
@@ -2504,7 +2513,12 @@ mod tests {
 
         assert_eq!(parsed["bomFormat"], "CycloneDX");
         assert_eq!(parsed["specVersion"], "1.5");
-        assert!(parsed["serialNumber"].as_str().unwrap().starts_with("urn:uuid:"));
+        assert!(
+            parsed["serialNumber"]
+                .as_str()
+                .unwrap()
+                .starts_with("urn:uuid:")
+        );
         assert_eq!(parsed["version"], 1);
         assert!(parsed["metadata"].is_object());
     }
@@ -2598,11 +2612,8 @@ mod tests {
 
     #[test]
     fn test_embed_extract_intoto_attestation() {
-        let mut attestation = InTotoAttestation::new_composition(
-            "app.wasm",
-            "final-hash",
-            "integrator",
-        );
+        let mut attestation =
+            InTotoAttestation::new_composition("app.wasm", "final-hash", "integrator");
         attestation.add_material("comp-a.wasm", "hash-a");
         attestation.add_material("comp-b.wasm", "hash-b");
 
@@ -2630,13 +2641,8 @@ mod tests {
         let attestation = InTotoAttestation::new_composition("app.wasm", "hash", "builder");
 
         let module = create_test_module();
-        let module_with_all = embed_all_provenance(
-            module,
-            &manifest,
-            &provenance,
-            &sbom,
-            &attestation,
-        ).unwrap();
+        let module_with_all =
+            embed_all_provenance(module, &manifest, &provenance, &sbom, &attestation).unwrap();
 
         // Should have 4 custom sections
         assert_eq!(module_with_all.sections.len(), 4);
@@ -2680,13 +2686,8 @@ mod tests {
 
         // Embed in module
         let module = create_test_module();
-        let module_with_all = embed_all_provenance(
-            module,
-            &manifest,
-            &provenance,
-            &sbom,
-            &attestation,
-        ).unwrap();
+        let module_with_all =
+            embed_all_provenance(module, &manifest, &provenance, &sbom, &attestation).unwrap();
 
         // Serialize to bytes
         let mut buffer = Vec::new();
@@ -2767,7 +2768,10 @@ mod tests {
         let graph = DependencyGraph::from_manifest(&manifest);
 
         assert_eq!(graph.expected_hashes.len(), 3);
-        assert_eq!(graph.expected_hashes.get("comp-a"), Some(&"hash-a".to_string()));
+        assert_eq!(
+            graph.expected_hashes.get("comp-a"),
+            Some(&"hash-a".to_string())
+        );
     }
 
     #[test]
@@ -2839,7 +2843,10 @@ mod tests {
         graph.set_actual_hash("comp-b", "hash-b");
 
         let substitutions = graph.detect_substitutions();
-        assert!(substitutions.is_empty(), "No substitutions should be detected");
+        assert!(
+            substitutions.is_empty(),
+            "No substitutions should be detected"
+        );
     }
 
     #[test]
@@ -2853,7 +2860,11 @@ mod tests {
         graph.set_actual_hash("comp-b", "hash-b");
 
         let substitutions = graph.detect_substitutions();
-        assert_eq!(substitutions.len(), 1, "One substitution should be detected");
+        assert_eq!(
+            substitutions.len(),
+            1,
+            "One substitution should be detected"
+        );
 
         let sub = &substitutions[0];
         assert_eq!(sub.component_id, "comp-a");
@@ -2874,7 +2885,11 @@ mod tests {
         graph.set_actual_hash("comp-c", "hash-c-wrong");
 
         let substitutions = graph.detect_substitutions();
-        assert_eq!(substitutions.len(), 2, "Two substitutions should be detected");
+        assert_eq!(
+            substitutions.len(),
+            2,
+            "Two substitutions should be detected"
+        );
     }
 
     #[test]
@@ -2959,8 +2974,14 @@ mod tests {
         let a_pos = sorted.iter().position(|x| x == "a").unwrap();
 
         // Verify: c < b < a in sorted order (dependencies first)
-        assert!(c_pos < b_pos, "c (no deps) should come before b (depends on c)");
-        assert!(b_pos < a_pos, "b (depends on c) should come before a (depends on b)");
+        assert!(
+            c_pos < b_pos,
+            "c (no deps) should come before b (depends on c)"
+        );
+        assert!(
+            b_pos < a_pos,
+            "b (depends on c) should come before a (depends on b)"
+        );
     }
 
     #[test]
@@ -3178,9 +3199,11 @@ mod tests {
         let mut allow_list = SourceAllowList::new();
         allow_list.add_source("https://internal.company.com");
 
-        assert!(allow_list
-            .validate_source("comp-a", Some("https://internal.company.com/repo"))
-            .is_ok());
+        assert!(
+            allow_list
+                .validate_source("comp-a", Some("https://internal.company.com/repo"))
+                .is_ok()
+        );
 
         let result = allow_list.validate_source("comp-b", Some("https://external.com/repo"));
         assert!(result.is_err());
@@ -3249,9 +3272,7 @@ mod tests {
         // Attacker tries to use vulnerable old version
         let result = policy.validate_version("crypto-lib", "1.0.0");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("does not satisfy constraint"));
+        assert!(result.unwrap_err().contains("does not satisfy constraint"));
     }
 
     #[test]
@@ -3342,8 +3363,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_policy_future_within_tolerance() {
-        let policy = TimestampPolicy::new()
-            .with_future_tolerance_seconds(300); // 5 minutes
+        let policy = TimestampPolicy::new().with_future_tolerance_seconds(300); // 5 minutes
 
         // 2 minutes in the future (within tolerance)
         let future = (chrono::Utc::now() + chrono::Duration::seconds(120)).to_rfc3339();
@@ -3352,8 +3372,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_policy_future_exceeds_tolerance() {
-        let policy = TimestampPolicy::new()
-            .with_future_tolerance_seconds(300); // 5 minutes
+        let policy = TimestampPolicy::new().with_future_tolerance_seconds(300); // 5 minutes
 
         // 10 minutes in the future (exceeds tolerance)
         let future = (chrono::Utc::now() + chrono::Duration::seconds(600)).to_rfc3339();
@@ -3365,8 +3384,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_policy_max_age() {
-        let policy = TimestampPolicy::new()
-            .with_max_age_days(30); // 30 days
+        let policy = TimestampPolicy::new().with_max_age_days(30); // 30 days
 
         // 10 days ago (within limit)
         let recent = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
@@ -3401,7 +3419,11 @@ mod tests {
         let policy = TimestampPolicy::new();
         let now = chrono::Utc::now().to_rfc3339();
 
-        assert!(policy.validate_optional_timestamp(Some(&now), "Test").is_ok());
+        assert!(
+            policy
+                .validate_optional_timestamp(Some(&now), "Test")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -3437,8 +3459,7 @@ mod tests {
 
     #[test]
     fn test_validate_manifest_timestamps_old() {
-        let policy = TimestampPolicy::new()
-            .with_max_age_days(1);
+        let policy = TimestampPolicy::new().with_max_age_days(1);
 
         let old_time = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
 
@@ -3491,8 +3512,7 @@ mod tests {
 
     #[test]
     fn test_signature_freshness_max_age() {
-        let policy = SignatureFreshnessPolicy::new()
-            .with_max_age_days(30);
+        let policy = SignatureFreshnessPolicy::new().with_max_age_days(30);
 
         // 10 days old (OK)
         let recent = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
@@ -3509,8 +3529,7 @@ mod tests {
     #[test]
     fn test_signature_freshness_minimum_timestamp() {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
-        let policy = SignatureFreshnessPolicy::new()
-            .with_minimum_timestamp(cutoff);
+        let policy = SignatureFreshnessPolicy::new().with_minimum_timestamp(cutoff);
 
         // 3 days ago (after cutoff, OK)
         let recent = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
@@ -3521,7 +3540,11 @@ mod tests {
         let result = policy.validate(&old, "Signature");
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("before minimum acceptable time"));
+        assert!(
+            result
+                .unwrap_err()
+                .contains("before minimum acceptable time")
+        );
     }
 
     #[test]
@@ -3555,7 +3578,11 @@ mod tests {
         let not_before = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
         let not_after = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
 
-        assert!(policy.validate_certificate_times(&not_before, &not_after, "Test").is_ok());
+        assert!(
+            policy
+                .validate_certificate_times(&not_before, &not_after, "Test")
+                .is_ok()
+        );
     }
 
     #[test]
@@ -3584,24 +3611,30 @@ mod tests {
 
     #[test]
     fn test_certificate_validity_policy_not_yet_valid_allowed() {
-        let policy = CertificateValidityPolicy::new()
-            .allow_not_yet_valid(true);
+        let policy = CertificateValidityPolicy::new().allow_not_yet_valid(true);
 
         let not_before = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
         let not_after = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
 
-        assert!(policy.validate_certificate_times(&not_before, &not_after, "Test").is_ok());
+        assert!(
+            policy
+                .validate_certificate_times(&not_before, &not_after, "Test")
+                .is_ok()
+        );
     }
 
     #[test]
     fn test_certificate_validity_policy_min_remaining() {
-        let policy = CertificateValidityPolicy::new()
-            .with_min_remaining_validity_days(10);
+        let policy = CertificateValidityPolicy::new().with_min_remaining_validity_days(10);
 
         // 20 days remaining (OK)
         let not_before = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
         let not_after = (chrono::Utc::now() + chrono::Duration::days(20)).to_rfc3339();
-        assert!(policy.validate_certificate_times(&not_before, &not_after, "Test").is_ok());
+        assert!(
+            policy
+                .validate_certificate_times(&not_before, &not_after, "Test")
+                .is_ok()
+        );
 
         // 5 days remaining (too soon)
         let not_before2 = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
@@ -3614,22 +3647,18 @@ mod tests {
 
     #[test]
     fn test_timestamp_validation_config_integration() {
-        let policy = TimestampPolicy::new()
-            .with_max_age_days(30);
+        let policy = TimestampPolicy::new().with_max_age_days(30);
 
-        let config = ValidationConfig::lenient()
-            .with_timestamp_policy(policy);
+        let config = ValidationConfig::lenient().with_timestamp_policy(policy);
 
         assert!(config.timestamp_policy.is_some());
     }
 
     #[test]
     fn test_timestamp_validation_strict_mode() {
-        let policy = TimestampPolicy::new()
-            .with_max_age_days(7);
+        let policy = TimestampPolicy::new().with_max_age_days(7);
 
-        let config = ValidationConfig::strict()
-            .with_timestamp_policy(policy);
+        let config = ValidationConfig::strict().with_timestamp_policy(policy);
 
         assert_eq!(config.mode, ValidationMode::Strict);
         assert!(config.timestamp_policy.is_some());
@@ -3641,11 +3670,7 @@ mod tests {
 
     #[test]
     fn test_device_attestation_creation() {
-        let attestation = DeviceAttestation::new(
-            "device-12345",
-            "SecureElement",
-            "ATECC608",
-        );
+        let attestation = DeviceAttestation::new("device-12345", "SecureElement", "ATECC608");
 
         assert_eq!(attestation.device_id, "device-12345");
         assert_eq!(attestation.attestation_type, "SecureElement");
@@ -3656,8 +3681,8 @@ mod tests {
     #[test]
     fn test_device_attestation_with_data() {
         let test_data = b"attestation_data_here";
-        let attestation = DeviceAttestation::new("device-1", "TPM", "TPM2.0")
-            .with_attestation_data(test_data);
+        let attestation =
+            DeviceAttestation::new("device-1", "TPM", "TPM2.0").with_attestation_data(test_data);
 
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&attestation.attestation_data)
@@ -3668,8 +3693,8 @@ mod tests {
     #[test]
     fn test_device_attestation_with_signature() {
         let signature = b"signature_bytes";
-        let attestation = DeviceAttestation::new("device-1", "SGX", "SGX-Enabled")
-            .with_signature(signature);
+        let attestation =
+            DeviceAttestation::new("device-1", "SGX", "SGX-Enabled").with_signature(signature);
 
         assert!(attestation.attestation_signature.is_some());
         let decoded = base64::engine::general_purpose::STANDARD
@@ -3681,8 +3706,8 @@ mod tests {
     #[test]
     fn test_device_attestation_with_public_key() {
         let pubkey = b"public_key_bytes_here_32_bytes!";
-        let attestation = DeviceAttestation::new("device-1", "SecureElement", "ATECC608")
-            .with_public_key(pubkey);
+        let attestation =
+            DeviceAttestation::new("device-1", "SecureElement", "ATECC608").with_public_key(pubkey);
 
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&attestation.device_public_key)
@@ -3696,8 +3721,14 @@ mod tests {
             .add_metadata("firmware_version", "1.2.3")
             .add_metadata("boot_time", "2025-11-15T10:00:00Z");
 
-        assert_eq!(attestation.metadata.get("firmware_version"), Some(&"1.2.3".to_string()));
-        assert_eq!(attestation.metadata.get("boot_time"), Some(&"2025-11-15T10:00:00Z".to_string()));
+        assert_eq!(
+            attestation.metadata.get("firmware_version"),
+            Some(&"1.2.3".to_string())
+        );
+        assert_eq!(
+            attestation.metadata.get("boot_time"),
+            Some(&"2025-11-15T10:00:00Z".to_string())
+        );
     }
 
     #[test]
@@ -3717,8 +3748,8 @@ mod tests {
     #[test]
     fn test_hardware_composition_manifest() {
         let base_manifest = CompositionManifest::new("wac", "0.5.0");
-        let hw_manifest = HardwareCompositionManifest::from_manifest(base_manifest)
-            .with_security_level(4);
+        let hw_manifest =
+            HardwareCompositionManifest::from_manifest(base_manifest).with_security_level(4);
 
         assert_eq!(hw_manifest.security_level, 4);
         assert!(hw_manifest.device_attestation.is_none());
@@ -3740,8 +3771,8 @@ mod tests {
     #[test]
     fn test_hardware_composition_manifest_security_level_cap() {
         let base_manifest = CompositionManifest::new("wac", "0.5.0");
-        let hw_manifest = HardwareCompositionManifest::from_manifest(base_manifest)
-            .with_security_level(10); // Try to set level 10
+        let hw_manifest =
+            HardwareCompositionManifest::from_manifest(base_manifest).with_security_level(10); // Try to set level 10
 
         assert_eq!(hw_manifest.security_level, 4); // Should cap at 4
     }
@@ -3759,8 +3790,7 @@ mod tests {
     #[test]
     fn test_transparency_log_entry_with_body() {
         let body_data = b"log_entry_body_data";
-        let entry = TransparencyLogEntry::new(100, "uuid-test")
-            .with_body(body_data);
+        let entry = TransparencyLogEntry::new(100, "uuid-test").with_body(body_data);
 
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(&entry.body)
@@ -3777,8 +3807,7 @@ mod tests {
             log_index: 100,
         };
 
-        let entry = TransparencyLogEntry::new(100, "uuid-test")
-            .with_inclusion_proof(proof.clone());
+        let entry = TransparencyLogEntry::new(100, "uuid-test").with_inclusion_proof(proof.clone());
 
         assert!(entry.inclusion_proof.is_some());
         let included_proof = entry.inclusion_proof.unwrap();
@@ -3789,8 +3818,7 @@ mod tests {
 
     #[test]
     fn test_transparency_log_entry_serialization() {
-        let entry = TransparencyLogEntry::new(123, "uuid-456")
-            .with_body(b"test_body");
+        let entry = TransparencyLogEntry::new(123, "uuid-456").with_body(b"test_body");
 
         let json = entry.to_json().unwrap();
         let deserialized = TransparencyLogEntry::from_json(&json).unwrap();
@@ -3826,8 +3854,7 @@ mod tests {
     #[test]
     fn test_embed_and_extract_transparency_log() {
         let module = Module::default();
-        let entry = TransparencyLogEntry::new(999, "uuid-transparency")
-            .with_body(b"log_data");
+        let entry = TransparencyLogEntry::new(999, "uuid-transparency").with_body(b"log_data");
 
         let module_with_log = embed_transparency_log_entry(module, &entry).unwrap();
         let extracted = extract_transparency_log_entry(&module_with_log).unwrap();
@@ -3878,8 +3905,8 @@ mod tests {
 
     #[test]
     fn test_validate_device_attestation_device_id_mismatch() {
-        let attestation = DeviceAttestation::new("device-1", "ATECC608", "SecureElement")
-            .with_public_key(b"key");
+        let attestation =
+            DeviceAttestation::new("device-1", "ATECC608", "SecureElement").with_public_key(b"key");
 
         let result = validate_device_attestation(&attestation, Some("device-2"));
         assert!(result.is_err());
@@ -3888,8 +3915,8 @@ mod tests {
 
     #[test]
     fn test_validate_device_attestation_device_id_match() {
-        let attestation = DeviceAttestation::new("device-1", "ATECC608", "SecureElement")
-            .with_public_key(b"key");
+        let attestation =
+            DeviceAttestation::new("device-1", "ATECC608", "SecureElement").with_public_key(b"key");
 
         let result = validate_device_attestation(&attestation, Some("device-1"));
         assert!(result.is_ok());
@@ -3904,8 +3931,8 @@ mod tests {
         let module = embed_composition_manifest(module, &manifest).unwrap();
 
         // Add device attestation
-        let attestation = DeviceAttestation::new("device-1", "ATECC608", "SecureElement")
-            .with_public_key(b"key");
+        let attestation =
+            DeviceAttestation::new("device-1", "ATECC608", "SecureElement").with_public_key(b"key");
         let module = embed_device_attestation(module, &attestation).unwrap();
 
         // Add transparency log

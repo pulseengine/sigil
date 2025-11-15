@@ -5,8 +5,8 @@ use std::io::{Cursor, Write};
 use x509_parser::prelude::*;
 
 // Re-export RekorEntry from the rekor module
-pub use super::rekor::RekorEntry;
 use super::cert_verifier::CertificatePool;
+pub use super::rekor::RekorEntry;
 use super::rekor_verifier::RekorKeyring;
 
 /// Binary format version for keyless signatures
@@ -79,9 +79,9 @@ impl KeylessSignature {
         let mut buffer = Vec::new();
 
         // Write version
-        buffer.write_all(&[KEYLESS_VERSION]).map_err(|e| {
-            WSError::KeylessFormatError(format!("Failed to write version: {}", e))
-        })?;
+        buffer
+            .write_all(&[KEYLESS_VERSION])
+            .map_err(|e| WSError::KeylessFormatError(format!("Failed to write version: {}", e)))?;
 
         // Write signature type
         buffer.write_all(&[KEYLESS_SIG_TYPE]).map_err(|e| {
@@ -101,9 +101,9 @@ impl KeylessSignature {
                 cert_count
             )));
         }
-        buffer
-            .write_all(&[cert_count as u8])
-            .map_err(|e| WSError::KeylessFormatError(format!("Failed to write cert count: {}", e)))?;
+        buffer.write_all(&[cert_count as u8]).map_err(|e| {
+            WSError::KeylessFormatError(format!("Failed to write cert count: {}", e))
+        })?;
 
         // Write each certificate
         for (i, cert_pem) in self.cert_chain.iter().enumerate() {
@@ -144,9 +144,8 @@ impl KeylessSignature {
 
         // Read and verify version
         let mut version = [0u8; 1];
-        std::io::Read::read_exact(&mut reader, &mut version).map_err(|e| {
-            WSError::KeylessFormatError(format!("Failed to read version: {}", e))
-        })?;
+        std::io::Read::read_exact(&mut reader, &mut version)
+            .map_err(|e| WSError::KeylessFormatError(format!("Failed to read version: {}", e)))?;
         if version[0] != KEYLESS_VERSION {
             return Err(WSError::KeylessFormatError(format!(
                 "Unsupported version: {} (expected {})",
@@ -167,9 +166,8 @@ impl KeylessSignature {
         }
 
         // Read signature
-        let signature = varint::get_slice(&mut reader).map_err(|e| {
-            WSError::KeylessFormatError(format!("Failed to read signature: {}", e))
-        })?;
+        let signature = varint::get_slice(&mut reader)
+            .map_err(|e| WSError::KeylessFormatError(format!("Failed to read signature: {}", e)))?;
 
         // Read certificate chain count
         let mut cert_count = [0u8; 1];
@@ -184,10 +182,7 @@ impl KeylessSignature {
                 WSError::KeylessFormatError(format!("Failed to read certificate {}: {}", i, e))
             })?;
             let cert_pem = String::from_utf8(cert_bytes).map_err(|e| {
-                WSError::KeylessFormatError(format!(
-                    "Certificate {} is not valid UTF-8: {}",
-                    i, e
-                ))
+                WSError::KeylessFormatError(format!("Certificate {} is not valid UTF-8: {}", i, e))
             })?;
             cert_chain.push(cert_pem);
         }
@@ -230,17 +225,17 @@ impl KeylessSignature {
 
         // Parse the leaf certificate (first in chain)
         let leaf_pem = &self.cert_chain[0];
-        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes()).map_err(|e| {
-            WSError::CertificateError(format!("Failed to parse PEM: {}", e))
-        })?;
+        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes())
+            .map_err(|e| WSError::CertificateError(format!("Failed to parse PEM: {}", e)))?;
 
         let cert = pem.parse_x509().map_err(|e| {
             WSError::CertificateError(format!("Failed to parse X.509 certificate: {}", e))
         })?;
 
         // Look for Subject Alternative Name extension
-        if let Some(san_ext) = cert.get_extension_unique(&oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)? {
-            if let ParsedExtension::SubjectAlternativeName(san) = san_ext.parsed_extension() {
+        if let Some(san_ext) =
+            cert.get_extension_unique(&oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?
+            && let ParsedExtension::SubjectAlternativeName(san) = san_ext.parsed_extension() {
                 // Try different SAN types in order of preference
                 for name in &san.general_names {
                     match name {
@@ -257,16 +252,14 @@ impl KeylessSignature {
                     }
                 }
             }
-        }
 
         // Fall back to subject common name if no SAN found
         for rdn in cert.subject().iter() {
             for attr in rdn.iter() {
-                if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME {
-                    if let Ok(cn) = attr.as_str() {
+                if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME
+                    && let Ok(cn) = attr.as_str() {
                         return Ok(cn.to_string());
                     }
-                }
             }
         }
 
@@ -294,9 +287,8 @@ impl KeylessSignature {
 
         // Parse the leaf certificate (first in chain)
         let leaf_pem = &self.cert_chain[0];
-        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes()).map_err(|e| {
-            WSError::CertificateError(format!("Failed to parse PEM: {}", e))
-        })?;
+        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes())
+            .map_err(|e| WSError::CertificateError(format!("Failed to parse PEM: {}", e)))?;
 
         let cert = pem.parse_x509().map_err(|e| {
             WSError::CertificateError(format!("Failed to parse X.509 certificate: {}", e))
@@ -309,11 +301,10 @@ impl KeylessSignature {
         // Extract issuer common name as a fallback
         for rdn in cert.issuer().iter() {
             for attr in rdn.iter() {
-                if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME {
-                    if let Ok(cn) = attr.as_str() {
+                if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME
+                    && let Ok(cn) = attr.as_str() {
                         return Ok(cn.to_string());
                     }
-                }
             }
         }
 
@@ -346,22 +337,30 @@ impl KeylessSignature {
         }
 
         // Load Fulcio trusted roots
-        let cert_pool = CertificatePool::from_embedded_trust_root()
-            .map_err(|e| WSError::CertificateError(format!("Failed to load trusted roots: {}", e)))?;
+        let cert_pool = CertificatePool::from_embedded_trust_root().map_err(|e| {
+            WSError::CertificateError(format!("Failed to load trusted roots: {}", e))
+        })?;
 
         // Parse integrated_time from Rekor entry (RFC3339 format)
-        let integrated_time = chrono::DateTime::parse_from_rfc3339(&self.rekor_entry.integrated_time)
-            .map_err(|e| WSError::CertificateError(format!("Failed to parse integrated_time: {}", e)))?;
+        let integrated_time =
+            chrono::DateTime::parse_from_rfc3339(&self.rekor_entry.integrated_time).map_err(
+                |e| WSError::CertificateError(format!("Failed to parse integrated_time: {}", e)),
+            )?;
 
         let integrated_time_unix = integrated_time.timestamp();
 
         // Verify the leaf certificate (first in chain)
         // The leaf certificate must chain up to a trusted Fulcio root CA
-        let leaf_cert_pem = self.cert_chain.first()
+        let leaf_cert_pem = self
+            .cert_chain
+            .first()
             .ok_or_else(|| WSError::CertificateError("No leaf certificate in chain".to_string()))?;
 
-        cert_pool.verify_pem_cert(leaf_cert_pem.as_bytes(), integrated_time_unix)
-            .map_err(|e| WSError::CertificateError(format!("Certificate verification failed: {}", e)))?;
+        cert_pool
+            .verify_pem_cert(leaf_cert_pem.as_bytes(), integrated_time_unix)
+            .map_err(|e| {
+                WSError::CertificateError(format!("Certificate verification failed: {}", e))
+            })?;
 
         log::debug!("Certificate chain verified successfully");
         Ok(())
@@ -384,7 +383,10 @@ impl KeylessSignature {
     ///
     /// Ok if the inclusion proof is valid, error otherwise
     pub fn verify_rekor_inclusion(&self) -> Result<(), WSError> {
-        log::debug!("Verifying Rekor inclusion proof for entry {}", self.rekor_entry.uuid);
+        log::debug!(
+            "Verifying Rekor inclusion proof for entry {}",
+            self.rekor_entry.uuid
+        );
 
         // Load Rekor public keys from embedded trust root
         let keyring = RekorKeyring::from_embedded_trust_root()
@@ -444,7 +446,10 @@ mod tests {
         assert_eq!(deserialized.signature, sig.signature);
         assert_eq!(deserialized.cert_chain, sig.cert_chain);
         assert_eq!(deserialized.rekor_entry.uuid, sig.rekor_entry.uuid);
-        assert_eq!(deserialized.rekor_entry.log_index, sig.rekor_entry.log_index);
+        assert_eq!(
+            deserialized.rekor_entry.log_index,
+            sig.rekor_entry.log_index
+        );
         assert_eq!(
             deserialized.rekor_entry.inclusion_proof,
             sig.rekor_entry.inclusion_proof
@@ -471,8 +476,8 @@ mod tests {
     #[test]
     fn test_single_cert_chain() {
         let mut sig = create_test_signature();
-        sig.cert_chain = vec!["-----BEGIN CERTIFICATE-----\nsingle\n-----END CERTIFICATE-----"
-            .to_string()];
+        sig.cert_chain =
+            vec!["-----BEGIN CERTIFICATE-----\nsingle\n-----END CERTIFICATE-----".to_string()];
 
         let bytes = sig.to_bytes().expect("Serialization should succeed");
         let deserialized =
@@ -487,7 +492,12 @@ mod tests {
         let mut sig = create_test_signature();
         // Create 255 certificates (max allowed)
         sig.cert_chain = (0..255)
-            .map(|i| format!("-----BEGIN CERTIFICATE-----\ncert {}\n-----END CERTIFICATE-----", i))
+            .map(|i| {
+                format!(
+                    "-----BEGIN CERTIFICATE-----\ncert {}\n-----END CERTIFICATE-----",
+                    i
+                )
+            })
             .collect();
 
         let bytes = sig.to_bytes().expect("Serialization should succeed");
@@ -502,12 +512,20 @@ mod tests {
         let mut sig = create_test_signature();
         // Create 256 certificates (one too many)
         sig.cert_chain = (0..256)
-            .map(|i| format!("-----BEGIN CERTIFICATE-----\ncert {}\n-----END CERTIFICATE-----", i))
+            .map(|i| {
+                format!(
+                    "-----BEGIN CERTIFICATE-----\ncert {}\n-----END CERTIFICATE-----",
+                    i
+                )
+            })
             .collect();
 
         let result = sig.to_bytes();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::KeylessFormatError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            WSError::KeylessFormatError(_)
+        ));
     }
 
     #[test]
@@ -520,7 +538,10 @@ mod tests {
 
         let result = KeylessSignature::from_bytes(&bytes);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::KeylessFormatError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            WSError::KeylessFormatError(_)
+        ));
     }
 
     #[test]
@@ -533,7 +554,10 @@ mod tests {
 
         let result = KeylessSignature::from_bytes(&bytes);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::KeylessFormatError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            WSError::KeylessFormatError(_)
+        ));
     }
 
     #[test]
@@ -568,7 +592,10 @@ mod tests {
         assert_eq!(deserialized.body, entry.body);
         assert_eq!(deserialized.log_id, entry.log_id);
         assert_eq!(deserialized.inclusion_proof, entry.inclusion_proof);
-        assert_eq!(deserialized.signed_entry_timestamp, entry.signed_entry_timestamp);
+        assert_eq!(
+            deserialized.signed_entry_timestamp,
+            entry.signed_entry_timestamp
+        );
         assert_eq!(deserialized.integrated_time, entry.integrated_time);
     }
 
@@ -591,11 +618,14 @@ mod tests {
         // The test data has invalid Rekor entry, so verification should fail
         // This proves that real verification is happening (not just a stub)
         let result = sig.verify_rekor_inclusion();
-        assert!(result.is_err(), "Expected verification to fail with invalid test data");
+        assert!(
+            result.is_err(),
+            "Expected verification to fail with invalid test data"
+        );
 
         // Verify we get a Rekor error (not some other error type)
         match result {
-            Err(WSError::RekorError(_)) => {}, // Expected
+            Err(WSError::RekorError(_)) => {} // Expected
             Err(e) => panic!("Expected RekorError, got: {:?}", e),
             Ok(_) => panic!("Expected verification to fail"),
         }

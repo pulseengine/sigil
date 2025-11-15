@@ -12,12 +12,12 @@
 //! Trust anchors (Fulcio root CAs) are embedded from Sigstore's TUF repository.
 //! The verification process follows RFC 5280 and WebPKI best practices.
 
+use base64::prelude::*;
 use rustls_pki_types::{CertificateDer, TrustAnchor, UnixTime};
-use webpki::{EndEntityCert, KeyUsage};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
-use base64::prelude::*;
+use webpki::{EndEntityCert, KeyUsage};
 
 /// Errors that can occur during certificate verification
 #[derive(Debug, Error)]
@@ -31,7 +31,9 @@ pub enum CertVerificationError {
     #[error("Certificate is not yet valid (not before: {0})")]
     NotYetValid(String),
 
-    #[error("Certificate expired before signature was created (not after: {0}, signature time: {1})")]
+    #[error(
+        "Certificate expired before signature was created (not after: {0}, signature time: {1})"
+    )]
     ExpiredBeforeSignature(String, String),
 
     #[error("Failed to parse PEM: {0}")]
@@ -125,8 +127,11 @@ impl CertificatePool {
             // Decode all certificates in the chain
             let mut decoded_certs = Vec::new();
             for cert_entry in &certs {
-                let der = base64::prelude::BASE64_STANDARD.decode(&cert_entry.raw_bytes)
-                    .map_err(|e| CertVerificationError::ParseError(format!("Base64 decode failed: {}", e)))?;
+                let der = base64::prelude::BASE64_STANDARD
+                    .decode(&cert_entry.raw_bytes)
+                    .map_err(|e| {
+                        CertVerificationError::ParseError(format!("Base64 decode failed: {}", e))
+                    })?;
                 decoded_certs.push(CertificateDer::from(der));
             }
 
@@ -136,14 +141,24 @@ impl CertificatePool {
                 // Single cert - treat as root
                 let root_cert = &decoded_certs[0];
                 let trust_anchor = webpki::anchor_from_trusted_cert(root_cert)
-                    .map_err(|e| CertVerificationError::ParseError(format!("Failed to create trust anchor: {:?}", e)))?
+                    .map_err(|e| {
+                        CertVerificationError::ParseError(format!(
+                            "Failed to create trust anchor: {:?}",
+                            e
+                        ))
+                    })?
                     .to_owned();
                 trusted_roots.push(trust_anchor);
             } else {
                 // Multiple certs - last is root, others are intermediates
                 let root_cert = &decoded_certs[decoded_certs.len() - 1];
                 let trust_anchor = webpki::anchor_from_trusted_cert(root_cert)
-                    .map_err(|e| CertVerificationError::ParseError(format!("Failed to create trust anchor: {:?}", e)))?
+                    .map_err(|e| {
+                        CertVerificationError::ParseError(format!(
+                            "Failed to create trust anchor: {:?}",
+                            e
+                        ))
+                    })?
                     .to_owned();
                 trusted_roots.push(trust_anchor);
 
@@ -201,11 +216,13 @@ impl CertificatePool {
         integrated_time: i64,
     ) -> Result<(), CertVerificationError> {
         let cert_der = CertificateDer::from(cert_der);
-        let cert = EndEntityCert::try_from(&cert_der)
-            .map_err(|e| CertVerificationError::ParseError(format!("Failed to parse certificate: {:?}", e)))?;
+        let cert = EndEntityCert::try_from(&cert_der).map_err(|e| {
+            CertVerificationError::ParseError(format!("Failed to parse certificate: {:?}", e))
+        })?;
 
         // Convert integrated_time to UnixTime for verification
-        let verification_time = UnixTime::since_unix_epoch(Duration::from_secs(integrated_time as u64));
+        let verification_time =
+            UnixTime::since_unix_epoch(Duration::from_secs(integrated_time as u64));
 
         self.verify_cert_with_time(&cert, verification_time)
     }
@@ -235,8 +252,8 @@ impl CertificatePool {
             &self.intermediates,
             verification_time,
             KeyUsage::required(eku_code_signing),
-            None,  // No DNS name validation needed
-            None,  // No revocation checking yet (TODO: Issue #2)
+            None, // No DNS name validation needed
+            None, // No revocation checking yet (TODO: Issue #2)
         )
         .map_err(|e| CertVerificationError::ChainVerificationFailed(format!("{:?}", e)))?;
 
@@ -251,7 +268,11 @@ mod tests {
     #[test]
     fn test_load_embedded_trust_root() {
         let pool = CertificatePool::from_embedded_trust_root();
-        assert!(pool.is_ok(), "Failed to load embedded trust root: {:?}", pool.err());
+        assert!(
+            pool.is_ok(),
+            "Failed to load embedded trust root: {:?}",
+            pool.err()
+        );
 
         let pool = pool.unwrap();
         assert!(!pool.trusted_roots.is_empty(), "No trusted roots loaded");
@@ -265,13 +286,23 @@ mod tests {
         let trusted_root_json = include_str!("trust_root/trusted_root.json");
         let result: Result<TrustedRoot, _> = serde_json::from_str(trusted_root_json);
 
-        assert!(result.is_ok(), "Failed to parse trusted_root.json: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse trusted_root.json: {:?}",
+            result.err()
+        );
 
         let trusted_root = result.unwrap();
-        assert!(!trusted_root.certificate_authorities.is_empty(), "No certificate authorities found");
+        assert!(
+            !trusted_root.certificate_authorities.is_empty(),
+            "No certificate authorities found"
+        );
 
         for ca in &trusted_root.certificate_authorities {
-            println!("CA: {} - {}", ca.subject.organization, ca.subject.common_name);
+            println!(
+                "CA: {} - {}",
+                ca.subject.organization, ca.subject.common_name
+            );
             println!("  URI: {}", ca.uri);
             println!("  Certificates: {}", ca.cert_chain.certificates.len());
         }

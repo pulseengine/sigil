@@ -6,12 +6,9 @@
 /// 3. Create CSR
 /// 4. Sign certificate with CA
 /// 5. Return certificate + handle to locked key
-
 use crate::error::WSError;
 use crate::platform::SecureKeyProvider;
-use crate::provisioning::{
-    PrivateCA, DeviceIdentity, CertificateConfig, ProvisioningResult,
-};
+use crate::provisioning::{CertificateConfig, DeviceIdentity, PrivateCA, ProvisioningResult};
 
 /// Provisioning session
 ///
@@ -121,11 +118,7 @@ impl ProvisioningSession {
         // Step 3: Sign device certificate with CA
         // Note: We skip CSR generation for now (direct signing)
         log::info!("Signing device certificate");
-        let certificate = ca.sign_device_certificate(
-            &public_key,
-            &device_id,
-            &config,
-        )?;
+        let certificate = ca.sign_device_certificate(&public_key, &device_id, &config)?;
 
         // Step 4: Build certificate chain
         // Chain: Device cert + Intermediate (if any) + Root
@@ -205,9 +198,7 @@ impl ProvisioningSession {
     ) -> Vec<Result<ProvisioningResult, WSError>> {
         devices
             .into_iter()
-            .map(|(device_id, config)| {
-                Self::provision(ca, provider, device_id, config, lock_keys)
-            })
+            .map(|(device_id, config)| Self::provision(ca, provider, device_id, config, lock_keys))
             .collect()
     }
 
@@ -242,7 +233,7 @@ impl ProvisioningSession {
         let signature = provider.sign(result.key_handle, test_data)?;
 
         // Get public key
-        let public_key = provider.get_public_key(result.key_handle)?;
+        let _public_key = provider.get_public_key(result.key_handle)?;
 
         // Verify signature
         // Note: This requires implementing verification in PublicKey
@@ -298,7 +289,8 @@ impl ProvisioningStats {
             self.avg_time_ms = duration_ms;
         } else {
             // Moving average
-            self.avg_time_ms = ((self.avg_time_ms * (total - 1) as u64) + duration_ms) / total as u64;
+            self.avg_time_ms =
+                ((self.avg_time_ms * (total - 1) as u64) + duration_ms) / total as u64;
         }
     }
 
@@ -321,7 +313,7 @@ mod tests {
     #[test]
     fn test_generate_serial_number() {
         let serial1 = ProvisioningSession::generate_serial_number().unwrap();
-        let serial2 = ProvisioningSession::generate_serial_number().unwrap();
+        let _serial2 = ProvisioningSession::generate_serial_number().unwrap();
 
         assert_eq!(serial1.len(), 8); // 64-bit timestamp
         assert!(!serial1.is_empty());
@@ -344,11 +336,7 @@ mod tests {
         let config = CertificateConfig::new("device-test-001");
 
         let result = ProvisioningSession::provision(
-            &ca,
-            &provider,
-            device_id,
-            config,
-            false, // Don't lock for testing
+            &ca, &provider, device_id, config, false, // Don't lock for testing
         );
 
         assert!(result.is_ok());
@@ -367,9 +355,18 @@ mod tests {
         let provider = SoftwareProvider::new();
 
         let devices = vec![
-            (DeviceIdentity::new("device-001"), CertificateConfig::new("device-001")),
-            (DeviceIdentity::new("device-002"), CertificateConfig::new("device-002")),
-            (DeviceIdentity::new("device-003"), CertificateConfig::new("device-003")),
+            (
+                DeviceIdentity::new("device-001"),
+                CertificateConfig::new("device-001"),
+            ),
+            (
+                DeviceIdentity::new("device-002"),
+                CertificateConfig::new("device-002"),
+            ),
+            (
+                DeviceIdentity::new("device-003"),
+                CertificateConfig::new("device-003"),
+            ),
         ];
 
         let results = ProvisioningSession::provision_batch(&ca, &provider, devices, false);
@@ -415,21 +412,13 @@ mod tests {
         let device_id = DeviceIdentity::new("device-test");
         let config = CertificateConfig::new("device-test");
 
-        let result = ProvisioningSession::provision(
-            &ca,
-            &provider,
-            device_id,
-            config,
-            false,
-        ).unwrap();
+        let result =
+            ProvisioningSession::provision(&ca, &provider, device_id, config, false).unwrap();
 
         // Verify device can sign
         let test_data = b"test data for verification";
-        let verify_result = ProvisioningSession::verify_provisioned_device(
-            &provider,
-            &result,
-            test_data,
-        );
+        let verify_result =
+            ProvisioningSession::verify_provisioned_device(&provider, &result, test_data);
 
         assert!(verify_result.is_ok());
     }
