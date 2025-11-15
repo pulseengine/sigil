@@ -125,17 +125,28 @@ Two tests in `signature::keyless::rekor_verifier::tests` are marked `#[ignore]`:
 
 **Why Ignored:** These tests use hardcoded Rekor entry data with Merkle tree inclusion proofs that become stale as the Rekor log grows.
 
-**Updating Test Data:**
+**Running These Tests:**
 ```bash
-# Fetch fresh data from Rekor API
-./scripts/update-rekor-test-data.sh
+# Option 1: Run locally with environment variable
+RUN_IGNORED_TESTS=true ./scripts/run-ci-tests.sh
 
-# This generates Rust code to paste into rekor_verifier.rs
-# Follow the instructions in the script output
-
-# After updating, run the tests
+# Option 2: Run directly with cargo
 cargo test signature::keyless::rekor_verifier::tests -- --ignored --nocapture
 ```
+
+**Updating Test Data:**
+```bash
+# Step 1: Fetch fresh data from Rekor API
+./scripts/update-rekor-test-data.sh
+
+# Step 2: Copy the generated Rust code into rekor_verifier.rs
+# (Follow the instructions in the script output)
+
+# Step 3: Verify tests pass
+cargo test signature::keyless::rekor_verifier::tests -- --ignored --nocapture
+```
+
+**In CI:** These tests run automatically in the `rekor-verification` job, which fetches fresh data and runs with `continue-on-error: true` to avoid blocking builds when data is stale.
 
 **When to Update:** When the Rekor log has grown significantly (every few months) or when developing Rekor verification features.
 

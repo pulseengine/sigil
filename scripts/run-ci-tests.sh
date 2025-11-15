@@ -84,6 +84,21 @@ else
     echo -e "${YELLOW}⚠️  SKIPPED: wasm32-wasip2 target not installed${NC}"
 fi
 
+# 6. Run ignored tests (optional - Rekor verification with hardcoded data)
+if [ "${RUN_IGNORED_TESTS:-false}" = "true" ]; then
+    echo -e "\n${YELLOW}▶ Running: Rekor verification tests (ignored by default)${NC}"
+    echo -e "${YELLOW}  Note: These may fail if test data is stale. Run ./scripts/update-rekor-test-data.sh to update.${NC}"
+    if cargo test signature::keyless::rekor_verifier::tests -- --ignored --nocapture; then
+        echo -e "${GREEN}✅ PASSED: Rekor verification tests${NC}"
+    else
+        echo -e "${RED}❌ FAILED: Rekor verification tests${NC}"
+        echo -e "${YELLOW}  Run './scripts/update-rekor-test-data.sh' to fetch fresh data${NC}"
+        FAILED_TESTS+=("rekor verification tests")
+    fi
+else
+    echo -e "\n${YELLOW}⚠️  SKIPPED: Rekor verification tests (use RUN_IGNORED_TESTS=true to run)${NC}"
+fi
+
 # Summary
 echo -e "\n${GREEN}========================================${NC}"
 echo -e "${GREEN}  Test Summary${NC}"
