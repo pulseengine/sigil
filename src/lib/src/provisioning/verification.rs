@@ -10,11 +10,10 @@
 /// - Verification: Device → Intermediate → Root (trusted)
 /// - No internet required
 /// - No revocation checking (use short-lived certs instead)
-
 use crate::error::WSError;
 use rustls_pki_types::{CertificateDer, TrustAnchor, UnixTime};
-use webpki::{EndEntityCert, KeyUsage};
 use std::time::Duration;
+use webpki::{EndEntityCert, KeyUsage};
 
 /// Offline certificate verifier
 ///
@@ -72,8 +71,9 @@ impl OfflineVerifier {
         let intermediate = CertificateDer::from(intermediate_cert_der.to_vec());
 
         // Validate intermediate can be parsed
-        let _ = EndEntityCert::try_from(&intermediate)
-            .map_err(|e| WSError::X509Error(format!("Invalid intermediate certificate: {:?}", e)))?;
+        let _ = EndEntityCert::try_from(&intermediate).map_err(|e| {
+            WSError::X509Error(format!("Invalid intermediate certificate: {:?}", e))
+        })?;
 
         self.intermediates.push(intermediate);
         Ok(())
@@ -148,10 +148,12 @@ impl OfflineVerifier {
             &self.intermediates,
             verification_time,
             KeyUsage::required(eku_code_signing),
-            None,  // No DNS name validation
-            None,  // No revocation checking (use short-lived certs)
+            None, // No DNS name validation
+            None, // No revocation checking (use short-lived certs)
         )
-        .map_err(|e| WSError::VerificationError(format!("Certificate chain verification failed: {:?}", e)))?;
+        .map_err(|e| {
+            WSError::VerificationError(format!("Certificate chain verification failed: {:?}", e))
+        })?;
 
         Ok(())
     }
@@ -242,8 +244,7 @@ impl OfflineVerifierBuilder {
 
     /// Build the verifier
     pub fn build(self) -> Result<OfflineVerifier, WSError> {
-        let root_cert = self.root_cert
-            .ok_or_else(|| WSError::InvalidArgument)?;
+        let root_cert = self.root_cert.ok_or_else(|| WSError::InvalidArgument)?;
 
         let mut verifier = OfflineVerifier::new(&root_cert)?;
 

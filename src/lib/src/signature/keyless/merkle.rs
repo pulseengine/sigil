@@ -120,9 +120,7 @@ pub fn verify_inclusion_proof(
     }
 
     if tree_size == 0 {
-        return Err(WSError::RekorError(
-            "Tree size cannot be zero".to_string(),
-        ));
+        return Err(WSError::RekorError("Tree size cannot be zero".to_string()));
     }
 
     // Special case: single-leaf tree
@@ -153,7 +151,10 @@ pub fn verify_inclusion_proof(
     #[cfg(test)]
     {
         println!("   Starting with leaf hash: {}", hex::encode(current_hash));
-        println!("   Leaf index: {}, Tree size: {}", current_index, current_tree_size);
+        println!(
+            "   Leaf index: {}, Tree size: {}",
+            current_index, current_tree_size
+        );
     }
 
     for (_i, proof_hash) in proof_hashes.iter().enumerate() {
@@ -186,15 +187,28 @@ pub fn verify_inclusion_proof(
 
         #[cfg(test)]
         {
-            println!("\n   Step {}: {} child", _i + 1, if is_left_child { "LEFT" } else { "RIGHT" });
+            println!(
+                "\n   Step {}: {} child",
+                _i + 1,
+                if is_left_child { "LEFT" } else { "RIGHT" }
+            );
             println!("     Left:   {}", left_hex);
             println!("     Right:  {}", right_hex);
             println!("     Result: {}", hex::encode(current_hash));
-            println!("     Index: {} -> {}, Tree size: {} -> {}",
+            println!(
+                "     Index: {} -> {}, Tree size: {} -> {}",
                 current_index,
-                if current_index >= left_subtree_size { current_index - left_subtree_size } else { current_index },
+                if current_index >= left_subtree_size {
+                    current_index - left_subtree_size
+                } else {
+                    current_index
+                },
                 current_tree_size,
-                if current_index >= left_subtree_size { current_tree_size - left_subtree_size } else { left_subtree_size }
+                if current_index >= left_subtree_size {
+                    current_tree_size - left_subtree_size
+                } else {
+                    left_subtree_size
+                }
             );
         }
 
@@ -279,13 +293,7 @@ mod tests {
     fn test_single_leaf_tree() {
         // Tree with just one leaf
         let leaf_hash = [0x42u8; 32];
-        let result = verify_inclusion_proof(
-            0,
-            1,
-            &leaf_hash,
-            &[],
-            &leaf_hash,
-        );
+        let result = verify_inclusion_proof(0, 1, &leaf_hash, &[], &leaf_hash);
         assert!(result.is_ok());
     }
 
@@ -293,13 +301,7 @@ mod tests {
     fn test_single_leaf_tree_wrong_root() {
         let leaf_hash = [0x42u8; 32];
         let wrong_root = [0x43u8; 32];
-        let result = verify_inclusion_proof(
-            0,
-            1,
-            &leaf_hash,
-            &[],
-            &wrong_root,
-        );
+        let result = verify_inclusion_proof(0, 1, &leaf_hash, &[], &wrong_root);
         assert!(result.is_err());
     }
 
@@ -307,7 +309,7 @@ mod tests {
     fn test_invalid_leaf_index() {
         let leaf_hash = [0x42u8; 32];
         let result = verify_inclusion_proof(
-            5,  // Invalid index for tree size 3
+            5, // Invalid index for tree size 3
             3,
             &leaf_hash,
             &[],
@@ -347,23 +349,11 @@ mod tests {
         let root = compute_node_hash(&leaf0_hash, &leaf1_hash);
 
         // Verify leaf 0's inclusion (proof is leaf 1's hash)
-        let result = verify_inclusion_proof(
-            0,
-            2,
-            &leaf0_hash,
-            &[leaf1_hash],
-            &root,
-        );
+        let result = verify_inclusion_proof(0, 2, &leaf0_hash, &[leaf1_hash], &root);
         assert!(result.is_ok(), "Failed to verify leaf 0");
 
         // Verify leaf 1's inclusion (proof is leaf 0's hash)
-        let result = verify_inclusion_proof(
-            1,
-            2,
-            &leaf1_hash,
-            &[leaf0_hash],
-            &root,
-        );
+        let result = verify_inclusion_proof(1, 2, &leaf1_hash, &[leaf0_hash], &root);
         assert!(result.is_ok(), "Failed to verify leaf 1");
     }
 
@@ -376,27 +366,29 @@ mod tests {
     fn test_google_ct_test_vectors() {
         // Test vector data from kInputs
         let inputs: Vec<&[u8]> = vec![
-            &[],                                                           // 0: empty
-            &[0x00],                                                       // 1: single byte
-            &[0x10],                                                       // 2: single byte
-            &[0x20, 0x21],                                                // 3: 2 bytes
-            &[0x30, 0x31],                                                // 4: 2 bytes
-            &[0x40, 0x41, 0x42, 0x43],                                   // 5: 4 bytes
-            &[0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57],         // 6: 8 bytes
-            &[0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67,          // 7: 16 bytes
-              0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f],
+            &[],                                               // 0: empty
+            &[0x00],                                           // 1: single byte
+            &[0x10],                                           // 2: single byte
+            &[0x20, 0x21],                                     // 3: 2 bytes
+            &[0x30, 0x31],                                     // 4: 2 bytes
+            &[0x40, 0x41, 0x42, 0x43],                         // 5: 4 bytes
+            &[0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57], // 6: 8 bytes
+            &[
+                0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, // 7: 16 bytes
+                0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f,
+            ],
         ];
 
         // Expected root hashes for trees of size 1-8 (from kSHA256Roots)
         let expected_roots = vec![
-            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",  // 1 leaf
-            "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",  // 2 leaves
-            "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",  // 3 leaves
-            "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",  // 4 leaves
-            "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",  // 5 leaves
-            "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",  // 6 leaves
-            "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",  // 7 leaves
-            "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",  // 8 leaves
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d", // 1 leaf
+            "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125", // 2 leaves
+            "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77", // 3 leaves
+            "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7", // 4 leaves
+            "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4", // 5 leaves
+            "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef", // 6 leaves
+            "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c", // 7 leaves
+            "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328", // 8 leaves
         ];
 
         // Test 1: Validate single-leaf tree
@@ -432,17 +424,17 @@ mod tests {
         let h01 = compute_node_hash(&leaf0_hash, &leaf1_hash);
         let root3 = compute_node_hash(&h01, &leaf2_hash);
         let expected_root2 = hex::decode(expected_roots[2]).unwrap();
-        assert_eq!(
-            &root3[..],
-            &expected_root2[..],
-            "Three-leaf root mismatch"
-        );
+        assert_eq!(&root3[..], &expected_root2[..], "Three-leaf root mismatch");
 
         // Test 4: Verify inclusion proof for leaf 0 in 3-leaf tree
         // Proof path: need leaf1_hash and leaf2_hash
         let proof = vec![leaf1_hash, leaf2_hash];
         let result = verify_inclusion_proof(0, 3, &leaf0_hash, &proof, &root3);
-        assert!(result.is_ok(), "Failed to verify leaf 0 in 3-leaf tree: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to verify leaf 0 in 3-leaf tree: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -451,7 +443,9 @@ mod tests {
         // This is SHA-256(0x00 || "") which equals the first root in the test vectors
         // Expected: 6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d
         let empty_leaf_hash = compute_leaf_hash(&[]);
-        let expected = hex::decode("6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d").unwrap();
+        let expected =
+            hex::decode("6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d")
+                .unwrap();
 
         assert_eq!(
             &empty_leaf_hash[..],

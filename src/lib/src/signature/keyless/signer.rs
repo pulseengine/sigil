@@ -8,8 +8,7 @@
 //! 5. Rekor transparency log upload
 
 use super::{
-    detect_oidc_provider, FulcioClient, KeylessSignature, OidcProvider,
-    RekorClient, RekorEntry,
+    FulcioClient, KeylessSignature, OidcProvider, RekorClient, RekorEntry, detect_oidc_provider,
 };
 use crate::{Module, WSError};
 use ecdsa::SigningKey;
@@ -131,15 +130,13 @@ impl KeylessSigner {
     /// println!("Rekor entry: {}", signature.rekor_entry.uuid);
     /// # Ok::<(), wasmsign2::WSError>(())
     /// ```
-    pub fn sign_module(
-        &self,
-        module: Module,
-    ) -> Result<(Module, KeylessSignature), WSError> {
+    pub fn sign_module(&self, module: Module) -> Result<(Module, KeylessSignature), WSError> {
         log::info!("Starting keyless signing process");
 
         // Step 1: Generate ephemeral keypair
         log::debug!("Generating ephemeral ECDSA P-256 keypair");
-        let signing_key = SigningKey::<p256::NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let signing_key =
+            SigningKey::<p256::NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
         let verifying_key = signing_key.verifying_key();
 
         // Encode public key in uncompressed form (0x04 || x || y)
@@ -163,11 +160,9 @@ impl KeylessSigner {
 
         // Step 4: Request certificate from Fulcio
         log::debug!("Requesting certificate from Fulcio");
-        let certificate = self.fulcio.get_certificate(
-            &oidc_token,
-            public_key,
-            &proof.to_bytes(),
-        )?;
+        let certificate =
+            self.fulcio
+                .get_certificate(&oidc_token, public_key, &proof.to_bytes())?;
         log::info!(
             "Certificate obtained with {} certs in chain",
             certificate.cert_chain.len()
@@ -206,12 +201,14 @@ impl KeylessSigner {
             }
         } else {
             log::debug!("Uploading signature to Rekor");
-            let entry = self.rekor.upload_entry(
-                &module_hash,
-                &signature.to_bytes(),
-                &certificate,
-            )?;
-            log::info!("Rekor entry created: {} (index: {})", entry.uuid, entry.log_index);
+            let entry =
+                self.rekor
+                    .upload_entry(&module_hash, &signature.to_bytes(), &certificate)?;
+            log::info!(
+                "Rekor entry created: {} (index: {})",
+                entry.uuid,
+                entry.log_index
+            );
             entry
         };
 

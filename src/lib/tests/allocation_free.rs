@@ -18,7 +18,7 @@
 #![cfg(feature = "allocation-guard")]
 
 use wsc::allocator::{
-    lock_allocations, unlock_allocations, get_stats, reset_stats, PhaseLockedAllocator,
+    PhaseLockedAllocator, get_stats, lock_allocations, reset_stats, unlock_allocations,
 };
 
 // Use the phase-locked allocator for these tests
@@ -156,7 +156,10 @@ fn test_allocation_free_pattern_demo() {
     };
 
     let init_stats = get_stats();
-    assert!(init_stats.total_allocations > 0, "Init phase should have allocations");
+    assert!(
+        init_stats.total_allocations > 0,
+        "Init phase should have allocations"
+    );
 
     // ========== PHASE 2: LOCK ==========
     lock_allocations();

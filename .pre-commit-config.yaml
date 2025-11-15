@@ -1,0 +1,65 @@
+# Pre-commit hooks for WSC (WebAssembly Signature Component)
+# Install: pip install pre-commit
+# Setup: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Rust formatting and linting
+  - repo: local
+    hooks:
+      # Format Rust code with rustfmt
+      - id: cargo-fmt
+        name: cargo fmt
+        entry: cargo fmt --
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Build the project to catch compilation errors
+      - id: cargo-build
+        name: cargo build
+        entry: cargo build --all-targets
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Run clippy for linting
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      # Run tests (excluding ignored tests and allocation-guard)
+      - id: cargo-test
+        name: cargo test
+        entry: cargo test --lib --bins
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: '\.md$'  # Allow trailing whitespace in markdown
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+
+  # Markdown linting
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.37.0
+    hooks:
+      - id: markdownlint
+        args: ['--fix']
+
+# Configuration
+default_language_version:
+  python: python3
+fail_fast: false

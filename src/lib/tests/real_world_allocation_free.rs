@@ -9,11 +9,11 @@
 
 #![cfg(feature = "allocation-guard")]
 
+use std::io::Cursor;
 use wsc::allocator::{
-    lock_allocations, unlock_allocations, get_stats, reset_stats, PhaseLockedAllocator,
+    PhaseLockedAllocator, get_stats, lock_allocations, reset_stats, unlock_allocations,
 };
 use wsc::{KeyPair, Module, PublicKey};
-use std::io::Cursor;
 
 // Use the phase-locked allocator for these tests
 #[global_allocator]
@@ -54,7 +54,9 @@ fn test_signature_verification_real() {
 
     // Serialize signed module
     let mut signed_bytes = Vec::new();
-    signed.serialize(&mut signed_bytes).expect("Failed to serialize");
+    signed
+        .serialize(&mut signed_bytes)
+        .expect("Failed to serialize");
 
     // Keep public key for verification
     let pk = kp.pk;
@@ -63,8 +65,10 @@ fn test_signature_verification_real() {
     let module_data = signed_bytes.clone();
 
     let init_stats = get_stats();
-    eprintln!("   Init allocated: {} bytes in {} allocations",
-        init_stats.total_bytes, init_stats.total_allocations);
+    eprintln!(
+        "   Init allocated: {} bytes in {} allocations",
+        init_stats.total_bytes, init_stats.total_allocations
+    );
 
     // ========== LOCK PHASE ==========
     eprintln!("\n🔒 LOCK PHASE: Locking allocations...");
@@ -82,7 +86,10 @@ fn test_signature_verification_real() {
         eprintln!("✅ ALLOCATION-FREE! Signature verification succeeded without allocations");
         assert!(result.is_ok(), "Verification should succeed");
     } else {
-        eprintln!("❌ ALLOCATES: {} allocation attempts in hot path", hot_stats.locked_attempts);
+        eprintln!(
+            "❌ ALLOCATES: {} allocation attempts in hot path",
+            hot_stats.locked_attempts
+        );
         eprintln!("   This is expected - signature verification currently allocates");
         // Don't assert - we're discovering what allocates
     }
@@ -108,8 +115,10 @@ fn test_module_parsing_real() {
     let wasm_clone = wasm.clone();
 
     let init_stats = get_stats();
-    eprintln!("   Init allocated: {} bytes in {} allocations",
-        init_stats.total_bytes, init_stats.total_allocations);
+    eprintln!(
+        "   Init allocated: {} bytes in {} allocations",
+        init_stats.total_bytes, init_stats.total_allocations
+    );
 
     // ========== LOCK PHASE ==========
     eprintln!("\n🔒 LOCK PHASE: Locking allocations...");
@@ -127,7 +136,10 @@ fn test_module_parsing_real() {
         eprintln!("✅ ALLOCATION-FREE! Module parsing succeeded without allocations");
         assert!(result.is_ok(), "Parsing should succeed");
     } else {
-        eprintln!("❌ ALLOCATES: {} allocation attempts in hot path", hot_stats.locked_attempts);
+        eprintln!(
+            "❌ ALLOCATES: {} allocation attempts in hot path",
+            hot_stats.locked_attempts
+        );
         eprintln!("   Module parsing requires allocations (Vec for sections, etc.)");
     }
 
@@ -151,15 +163,16 @@ fn test_rekor_set_verification_real() {
     // ========== INIT PHASE ==========
     eprintln!("📦 INIT PHASE: Loading Rekor keyring...");
 
-    let keyring = RekorKeyring::from_embedded_trust_root()
-        .expect("Failed to load Rekor keys");
+    let keyring = RekorKeyring::from_embedded_trust_root().expect("Failed to load Rekor keys");
 
     // Note: We'd need real test data here to actually test SET verification
     // For now, just test that the keyring loads
 
     let init_stats = get_stats();
-    eprintln!("   Init allocated: {} bytes in {} allocations",
-        init_stats.total_bytes, init_stats.total_allocations);
+    eprintln!(
+        "   Init allocated: {} bytes in {} allocations",
+        init_stats.total_bytes, init_stats.total_allocations
+    );
     eprintln!("   Loaded {} Rekor keys", keyring.keys.len());
 
     // ========== LOCK PHASE ==========
@@ -178,7 +191,10 @@ fn test_rekor_set_verification_real() {
     if hot_stats.locked_attempts == 0 {
         eprintln!("✅ ALLOCATION-FREE! Keyring access succeeded without allocations");
     } else {
-        eprintln!("❌ ALLOCATES: {} allocation attempts in hot path", hot_stats.locked_attempts);
+        eprintln!(
+            "❌ ALLOCATES: {} allocation attempts in hot path",
+            hot_stats.locked_attempts
+        );
     }
 
     unlock_allocations();
@@ -210,8 +226,10 @@ fn test_ed25519_signature_verification_raw() {
     let msg = message;
 
     let init_stats = get_stats();
-    eprintln!("   Init allocated: {} bytes in {} allocations",
-        init_stats.total_bytes, init_stats.total_allocations);
+    eprintln!(
+        "   Init allocated: {} bytes in {} allocations",
+        init_stats.total_bytes, init_stats.total_allocations
+    );
 
     // ========== LOCK PHASE ==========
     eprintln!("\n🔒 LOCK PHASE: Locking allocations...");
@@ -228,7 +246,10 @@ fn test_ed25519_signature_verification_raw() {
         eprintln!("✅ ALLOCATION-FREE! Ed25519 verification succeeded without allocations");
         assert!(result.is_ok(), "Verification should succeed");
     } else {
-        eprintln!("❌ ALLOCATES: {} allocation attempts in hot path", hot_stats.locked_attempts);
+        eprintln!(
+            "❌ ALLOCATES: {} allocation attempts in hot path",
+            hot_stats.locked_attempts
+        );
     }
 
     unlock_allocations();
@@ -253,8 +274,10 @@ fn test_sha256_hashing_real() {
     let data = vec![0u8; 4096];
 
     let init_stats = get_stats();
-    eprintln!("   Init allocated: {} bytes in {} allocations",
-        init_stats.total_bytes, init_stats.total_allocations);
+    eprintln!(
+        "   Init allocated: {} bytes in {} allocations",
+        init_stats.total_bytes, init_stats.total_allocations
+    );
 
     // ========== LOCK PHASE ==========
     eprintln!("\n🔒 LOCK PHASE: Locking allocations...");
@@ -272,7 +295,10 @@ fn test_sha256_hashing_real() {
     if hot_stats.locked_attempts == 0 {
         eprintln!("✅ ALLOCATION-FREE! SHA-256 hashing succeeded without allocations");
     } else {
-        eprintln!("❌ ALLOCATES: {} allocation attempts in hot path", hot_stats.locked_attempts);
+        eprintln!(
+            "❌ ALLOCATES: {} allocation attempts in hot path",
+            hot_stats.locked_attempts
+        );
     }
 
     unlock_allocations();

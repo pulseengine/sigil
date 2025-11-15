@@ -37,7 +37,6 @@
 /// 2. **Minimal trust**: Reduce trusted computing base
 /// 3. **Defense in depth**: Multiple security layers
 /// 4. **Fail secure**: Errors never expose key material
-
 use crate::error::WSError;
 use crate::signature::PublicKey;
 use std::fmt;
@@ -45,17 +44,18 @@ use std::fmt;
 #[cfg(feature = "software-keys")]
 pub mod software;
 
-#[cfg(feature = "tpm2")]
-pub mod tpm2;
+// Future hardware backend modules (not yet implemented)
+// #[cfg(feature = "tpm2")]
+// pub mod tpm2;
 
-#[cfg(feature = "secure-element")]
-pub mod secure_element;
+// #[cfg(feature = "secure-element")]
+// pub mod secure_element;
 
-#[cfg(feature = "trustzone")]
-pub mod trustzone;
+// #[cfg(feature = "trustzone")]
+// pub mod trustzone;
 
-#[cfg(feature = "sgx")]
-pub mod sgx;
+// #[cfg(feature = "sgx")]
+// pub mod sgx;
 
 /// Handle to a hardware-backed cryptographic key
 ///
@@ -346,32 +346,35 @@ impl fmt::Display for SecurityLevel {
 /// Only returns error if NO providers are available (should never happen
 /// as software provider is always available).
 pub fn detect_platform() -> Result<Box<dyn SecureKeyProvider>, WSError> {
-    #[cfg(feature = "tpm2")]
-    {
-        if let Ok(provider) = tpm2::Tpm2Provider::new() {
-            log::info!("Detected TPM 2.0 hardware");
-            return Ok(Box::new(provider));
-        }
-    }
+    // Future: TPM 2.0 detection
+    // #[cfg(feature = "tpm2")]
+    // {
+    //     if let Ok(provider) = tpm2::Tpm2Provider::new() {
+    //         log::info!("Detected TPM 2.0 hardware");
+    //         return Ok(Box::new(provider));
+    //     }
+    // }
 
-    #[cfg(feature = "secure-element")]
-    {
-        // Try common I2C bus paths
-        for bus_path in &["/dev/i2c-1", "/dev/i2c-0", "/dev/i2c-2"] {
-            if let Ok(provider) = secure_element::SecureElementProvider::auto_detect(bus_path) {
-                log::info!("Detected secure element hardware on {}", bus_path);
-                return Ok(Box::new(provider));
-            }
-        }
-    }
+    // Future: Secure element detection
+    // #[cfg(feature = "secure-element")]
+    // {
+    //     // Try common I2C bus paths
+    //     for bus_path in &["/dev/i2c-1", "/dev/i2c-0", "/dev/i2c-2"] {
+    //         if let Ok(provider) = secure_element::SecureElementProvider::auto_detect(bus_path) {
+    //             log::info!("Detected secure element hardware on {}", bus_path);
+    //             return Ok(Box::new(provider));
+    //         }
+    //     }
+    // }
 
-    #[cfg(feature = "trustzone")]
-    {
-        if let Ok(provider) = trustzone::TrustZoneProvider::new() {
-            log::info!("Detected ARM TrustZone");
-            return Ok(Box::new(provider));
-        }
-    }
+    // Future: TrustZone detection
+    // #[cfg(feature = "trustzone")]
+    // {
+    //     if let Ok(provider) = trustzone::TrustZoneProvider::new() {
+    //         log::info!("Detected ARM TrustZone");
+    //         return Ok(Box::new(provider));
+    //     }
+    // }
 
     #[cfg(feature = "software-keys")]
     {
@@ -398,36 +401,39 @@ pub fn detect_platform() -> Result<Box<dyn SecureKeyProvider>, WSError> {
 pub fn list_available_providers() -> Vec<(String, Box<dyn SecureKeyProvider>)> {
     let mut providers = Vec::new();
 
-    #[cfg(feature = "tpm2")]
-    {
-        if let Ok(provider) = tpm2::Tpm2Provider::new() {
-            providers.push(("TPM 2.0".to_string(), Box::new(provider) as Box<dyn SecureKeyProvider>));
-        }
-    }
+    // Future: TPM 2.0 provider
+    // #[cfg(feature = "tpm2")]
+    // {
+    //     if let Ok(provider) = tpm2::Tpm2Provider::new() {
+    //         providers.push(("TPM 2.0".to_string(), Box::new(provider) as Box<dyn SecureKeyProvider>));
+    //     }
+    // }
 
-    #[cfg(feature = "secure-element")]
-    {
-        // Try common I2C bus paths
-        for bus_path in &["/dev/i2c-1", "/dev/i2c-0", "/dev/i2c-2"] {
-            if let Ok(provider) = secure_element::SecureElementProvider::auto_detect(bus_path) {
-                providers.push((
-                    format!("Secure Element ({})", bus_path),
-                    Box::new(provider) as Box<dyn SecureKeyProvider>,
-                ));
-                break; // Only add first detected
-            }
-        }
-    }
+    // Future: Secure element provider
+    // #[cfg(feature = "secure-element")]
+    // {
+    //     // Try common I2C bus paths
+    //     for bus_path in &["/dev/i2c-1", "/dev/i2c-0", "/dev/i2c-2"] {
+    //         if let Ok(provider) = secure_element::SecureElementProvider::auto_detect(bus_path) {
+    //             providers.push((
+    //                 format!("Secure Element ({})", bus_path),
+    //                 Box::new(provider) as Box<dyn SecureKeyProvider>,
+    //             ));
+    //             break; // Only add first detected
+    //         }
+    //     }
+    // }
 
-    #[cfg(feature = "trustzone")]
-    {
-        if let Ok(provider) = trustzone::TrustZoneProvider::new() {
-            providers.push((
-                "TrustZone".to_string(),
-                Box::new(provider) as Box<dyn SecureKeyProvider>,
-            ));
-        }
-    }
+    // Future: TrustZone provider
+    // #[cfg(feature = "trustzone")]
+    // {
+    //     if let Ok(provider) = trustzone::TrustZoneProvider::new() {
+    //         providers.push((
+    //             "TrustZone".to_string(),
+    //             Box::new(provider) as Box<dyn SecureKeyProvider>,
+    //         ));
+    //     }
+    // }
 
     #[cfg(feature = "software-keys")]
     {
@@ -496,7 +502,11 @@ mod tests {
         assert!(!providers.is_empty(), "Should have at least one provider");
 
         for (name, provider) in providers {
-            println!("Available provider: {} ({})", name, provider.security_level());
+            println!(
+                "Available provider: {} ({})",
+                name,
+                provider.security_level()
+            );
         }
     }
 }
