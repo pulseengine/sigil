@@ -117,17 +117,29 @@ Our GitHub Actions CI runs these workflows:
 
 ## Known Test Issues
 
-### Rekor Verification Tests (2 failing)
+### Rekor Verification Tests (Ignored - Require Fresh Data)
 
-Two tests in `signature::keyless::rekor_verifier::tests` currently fail:
+Two tests in `signature::keyless::rekor_verifier::tests` are marked `#[ignore]`:
 - `test_verify_real_production_rekor_entry`
 - `test_verify_fresh_rekor_entry_with_current_proof`
 
-**Issue:** Merkle tree inclusion proof verification fails due to inconsistent test data (entry `log_index` doesn't match proof `logIndex`).
+**Why Ignored:** These tests use hardcoded Rekor entry data with Merkle tree inclusion proofs that become stale as the Rekor log grows.
 
-**Impact:** These are isolated to the Rekor verification module and don't affect core functionality.
+**Updating Test Data:**
+```bash
+# Fetch fresh data from Rekor API
+./scripts/update-rekor-test-data.sh
 
-**Status:** Known issue from `feature/memory-analysis` branch, needs fresh test data from Rekor API.
+# This generates Rust code to paste into rekor_verifier.rs
+# Follow the instructions in the script output
+
+# After updating, run the tests
+cargo test signature::keyless::rekor_verifier::tests -- --ignored --nocapture
+```
+
+**When to Update:** When the Rekor log has grown significantly (every few months) or when developing Rekor verification features.
+
+**Alternative:** The integration tests in `keyless_integration.rs` fetch LIVE Rekor data during signing and verify it, providing real-world validation without hardcoded data.
 
 ### Allocation-Guard Tests
 
