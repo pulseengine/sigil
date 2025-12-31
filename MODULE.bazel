@@ -13,7 +13,13 @@ bazel_dep(name = "platforms", version = "1.0.0")
 
 # Pin rules_go to a version compatible with Bazel 8.5.0
 # This overrides the transitive dependency from rules_wasm_component
-bazel_dep(name = "rules_go", version = "0.54.0")
+bazel_dep(name = "rules_go", version = "0.53.0")
+
+# Force this version for all transitive dependencies
+single_version_override(
+    module_name = "rules_go",
+    version = "0.53.0",
+)
 
 # Enable C++ toolchain auto-configuration for cross-platform support
 cc_configure = use_extension("@rules_cc//cc:extensions.bzl", "cc_configure")
