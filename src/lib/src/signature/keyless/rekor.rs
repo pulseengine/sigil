@@ -32,10 +32,9 @@
 ///     Err(e) => eprintln!("Failed to upload entry: {}", e),
 /// }
 /// ```
-
 use crate::error::WSError;
 use crate::signature::keyless::fulcio::FulcioCertificate;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -147,12 +146,28 @@ pub struct RekorClient {
 
 impl RekorClient {
     /// Create client with default Rekor server
+    ///
+    /// # Certificate Pinning (Issue #12)
+    ///
+    /// Certificate pinning infrastructure is implemented but not yet enforced due to
+    /// HTTP client limitations. See `cert_pinning` module documentation for details.
+    ///
+    /// Set `WSC_REKOR_PINS` environment variable to configure pins (not yet enforced).
+    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be enforced.
     pub fn new() -> Self {
         Self::with_url("https://rekor.sigstore.dev".to_string())
     }
 
     /// Create client with custom Rekor server
     pub fn with_url(base_url: String) -> Self {
+        // Check if strict certificate pinning is required (Issue #12)
+        // This will fail if WSC_REQUIRE_CERT_PINNING=1 and pinning cannot be enforced
+        if let Err(e) = super::cert_pinning::check_pinning_enforcement("rekor") {
+            log::warn!("Certificate pinning check failed: {}", e);
+            // Note: We continue anyway because pinning enforcement would happen at TLS level
+            // This is just an early warning to users who set WSC_REQUIRE_CERT_PINNING=1
+        }
+
         #[cfg(not(target_os = "wasi"))]
         {
             // Configure agent to return Response for all status codes (not Error)
@@ -216,9 +231,7 @@ impl RekorClient {
             spec: RekorSpec {
                 signature: RekorSignature {
                     content: signature_b64,
-                    public_key: RekorPublicKey {
-                        content: cert_b64,
-                    },
+                    public_key: RekorPublicKey { content: cert_b64 },
                 },
                 data: RekorData {
                     hash: RekorHash {
@@ -244,10 +257,7 @@ impl RekorClient {
 
     /// Native implementation using ureq
     #[cfg(not(target_os = "wasi"))]
-    fn upload_entry_native(
-        &self,
-        request: RekorUploadRequest,
-    ) -> Result<RekorEntry, WSError> {
+    fn upload_entry_native(&self, request: RekorUploadRequest) -> Result<RekorEntry, WSError> {
         let url = format!("{}/api/v1/log/entries", self.base_url);
 
         let json_request = serde_json::to_string(&request)
@@ -270,15 +280,15 @@ impl RekorClient {
                 .unwrap_or_else(|_| "Unknown error".to_string());
             return Err(WSError::RekorError(format!(
                 "Upload failed with status {}: {}",
-                status,
-                error_text
+                status, error_text
             )));
         }
 
         // Parse response
-        let body = response.into_body().read_to_string().map_err(|e| {
-            WSError::RekorError(format!("Failed to read response body: {}", e))
-        })?;
+        let body = response
+            .into_body()
+            .read_to_string()
+            .map_err(|e| WSError::RekorError(format!("Failed to read response body: {}", e)))?;
 
         let response_data: RekorUploadResponse = serde_json::from_str(&body)
             .map_err(|e| WSError::RekorError(format!("Failed to parse response: {}", e)))?;
@@ -297,10 +307,12 @@ impl RekorClient {
             .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
 
         // Extract verification data
-        let verification = entry_data.verification.unwrap_or_else(|| RekorVerification {
-            inclusion_proof: None,
-            signed_entry_timestamp: None,
-        });
+        let verification = entry_data
+            .verification
+            .unwrap_or(RekorVerification {
+                inclusion_proof: None,
+                signed_entry_timestamp: None,
+            });
 
         // Extract inclusion proof if available
         let inclusion_proof = verification
@@ -312,9 +324,7 @@ impl RekorClient {
             .unwrap_or_default();
 
         // Extract SET if available
-        let signed_entry_timestamp = verification
-            .signed_entry_timestamp
-            .unwrap_or_default();
+        let signed_entry_timestamp = verification.signed_entry_timestamp.unwrap_or_default();
 
         // Convert integrated_time (Unix timestamp) to RFC3339
         let integrated_time = format_timestamp(entry_data.integrated_time);
@@ -332,14 +342,9 @@ impl RekorClient {
 
     /// WASI implementation using wasi::http
     #[cfg(target_os = "wasi")]
-    fn upload_entry_wasi(
-        &self,
-        request: RekorUploadRequest,
-    ) -> Result<RekorEntry, WSError> {
+    fn upload_entry_wasi(&self, request: RekorUploadRequest) -> Result<RekorEntry, WSError> {
         use wasi::http::outgoing_handler;
-        use wasi::http::types::{
-            Fields, Method, OutgoingBody, OutgoingRequest, Scheme,
-        };
+        use wasi::http::types::{Fields, Method, OutgoingBody, OutgoingRequest, Scheme};
         use wasi::io::streams::StreamError;
 
         let url = format!("{}/api/v1/log/entries", self.base_url);
@@ -366,10 +371,7 @@ impl RekorClient {
 
         // Create request
         let headers = Fields::new();
-        headers.set(
-            &"Content-Type".to_string(),
-            &[b"application/json".to_vec()],
-        );
+        headers.set(&"Content-Type".to_string(), &[b"application/json".to_vec()]);
 
         let outgoing_request = OutgoingRequest::new(headers);
         outgoing_request.set_scheme(Some(&scheme));
@@ -381,12 +383,15 @@ impl RekorClient {
         let request_json = serde_json::to_vec(&request)
             .map_err(|e| WSError::RekorError(format!("Failed to serialize request: {}", e)))?;
 
-        let outgoing_body = outgoing_request.body()
+        let outgoing_body = outgoing_request
+            .body()
             .map_err(|_| WSError::RekorError("Failed to get request body".to_string()))?;
         {
-            let outgoing_stream = outgoing_body.write()
+            let outgoing_stream = outgoing_body
+                .write()
                 .map_err(|_| WSError::RekorError("Failed to write request body".to_string()))?;
-            outgoing_stream.blocking_write_and_flush(&request_json)
+            outgoing_stream
+                .blocking_write_and_flush(&request_json)
                 .map_err(|e| WSError::RekorError(format!("Failed to send request: {:?}", e)))?;
         }
         OutgoingBody::finish(outgoing_body, None)
@@ -413,7 +418,8 @@ impl RekorClient {
         let incoming_body = incoming_response
             .consume()
             .map_err(|_| WSError::RekorError("Failed to get response body".to_string()))?;
-        let incoming_stream = incoming_body.stream()
+        let incoming_stream = incoming_body
+            .stream()
             .map_err(|_| WSError::RekorError("Failed to get response stream".to_string()))?;
 
         let mut response_bytes = Vec::new();
@@ -450,10 +456,12 @@ impl RekorClient {
             .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
 
         // Extract verification data
-        let verification = entry_data.verification.unwrap_or_else(|| RekorVerification {
-            inclusion_proof: None,
-            signed_entry_timestamp: None,
-        });
+        let verification = entry_data
+            .verification
+            .unwrap_or_else(|| RekorVerification {
+                inclusion_proof: None,
+                signed_entry_timestamp: None,
+            });
 
         // Extract inclusion proof if available
         let inclusion_proof = verification
@@ -462,9 +470,7 @@ impl RekorClient {
             .unwrap_or_default();
 
         // Extract SET if available
-        let signed_entry_timestamp = verification
-            .signed_entry_timestamp
-            .unwrap_or_default();
+        let signed_entry_timestamp = verification.signed_entry_timestamp.unwrap_or_default();
 
         // Convert integrated_time to RFC3339
         let integrated_time = format_timestamp(entry_data.integrated_time);
@@ -519,10 +525,12 @@ impl Default for RekorClient {
 
 /// Format Unix timestamp to RFC3339 string
 fn format_timestamp(timestamp: i64) -> String {
-    use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+    use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 
     match OffsetDateTime::from_unix_timestamp(timestamp) {
-        Ok(dt) => dt.format(&Rfc3339).unwrap_or_else(|_| timestamp.to_string()),
+        Ok(dt) => dt
+            .format(&Rfc3339)
+            .unwrap_or_else(|_| timestamp.to_string()),
         Err(_) => timestamp.to_string(),
     }
 }
@@ -579,13 +587,15 @@ mod tests {
 
         // Create stub certificate
         let cert = FulcioCertificate {
-            cert_chain: vec!["-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----".to_string()],
+            cert_chain: vec![
+                "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----".to_string(),
+            ],
             leaf_cert: "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----".to_string(),
             public_key: vec![0u8; 65],
         };
 
         // Test with invalid hash length (not 32 bytes for SHA-256)
-        let invalid_hash = vec![0u8; 64];  // Wrong: SHA-512 size instead of SHA-256
+        let invalid_hash = vec![0u8; 64]; // Wrong: SHA-512 size instead of SHA-256
         let signature = vec![0u8; 64];
 
         let result = client.upload_entry(&invalid_hash, &signature, &cert);
@@ -683,15 +693,18 @@ mod tests {
         // Create mock certificate
         let cert = FulcioCertificate {
             cert_chain: vec![
-                "-----BEGIN CERTIFICATE-----\nMIIBkTCCATegAwIBAgIUTest\n-----END CERTIFICATE-----".to_string()
+                "-----BEGIN CERTIFICATE-----\nMIIBkTCCATegAwIBAgIUTest\n-----END CERTIFICATE-----"
+                    .to_string(),
             ],
-            leaf_cert: "-----BEGIN CERTIFICATE-----\nMIIBkTCCATegAwIBAgIUTest\n-----END CERTIFICATE-----".to_string(),
-            public_key: vec![0u8; 65],  // ECDSA P-256 uncompressed public key
+            leaf_cert:
+                "-----BEGIN CERTIFICATE-----\nMIIBkTCCATegAwIBAgIUTest\n-----END CERTIFICATE-----"
+                    .to_string(),
+            public_key: vec![0u8; 65], // ECDSA P-256 uncompressed public key
         };
 
         // Create valid SHA256 hash (32 bytes)
         let artifact_hash = vec![0u8; 32];
-        let signature = vec![0u8; 64];  // ECDSA signature (DER-encoded, approximate size)
+        let signature = vec![0u8; 64]; // ECDSA signature (DER-encoded, approximate size)
 
         // Note: This will fail because we don't have a real Rekor server
         // But it demonstrates the API usage

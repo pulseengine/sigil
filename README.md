@@ -236,7 +236,10 @@ bazel build //src/cli:wsc-cli.wasm
 - [Checkpoint Implementation](docs/checkpoint_implementation.md) - Checkpoint-based verification details
 - [Security Audit](docs/checkpoint_security_audit.md) - Security vulnerabilities found and fixed
 - [Checkpoint Format](docs/rekor_checkpoint_format.md) - Complete format specification
-- [sigstore-rs Comparison](docs/sigstore_comparison.md) - Comparison with official Rust implementation
+- [sigstore-rs Comparison](docs/sigstore-rs_comparison.md) - Comparison with official Rust implementation
+- [Security Documentation](SECURITY.md) - Comprehensive security model and operational security
+- [Keyless Signing](docs/keyless.md) - Keyless signing with Sigstore/Fulcio
+- [Testing Guide](docs/testing.md) - Testing procedures and guidelines
 
 ## Development Status
 

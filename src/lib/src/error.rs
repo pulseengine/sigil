@@ -76,6 +76,9 @@ pub enum WSError {
     #[error("Certificate verification failed: {0}")]
     CertificateError(String),
 
+    #[error("Certificate pinning failed: {0}")]
+    CertificatePinningError(String),
+
     #[error("Keyless signature format error: {0}")]
     KeylessFormatError(String),
 
@@ -84,6 +87,29 @@ pub enum WSError {
 
     #[error("X509 error: {0}")]
     X509Error(String),
+
+    // Hardware security errors
+    #[error("Hardware error: {0}")]
+    HardwareError(String),
+
+    #[error("Key not found: {0}")]
+    KeyNotFound(String),
+
+    #[error("Access denied: {0}")]
+    AccessDenied(String),
+
+    #[error("Invalid key handle")]
+    InvalidKeyHandle,
+
+    #[error("No space available in hardware key storage")]
+    NoSpace,
+
+    // Certificate provisioning errors
+    #[error("Verification error: {0}")]
+    VerificationError(String),
+
+    #[error("Unsupported algorithm: {0}")]
+    UnsupportedAlgorithm(String),
 }
 
 // X509 error conversion

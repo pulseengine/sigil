@@ -11,7 +11,10 @@
 //! cargo test --test keyless_integration -- --ignored
 //! ```
 
-use wsc::{Module, WSError, keyless::{KeylessSigner, KeylessConfig, detect_oidc_provider}};
+use wsc::{
+    Module, WSError,
+    keyless::{KeylessConfig, KeylessSigner, detect_oidc_provider},
+};
 
 /// Helper to create a minimal valid WASM module
 fn create_test_module() -> Module {
@@ -56,12 +59,10 @@ fn test_github_actions_keyless_signing() {
     assert_eq!(provider.name(), "GitHub Actions");
 
     let config = KeylessConfig::default();
-    let signer = KeylessSigner::with_config(config)
-        .expect("Failed to create keyless signer");
+    let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");
 
     let module = create_test_module();
-    let (signed_module, signature) = signer.sign_module(module)
-        .expect("Failed to sign module");
+    let (signed_module, signature) = signer.sign_module(module).expect("Failed to sign module");
 
     // Verify the signature was created
     assert!(!signature.signature.is_empty());
@@ -70,10 +71,10 @@ fn test_github_actions_keyless_signing() {
     assert!(signature.rekor_entry.log_index > 0);
 
     // Verify we can extract identity and issuer
-    let identity = signature.get_identity()
+    let identity = signature
+        .get_identity()
         .expect("Failed to extract identity");
-    let issuer = signature.get_issuer()
-        .expect("Failed to extract issuer");
+    let issuer = signature.get_issuer().expect("Failed to extract issuer");
 
     println!("Signed by: {}", identity);
     println!("Issuer: {}", issuer);
@@ -103,8 +104,14 @@ fn test_github_actions_keyless_signing() {
             println!("\n📋 Debug Info:");
             println!("  Body length: {}", signature.rekor_entry.body.len());
             println!("  Log ID: {}", signature.rekor_entry.log_id);
-            println!("  SET length: {}", signature.rekor_entry.signed_entry_timestamp.len());
-            println!("  Inclusion proof length: {}", signature.rekor_entry.inclusion_proof.len());
+            println!(
+                "  SET length: {}",
+                signature.rekor_entry.signed_entry_timestamp.len()
+            );
+            println!(
+                "  Inclusion proof length: {}",
+                signature.rekor_entry.inclusion_proof.len()
+            );
             panic!("Rekor verification failed with real data: {}", e);
         }
     }
@@ -112,15 +119,17 @@ fn test_github_actions_keyless_signing() {
     verification_result.expect("Rekor verification must succeed with real production data");
 
     // Verify the module structure is valid
-    assert_eq!(signed_module.header, [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
+    assert_eq!(
+        signed_module.header,
+        [0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]
+    );
 }
 
 #[test]
 #[ignore] // Requires GitHub Actions environment
 fn test_keyless_signing_with_skip_rekor() {
     // Test signing with Rekor upload skipped (for testing only)
-    let provider = detect_oidc_provider()
-        .expect("Failed to detect OIDC provider");
+    let _provider = detect_oidc_provider().expect("Failed to detect OIDC provider");
 
     let config = KeylessConfig {
         fulcio_url: None,
@@ -128,25 +137,20 @@ fn test_keyless_signing_with_skip_rekor() {
         skip_rekor: true, // Skip Rekor for faster testing
     };
 
-    let signer = KeylessSigner::with_config(config)
-        .expect("Failed to create keyless signer");
+    let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");
 
     let module = create_test_module();
-    let (signed_module, signature) = signer.sign_module(module)
-        .expect("Failed to sign module");
+    let (_signed_module, signature) = signer.sign_module(module).expect("Failed to sign module");
 
     // When Rekor is skipped, the entry should be empty or have a dummy value
-    assert!(
-        signature.rekor_entry.uuid.is_empty() || signature.rekor_entry.uuid == "skipped"
-    );
+    assert!(signature.rekor_entry.uuid.is_empty() || signature.rekor_entry.uuid == "skipped");
 }
 
 #[test]
 #[ignore] // Requires network access
 fn test_keyless_signing_with_custom_servers() {
     // Test with custom Fulcio/Rekor servers (e.g., staging)
-    let provider = detect_oidc_provider()
-        .expect("Failed to detect OIDC provider");
+    let _provider = detect_oidc_provider().expect("Failed to detect OIDC provider");
 
     let config = KeylessConfig {
         fulcio_url: Some("https://fulcio.sigstore.dev".to_string()),
@@ -154,8 +158,7 @@ fn test_keyless_signing_with_custom_servers() {
         skip_rekor: false,
     };
 
-    let signer = KeylessSigner::with_config(config)
-        .expect("Failed to create keyless signer");
+    let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");
 
     let module = create_test_module();
     let result = signer.sign_module(module);
@@ -180,10 +183,13 @@ fn test_keyless_signing_without_oidc_fails() {
             println!("OIDC provider detected (running in CI environment)");
         }
         Err(e) => {
-            println!("No OIDC provider detected (expected in dev environment): {}", e);
+            println!(
+                "No OIDC provider detected (expected in dev environment): {}",
+                e
+            );
             assert!(
-                matches!(e, WSError::NoOidcProvider) ||
-                matches!(e, WSError::OidcError(_))
+                matches!(e, WSError::NoOidcProvider)
+                    || matches!(e, WSError::OidcError(_))
             );
         }
     }
@@ -210,21 +216,22 @@ fn test_signature_format_roundtrip() {
     );
 
     // Serialize
-    let bytes = original.to_bytes()
-        .expect("Failed to serialize signature");
+    let bytes = original.to_bytes().expect("Failed to serialize signature");
 
     assert!(!bytes.is_empty());
     assert!(bytes.len() > 100); // Should be at least a few hundred bytes
 
     // Deserialize
-    let recovered = KeylessSignature::from_bytes(&bytes)
-        .expect("Failed to deserialize signature");
+    let recovered = KeylessSignature::from_bytes(&bytes).expect("Failed to deserialize signature");
 
     // Verify fields match
     assert_eq!(recovered.signature, original.signature);
     assert_eq!(recovered.cert_chain.len(), original.cert_chain.len());
     assert_eq!(recovered.rekor_entry.uuid, original.rekor_entry.uuid);
-    assert_eq!(recovered.rekor_entry.log_index, original.rekor_entry.log_index);
+    assert_eq!(
+        recovered.rekor_entry.log_index,
+        original.rekor_entry.log_index
+    );
     assert_eq!(recovered.module_hash, original.module_hash);
 }
 
@@ -234,9 +241,13 @@ fn test_module_serialization() {
     let module = create_test_module();
 
     let mut buffer = Vec::new();
-    module.serialize(&mut buffer)
+    module
+        .serialize(&mut buffer)
         .expect("Failed to serialize module");
 
     assert!(!buffer.is_empty());
-    assert_eq!(&buffer[0..8], &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
+    assert_eq!(
+        &buffer[0..8],
+        &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]
+    );
 }

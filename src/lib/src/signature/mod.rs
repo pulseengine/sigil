@@ -1,6 +1,6 @@
 mod hash;
-mod keys;
 pub mod keyless;
+mod keys;
 mod matrix;
 mod multi;
 mod sig_sections;

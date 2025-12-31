@@ -24,7 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential gcc
+        sudo apt-get install -y build-essential gcc jq
 
     - name: Install Rust nightly (for ByteHound build)
       run: |
@@ -49,35 +49,179 @@ jobs:
       run: cargo test --no-run --release
 
     - name: Run tests with ByteHound profiling
-      env:
-        MEMORY_PROFILER_LOG: warn
-        LD_PRELOAD: ${{ env.HOME }}/libbytehound.so
       run: |
+        # Set LD_PRELOAD to the ByteHound library
+        export LD_PRELOAD=$HOME/libbytehound.so
+        export MEMORY_PROFILER_LOG=warn
+
         # Run a subset of tests or specific test
         cargo test --release -- --test-threads=1 --nocapture || true
 
         echo "ByteHound profiling data generated"
-        ls -lh memory-profiling_*.dat
+        ls -lh memory-profiling_*.dat || echo "No profiling data files found"
 
     - name: Upload profiling data
+      if: success() || failure()
       uses: actions/upload-artifact@v4
       with:
         name: bytehound-profiles
         path: memory-profiling_*.dat
         retention-days: 7
+        if-no-files-found: warn
+
+    - name: Extract ByteHound metrics
+      if: success() || failure()
+      run: |
+        # Check if any profiling data files exist
+        if ls memory-profiling_*.dat 1> /dev/null 2>&1; then
+          echo "Extracting metrics from ByteHound profiles..."
+
+          # First, check what commands bytehound actually supports
+          echo "ByteHound CLI capabilities:"
+          $HOME/bytehound --help 2>&1 || true
+          echo ""
+
+          # Try to extract metrics via ByteHound's web server API
+          profile=$(ls memory-profiling_*.dat | head -1)
+          if [ -n "$profile" ]; then
+            echo "Starting ByteHound server for: $profile"
+
+            # Start ByteHound server in background on port 8080
+            $HOME/bytehound server "$profile" --port 8080 &
+            BYTEHOUND_PID=$!
+
+            # Wait for server to start (max 10 seconds)
+            echo "Waiting for ByteHound server to start..."
+            for i in {1..20}; do
+              if curl -s http://localhost:8080 >/dev/null 2>&1; then
+                echo "Server is up!"
+                break
+              fi
+              sleep 0.5
+            done
+
+            # Try to discover API endpoints
+            echo ""
+            echo "Exploring ByteHound API..."
+
+            # Common API endpoints to try
+            for endpoint in / /api /api/data /api/stats /api/allocations /data /stats; do
+              echo "Trying: http://localhost:8080$endpoint"
+              response=$(curl -s -w "\nHTTP_CODE:%{http_code}" "http://localhost:8080$endpoint" 2>&1 | head -20)
+              http_code=$(echo "$response" | grep "HTTP_CODE:" | cut -d: -f2)
+
+              if [ "$http_code" = "200" ]; then
+                echo "  ✓ Found endpoint! Response preview:"
+                echo "$response" | grep -v "HTTP_CODE:" | head -10
+
+                # Save full response if it's JSON
+                if echo "$response" | grep -q -E '^\s*[\{\[]'; then
+                  echo "  (Looks like JSON, saving to ${profile}.api${endpoint//\//_}.json)"
+                  echo "$response" | grep -v "HTTP_CODE:" > "${profile}.api${endpoint//\//_}.json"
+                fi
+              else
+                echo "  ✗ HTTP $http_code"
+              fi
+            done
+
+            # Kill the server
+            kill $BYTEHOUND_PID 2>/dev/null || true
+            wait $BYTEHOUND_PID 2>/dev/null || true
+          fi
+
+          # Process each profile file for basic summary
+          for profile in memory-profiling_*.dat; do
+            echo ""
+            echo "=== Analyzing: $profile ==="
+
+            # Get basic file info
+            size=$(stat -c%s "$profile" 2>/dev/null || echo "unknown")
+            echo "Profile size: $size bytes"
+
+            # Create a summary text file with basic info
+            {
+              echo "Profile: $profile"
+              echo "Size: $size bytes"
+              echo "Generated: $(date)"
+              echo ""
+              echo "To view detailed analysis:"
+              echo "  bytehound server $profile"
+              echo "  # Then open http://localhost:8080"
+              echo ""
+              echo "Note: Full interactive analysis requires downloading the .dat file"
+              echo "and running ByteHound server locally."
+            } > "${profile}.summary.txt"
+
+            echo "Summary saved to ${profile}.summary.txt"
+          done
+        else
+          echo "No profiling data files found"
+        fi
 
     - name: Generate ByteHound summary
+      if: success() || failure()
       run: |
-        if [ -f memory-profiling_*.dat ]; then
+        # Check if any profiling data files exist
+        if ls memory-profiling_*.dat 1> /dev/null 2>&1; then
           echo "## 📊 ByteHound Memory Profile" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Memory profiling data has been collected." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### How to view:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Download the \`bytehound-profiles\` artifact" >> $GITHUB_STEP_SUMMARY
-          echo "2. Run: \`bytehound server memory-profiling_*.dat\`" >> $GITHUB_STEP_SUMMARY
-          echo "3. Open http://localhost:8080 in your browser" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 📁 Profile Files" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Files:**" >> $GITHUB_STEP_SUMMARY
-          ls -lh memory-profiling_*.dat | awk '{print "- " $9 " (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+
+          # List each profile with size
+          for profile in memory-profiling_*.dat; do
+            size=$(stat -c%s "$profile" 2>/dev/null | numfmt --to=iec 2>/dev/null || stat -c%s "$profile" 2>/dev/null || echo "unknown")
+            echo "- **$profile** - $size" >> $GITHUB_STEP_SUMMARY
+          done
+
+          # Show discovered API endpoints if any
+          if ls memory-profiling_*.dat.api*.json 1> /dev/null 2>&1; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 🔌 Discovered API Endpoints" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            for api_file in memory-profiling_*.dat.api*.json; do
+              endpoint=$(basename "$api_file" | sed 's/.*\.api\(.*\)\.json/\1/' | tr '_' '/')
+              size=$(stat -c%s "$api_file" 2>/dev/null || echo "0")
+              echo "- \`$endpoint\` - $size bytes" >> $GITHUB_STEP_SUMMARY
+            done
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🔍 How to Analyze" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the \`bytehound-profiles\` artifact from this workflow run" >> $GITHUB_STEP_SUMMARY
+          echo "2. Install ByteHound locally:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo 'cargo install bytehound-cli' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "3. Start the ByteHound server:" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo 'bytehound server memory-profiling_*.dat' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "4. Open http://localhost:8080 in your browser for interactive analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The web UI provides:" >> $GITHUB_STEP_SUMMARY
+          echo "- Timeline of memory allocations" >> $GITHUB_STEP_SUMMARY
+          echo "- Flame graphs of allocation call stacks" >> $GITHUB_STEP_SUMMARY
+          echo "- Live object analysis" >> $GITHUB_STEP_SUMMARY
+          echo "- Allocation size distributions" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## ⚠️ ByteHound Memory Profile" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No memory profiling data was generated." >> $GITHUB_STEP_SUMMARY
+          echo "This may indicate that ByteHound was not properly loaded or tests did not run." >> $GITHUB_STEP_SUMMARY
         fi
+
+    - name: Upload summaries
+      if: success() || failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: bytehound-summaries
+        path: |
+          memory-profiling_*.dat.summary.txt
+          memory-profiling_*.dat.api*.json
+        retention-days: 7
+        if-no-files-found: ignore

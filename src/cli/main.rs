@@ -1,6 +1,4 @@
-use wsc::{
-    BoxedPredicate, KeyPair, Module, PublicKey, PublicKeySet, SecretKey, Section, WSError,
-};
+use wsc::{BoxedPredicate, KeyPair, Module, PublicKey, PublicKeySet, SecretKey, Section, WSError};
 
 use wsc::reexports::log;
 
@@ -24,11 +22,7 @@ fn create_file_with_dirs(path: impl AsRef<Path>) -> Result<File, WSError> {
         })?;
     }
     File::create(path).map_err(|e| {
-        WSError::InternalError(format!(
-            "Failed to create file '{}': {}",
-            path.display(),
-            e
-        ))
+        WSError::InternalError(format!("Failed to create file '{}': {}", path.display(), e))
     })
 }
 
@@ -36,11 +30,7 @@ fn create_file_with_dirs(path: impl AsRef<Path>) -> Result<File, WSError> {
 fn open_file(path: impl AsRef<Path>) -> Result<File, WSError> {
     let path = path.as_ref();
     File::open(path).map_err(|e| {
-        WSError::InternalError(format!(
-            "Failed to open file '{}': {}",
-            path.display(),
-            e
-        ))
+        WSError::InternalError(format!("Failed to open file '{}': {}", path.display(), e))
     })
 }
 
@@ -48,7 +38,12 @@ fn start() -> Result<(), WSError> {
     let matches = Command::new(crate_name!())
         .version(crate_version!())
         .about(crate_description!())
-        .arg(Arg::new("verbose").short('v').action(ArgAction::SetTrue).help("Verbose output"))
+        .arg(
+            Arg::new("verbose")
+                .short('v')
+                .action(ArgAction::SetTrue)
+                .help("Verbose output"),
+        )
         .arg(
             Arg::new("debug")
                 .short('d')
@@ -417,7 +412,7 @@ fn start() -> Result<(), WSError> {
 
         if matches.get_flag("keyless") {
             // Keyless signing path
-            use wsc::keyless::{KeylessSigner, KeylessConfig};
+            use wsc::keyless::{KeylessConfig, KeylessSigner};
 
             println!("Using keyless signing...");
             let config = KeylessConfig::default();

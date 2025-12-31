@@ -22,6 +22,8 @@ sha2 = "0.10"
 regex = "1.12.2"
 ssh-keys = "0.1.4"
 thiserror = "2.0.17"
+# Security: zeroize sensitive data on drop
+zeroize = { version = "1.8", features = ["derive"] }
 # WASI HTTP support - only used on wasm32-wasip2 via cfg guards
 wasi = "0.14.7"
 
@@ -34,6 +36,7 @@ x509-parser = "0.16"
 time = "0.3"
 chrono = "0.4"
 hex = "0.4"
+uuid = { version = "1.11", features = ["v4"] }
 # ureq is only used on native (cfg-guarded), but must be unconditional for Bazel
 ureq = "3.1.2"
 # SPKI encoding for public keys
@@ -44,5 +47,27 @@ ecdsa = { version = "0.16", features = ["signing"] }
 # Certificate chain verification (WebPKI)
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
 rustls-pki-types = { version = "1.11", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+webpki-roots = "1.0"
 pem = "3.0"
 const-oid = { version = "0.9", default-features = false, features = ["db"] }
+# X.509 certificate generation for provisioning
+rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
+
+[dev-dependencies]
+# WAT (WebAssembly Text) parser for tests
+wat = "1.221"
+
+[features]
+default = ["software-keys"]
+# Software-based key storage (always available, for development/testing)
+software-keys = []
+# Hardware security backends (embedded/production)
+tpm2 = []  # TPM 2.0 support - will add tpm2-tss dependency
+secure-element = []  # Generic secure element support
+atecc608 = ["secure-element"]  # Microchip ATECC608 (I2C)
+se050 = ["secure-element"]  # NXP SE050 EdgeLock (I2C/SPI)
+trustzone = []  # ARM TrustZone / OP-TEE support
+sgx = []  # Intel SGX support
+# Alternative serialization formats (future feature)
+cbor = []  # CBOR serialization support

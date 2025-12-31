@@ -11,6 +11,25 @@ mod signature;
 mod split;
 mod wasm_module;
 
+/// Platform-specific hardware security integration
+///
+/// Provides unified interface for hardware-backed cryptographic operations
+/// across TPM 2.0, Secure Elements, TrustZone, and software fallback.
+pub mod platform;
+
+/// Certificate provisioning for IoT devices
+///
+/// Provides tools for offline certificate provisioning in factory/manufacturing
+/// environments. Includes CA management, device identity, and provisioning workflows.
+pub mod provisioning;
+
+/// Component composition and provenance tracking
+///
+/// Provides support for WebAssembly component composition with full provenance
+/// tracking, enabling supply chain security and compliance with SLSA, in-toto,
+/// and SBOM standards.
+pub mod composition;
+
 #[allow(unused_imports)]
 pub use error::*;
 #[allow(unused_imports)]

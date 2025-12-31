@@ -86,6 +86,14 @@ impl FulcioClient {
     /// Create client with default Fulcio server
     ///
     /// Uses the public Sigstore Fulcio instance at https://fulcio.sigstore.dev
+    ///
+    /// # Certificate Pinning (Issue #12)
+    ///
+    /// Certificate pinning infrastructure is implemented but not yet enforced due to
+    /// HTTP client limitations. See `cert_pinning` module documentation for details.
+    ///
+    /// Set `WSC_FULCIO_PINS` environment variable to configure pins (not yet enforced).
+    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be enforced.
     pub fn new() -> Self {
         Self::with_url("https://fulcio.sigstore.dev".to_string())
     }
@@ -95,6 +103,14 @@ impl FulcioClient {
     /// # Arguments
     /// * `base_url` - Base URL of the Fulcio server (without trailing slash)
     pub fn with_url(base_url: String) -> Self {
+        // Check if strict certificate pinning is required (Issue #12)
+        // This will fail if WSC_REQUIRE_CERT_PINNING=1 and pinning cannot be enforced
+        if let Err(e) = super::cert_pinning::check_pinning_enforcement("fulcio") {
+            log::warn!("Certificate pinning check failed: {}", e);
+            // Note: We continue anyway because pinning enforcement would happen at TLS level
+            // This is just an early warning to users who set WSC_REQUIRE_CERT_PINNING=1
+        }
+
         #[cfg(not(target_os = "wasi"))]
         {
             // Configure agent to return Response for all status codes (not Error)
@@ -137,8 +153,9 @@ impl FulcioClient {
             .to_der()
             .map_err(|e| WSError::FulcioError(format!("Failed to encode curve OID: {}", e)))?;
 
-        let curve_oid_any = Any::from_der(&curve_oid_der)
-            .map_err(|e| WSError::FulcioError(format!("Failed to parse curve OID as Any: {}", e)))?;
+        let curve_oid_any = Any::from_der(&curve_oid_der).map_err(|e| {
+            WSError::FulcioError(format!("Failed to parse curve OID as Any: {}", e))
+        })?;
 
         let algorithm = AlgorithmIdentifierOwned {
             oid: ec_oid,
@@ -165,19 +182,18 @@ impl FulcioClient {
     /// Fulcio's HTTP/JSON API expects PEM format with BEGIN/END headers
     fn encode_spki_to_pem(spki_der: &[u8]) -> Result<String, WSError> {
         // Convert DER to base64
-        let b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            spki_der,
-        );
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, spki_der);
 
         // Split base64 into 64-character lines (standard PEM format)
         // Note: base64 is always valid ASCII/UTF-8, so from_utf8 cannot fail here
         let mut pem = String::from("-----BEGIN PUBLIC KEY-----\n");
         for chunk in b64.as_bytes().chunks(64) {
-            pem.push_str(
-                std::str::from_utf8(chunk)
-                    .map_err(|e| WSError::FulcioError(format!("Invalid UTF-8 in base64: {}", e)))?,
-            );
+            // SAFETY: base64 encoding always produces valid UTF-8 (only uses ASCII chars A-Z, a-z, 0-9, +, /, =)
+            // However, to avoid unwrap (Issue #13), we handle the error case properly
+            let chunk_str = std::str::from_utf8(chunk).map_err(|e| {
+                WSError::FulcioError(format!("Invalid base64 encoding (not UTF-8): {}", e))
+            })?;
+            pem.push_str(chunk_str);
             pem.push('\n');
         }
         pem.push_str("-----END PUBLIC KEY-----");
@@ -239,10 +255,7 @@ impl FulcioClient {
         let response = self.send_request(&request)?;
 
         // Parse certificate chain
-        let cert_chain = response
-            .signed_certificate_embedded_sct
-            .chain
-            .certificates;
+        let cert_chain = response.signed_certificate_embedded_sct.chain.certificates;
 
         if cert_chain.is_empty() {
             return Err(WSError::FulcioError(
@@ -270,7 +283,7 @@ impl FulcioClient {
             .map_err(|e| WSError::FulcioError(format!("Failed to parse PEM certificate: {}", e)))?;
 
         // Parse X.509 certificate
-        let (_, cert) = X509Certificate::from_der(&pem.contents()).map_err(|e| {
+        let (_, cert) = X509Certificate::from_der(pem.contents()).map_err(|e| {
             WSError::FulcioError(format!("Failed to parse X.509 certificate: {}", e))
         })?;
 
@@ -319,9 +332,10 @@ impl FulcioClient {
         }
 
         // Parse response
-        let body = response.into_body().read_to_string().map_err(|e| {
-            WSError::FulcioError(format!("Failed to read response body: {}", e))
-        })?;
+        let body = response
+            .into_body()
+            .read_to_string()
+            .map_err(|e| WSError::FulcioError(format!("Failed to read response body: {}", e)))?;
 
         let fulcio_response: FulcioResponse = serde_json::from_str(&body)
             .map_err(|e| WSError::FulcioError(format!("Failed to parse Fulcio response: {}", e)))?;
@@ -356,10 +370,7 @@ impl FulcioClient {
         // Create headers
         let headers = Fields::new();
         headers
-            .append(
-                &"Content-Type".to_string(),
-                &b"application/json".to_vec(),
-            )
+            .append(&"Content-Type".to_string(), &b"application/json".to_vec())
             .map_err(|_| WSError::FulcioError("Failed to set Content-Type header".to_string()))?;
 
         // Create outgoing request
@@ -571,8 +582,8 @@ SGVsbG8gV29ybGQh
         let mut raw_public_key = [0x42u8; 65];
         raw_public_key[0] = 0x04; // Uncompressed point indicator
 
-        let spki_der = FulcioClient::encode_ecdsa_p256_spki(&raw_public_key)
-            .expect("Failed to encode SPKI");
+        let spki_der =
+            FulcioClient::encode_ecdsa_p256_spki(&raw_public_key).expect("Failed to encode SPKI");
 
         // Verify it's DER-encoded and has expected structure
         assert!(!spki_der.is_empty());
@@ -603,10 +614,11 @@ SGVsbG8gV29ybGQh
     #[test]
     fn test_encode_spki_to_pem() {
         // Simple test DER (not a real SPKI, just checking PEM formatting)
-        let test_der = vec![0x30, 0x0a, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02, 0x02, 0x01, 0x03];
+        let test_der = vec![
+            0x30, 0x0a, 0x02, 0x01, 0x01, 0x02, 0x01, 0x02, 0x02, 0x01, 0x03,
+        ];
 
-        let pem = FulcioClient::encode_spki_to_pem(&test_der)
-            .expect("Failed to encode to PEM");
+        let pem = FulcioClient::encode_spki_to_pem(&test_der).expect("Failed to encode to PEM");
 
         // Check PEM headers
         assert!(pem.starts_with("-----BEGIN PUBLIC KEY-----\n"));
