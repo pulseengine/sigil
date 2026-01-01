@@ -294,22 +294,53 @@ impl KeylessSignature {
             WSError::CertificateError(format!("Failed to parse X.509 certificate: {}", e))
         })?;
 
-        // Sigstore uses custom OID 1.3.6.1.4.1.57264.1.1 for the OIDC issuer
-        // For now, we'll parse the issuer from the certificate issuer field
-        // TODO: Parse custom Sigstore OID when x509-parser supports custom OIDs
+        // Sigstore/Fulcio uses custom OIDs for OIDC issuer:
+        // - 1.3.6.1.4.1.57264.1.1 (v1, deprecated but still common)
+        // - 1.3.6.1.4.1.57264.1.8 (v2, Issuer V2)
+        const OIDC_ISSUER_V1: &[u64] = &[1, 3, 6, 1, 4, 1, 57264, 1, 1];
+        const OIDC_ISSUER_V2: &[u64] = &[1, 3, 6, 1, 4, 1, 57264, 1, 8];
 
-        // Extract issuer common name as a fallback
+        // Try to find the OIDC issuer in certificate extensions
+        for ext in cert.extensions() {
+            let oid_components: Vec<u64> = match ext.oid.iter() {
+                Some(iter) => iter.collect(),
+                None => continue,
+            };
+
+            // Check for OIDC Issuer v1 or v2
+            if oid_components == OIDC_ISSUER_V1 || oid_components == OIDC_ISSUER_V2 {
+                // The extension value is a UTF8String containing the issuer URL
+                // It may be wrapped in ASN.1 encoding, try to extract the string
+                let value = ext.value;
+
+                // Try to parse as ASN.1 UTF8String first
+                if let Ok((_, utf8_str)) = der_parser::der::parse_der_utf8string(value) {
+                    if let Ok(s) = utf8_str.as_str() {
+                        return Ok(s.to_string());
+                    }
+                }
+
+                // Fallback: try to interpret raw bytes as UTF-8
+                if let Ok(s) = std::str::from_utf8(value) {
+                    return Ok(s.to_string());
+                }
+            }
+        }
+
+        // Fallback: extract certificate issuer common name
+        // This is not the OIDC issuer, but provides some information
         for rdn in cert.issuer().iter() {
             for attr in rdn.iter() {
                 if attr.attr_type() == &oid_registry::OID_X509_COMMON_NAME
-                    && let Ok(cn) = attr.as_str() {
-                        return Ok(cn.to_string());
-                    }
+                    && let Ok(cn) = attr.as_str()
+                {
+                    return Ok(cn.to_string());
+                }
             }
         }
 
         Err(WSError::CertificateError(
-            "No issuer found in certificate".to_string(),
+            "No OIDC issuer found in certificate".to_string(),
         ))
     }
 
