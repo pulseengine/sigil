@@ -447,10 +447,13 @@ impl DependencyGraph {
                     }
                 } else if *rec_stack.get(neighbor.as_str()).unwrap_or(&false) {
                     // Found a cycle - extract it from the path
-                    let cycle_start = path.iter().position(|x| x == neighbor).unwrap();
-                    let mut cycle = path[cycle_start..].to_vec();
-                    cycle.push(neighbor.clone());
-                    return Some(cycle);
+                    // The neighbor must be in the path since we only reach here when rec_stack[neighbor] == true,
+                    // which means it was added to the path. However, for safety we handle the None case.
+                    if let Some(cycle_start) = path.iter().position(|x| x == neighbor) {
+                        let mut cycle = path[cycle_start..].to_vec();
+                        cycle.push(neighbor.clone());
+                        return Some(cycle);
+                    }
                 }
             }
         }
