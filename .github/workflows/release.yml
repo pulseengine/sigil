@@ -91,16 +91,6 @@ jobs:
         ls -lh wsc-*.wasm
         file wsc-*.wasm
 
-    - name: Create SHA256 checksums
-      run: |
-        sha256sum wsc-component.wasm > wsc-component.wasm.sha256
-        cat wsc-component.wasm.sha256
-
-        if [ -f wsc-cli.wasm ]; then
-          sha256sum wsc-cli.wasm > wsc-cli.wasm.sha256
-          cat wsc-cli.wasm.sha256
-        fi
-
     - name: Build wsc Native CLI
       run: |
         echo "Building wsc native CLI for signing..."
@@ -140,6 +130,17 @@ jobs:
         echo "  - Identity: GitHub Actions OIDC"
         echo "  - Certificate: Short-lived from Fulcio"
         echo "  - Transparency: Logged in Rekor"
+
+    - name: Create SHA256 checksums
+      run: |
+        # Create checksums AFTER signing so they match the signed files
+        sha256sum wsc-component.wasm > wsc-component.wasm.sha256
+        cat wsc-component.wasm.sha256
+
+        if [ -f wsc-cli.wasm ]; then
+          sha256sum wsc-cli.wasm > wsc-cli.wasm.sha256
+          cat wsc-cli.wasm.sha256
+        fi
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
