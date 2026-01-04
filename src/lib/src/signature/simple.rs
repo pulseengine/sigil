@@ -2,9 +2,25 @@ use crate::signature::*;
 use crate::wasm_module::*;
 use crate::*;
 
+use ct_codecs::verify as ct_eq;
 use log::*;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
+use zeroize::Zeroizing;
+
+/// Constant-time check if a hash exists in a set of valid hashes.
+/// SECURITY: Uses constant-time comparison to prevent timing attacks.
+fn ct_contains_hash<T: AsRef<[u8]>>(valid_hashes: &HashSet<T>, h: &[u8]) -> bool {
+    // Check all hashes to maintain constant time regardless of match position
+    let mut found = false;
+    for valid_hash in valid_hashes {
+        if ct_eq(valid_hash.as_ref(), h) {
+            found = true;
+            // Don't break early - continue checking all to maintain constant time
+        }
+    }
+    found
+}
 
 impl SecretKey {
     /// Sign a module with the secret key.
@@ -25,7 +41,8 @@ impl SecretKey {
         }
         let h = hasher.finalize().to_vec();
 
-        let mut msg: Vec<u8> = vec![];
+        // SECURITY: Zeroize message buffer on drop to prevent key material leakage
+        let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
         msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
         msg.extend_from_slice(&[
             SIGNATURE_VERSION,
@@ -34,7 +51,7 @@ impl SecretKey {
         ]);
         msg.extend_from_slice(&h);
 
-        let signature = self.sk.sign(msg, None).to_vec();
+        let signature = self.sk.sign(msg.to_vec(), None).to_vec();
 
         let signature_for_hashes = SignatureForHashes {
             key_id: key_id.cloned(),
@@ -126,7 +143,8 @@ impl PublicKey {
         }
         let h = hasher.finalize().to_vec();
 
-        if valid_hashes.contains(&h) {
+        // SECURITY: Use constant-time comparison to prevent timing attacks
+        if ct_contains_hash(&valid_hashes, &h) {
             Ok(())
         } else {
             Err(WSError::VerificationFailed)
@@ -217,7 +235,8 @@ impl PublicKeySet {
         let h = hasher.finalize().to_vec();
         let mut valid_pks = HashSet::new();
         for (pk, valid_hashes) in valid_hashes_for_pks {
-            if valid_hashes.contains(&h) {
+            // SECURITY: Use constant-time comparison to prevent timing attacks
+        if ct_contains_hash(&valid_hashes, &h) {
                 valid_pks.insert(pk);
             }
         }

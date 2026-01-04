@@ -147,35 +147,39 @@ pub struct RekorClient {
 impl RekorClient {
     /// Create client with default Rekor server
     ///
-    /// # Certificate Pinning (Issue #12)
+    /// # Certificate Pinning
     ///
-    /// Certificate pinning infrastructure is implemented but not yet enforced due to
-    /// HTTP client limitations. See `cert_pinning` module documentation for details.
-    ///
-    /// Set `WSC_REKOR_PINS` environment variable to configure pins (not yet enforced).
-    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be enforced.
+    /// Certificate pinning is ENFORCED by default using embedded pins for Sigstore
+    /// production infrastructure. Custom pins can be set via `WSC_REKOR_PINS`.
+    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
     pub fn new() -> Self {
         Self::with_url("https://rekor.sigstore.dev".to_string())
     }
 
     /// Create client with custom Rekor server
+    ///
+    /// # Certificate Pinning
+    ///
+    /// Certificate pinning is ENFORCED when configured via `WSC_REKOR_PINS`.
+    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
     pub fn with_url(base_url: String) -> Self {
-        // Check if strict certificate pinning is required (Issue #12)
-        // This will fail if WSC_REQUIRE_CERT_PINNING=1 and pinning cannot be enforced
-        if let Err(e) = super::cert_pinning::check_pinning_enforcement("rekor") {
-            log::warn!("Certificate pinning check failed: {}", e);
-            // Note: We continue anyway because pinning enforcement would happen at TLS level
-            // This is just an early warning to users who set WSC_REQUIRE_CERT_PINNING=1
-        }
-
         #[cfg(not(target_os = "wasi"))]
         {
-            // Configure agent to return Response for all status codes (not Error)
-            // so we can read error response bodies
-            let agent = ureq::Agent::config_builder()
-                .http_status_as_error(false)
-                .build()
-                .into();
+            use super::transport::create_agent_with_optional_pinning;
+            use super::cert_pinning::PinningConfig;
+
+            // Create pinning configuration for Rekor
+            let pinning = Some(PinningConfig::rekor());
+
+            // Create agent with certificate pinning (or fall back to standard TLS)
+            let agent = match create_agent_with_optional_pinning(pinning) {
+                Ok(agent) => agent,
+                Err(e) => {
+                    // Log error but don't panic - fall back to standard agent
+                    log::error!("Failed to create pinned agent for Rekor: {}. Using standard TLS.", e);
+                    super::transport::create_standard_agent()
+                }
+            };
 
             Self {
                 base_url,

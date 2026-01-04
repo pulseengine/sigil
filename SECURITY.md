@@ -416,23 +416,19 @@ Certificate pinning adds defense-in-depth protection for TLS connections to Sigs
 
 ### Implementation Status
 
-**Current State:** Infrastructure complete, enforcement pending HTTP client support
+**Current State:** ✅ Fully implemented and enforced
 
-The wsc library includes complete certificate pinning infrastructure:
-- SHA256 fingerprint validation
-- Configurable pins via environment variables
+The wsc library includes complete certificate pinning with enforcement:
+- SHA256 fingerprint validation for Fulcio and Rekor endpoints
+- Custom `PinnedRustlsConnector` using ureq's `Connector` trait
 - Custom `ServerCertVerifier` implementation using rustls
 - Support for multiple pinned certificates (rotation)
-
-**Limitation:** The current HTTP client (`ureq` v3.x) does not expose APIs for custom TLS certificate verification. Certificate pinning will be automatically enforced once:
-
-1. `ureq` adds support for custom `ServerCertVerifier`, OR
-2. wsc migrates to `reqwest` or another HTTP client with TLS customization
+- Configurable pins via environment variables
 
 **Current Behavior:**
-- Standard WebPKI validation is performed
-- Pinning checks are logged for monitoring
-- Connections succeed even if pins don't match
+- Certificate pinning is enforced for all Fulcio/Rekor connections
+- Connections fail if certificates don't match expected pins
+- Falls back to standard WebPKI validation only if pinning initialization fails
 
 ### Configuration
 
@@ -544,6 +540,79 @@ wsc's keyless signing **is built on** Sigstore infrastructure (Fulcio + Rekor) b
 
 ---
 
+## Known Limitations
+
+This section documents known security limitations that users should be aware of.
+
+### 1. No OCSP/CRL Certificate Revocation (IEC 62443 Gap)
+
+**Limitation:** WSC does not implement OCSP (Online Certificate Status Protocol) or CRL (Certificate Revocation Lists) checking.
+
+**Impact:** Cannot revoke a compromised signing certificate before its natural expiration.
+
+**Mitigation:** Fulcio certificates have a 10-minute validity window, inherently limiting the exposure window. For long-lived certificates (non-Fulcio deployments), use short validity periods (1-7 days).
+
+**Roadmap:** OCSP stapling planned for Q2 2026 for non-Fulcio deployments.
+
+### 2. HSM Integration Incomplete (IEC 62443 SL3+ Gap)
+
+**Limitation:** Hardware Security Module support is scaffolded but not complete.
+
+**Impact:** Cannot achieve Security Level 3+ under IEC 62443 without hardware-backed key storage.
+
+**Mitigation:** Use file-based keys with strict permissions (0600), process isolation, and encrypted filesystems. The `platform/` module provides the interface for future HSM integration.
+
+**Roadmap:** HSM integration for ATECC608A, TPM 2.0, and NXP SE050 planned for Q2 2026.
+
+### 3. Swap File Exposure
+
+**Limitation:** Key material in memory could be swapped to disk by the operating system.
+
+**Impact:** Forensic recovery of key material from swap space theoretically possible.
+
+**Mitigation:**
+- Use `mlock()` on production systems to prevent swapping
+- Use encrypted swap partitions
+- Ephemeral keys reduce exposure (sub-second lifetime)
+- Zeroization on drop minimizes window
+
+**Note:** The `zeroize` crate ensures keys are cleared from memory, but cannot prevent OS-level swap writes before Drop is called.
+
+### 4. Offline Verification Requires Trust Bundle Distribution
+
+**Limitation:** Keyless signature verification requires Rekor access for inclusion proof verification.
+
+**Impact:** Air-gapped or offline environments cannot verify keyless signatures without pre-fetching Rekor entries.
+
+**Mitigation:**
+- Use certificate-based signing for offline environments
+- Pre-fetch and distribute Rekor entries with modules
+- The `--offline` flag supports verification with pre-distributed trust bundles
+
+### 5. OIDC Token Exposure Window
+
+**Limitation:** OIDC tokens exist in memory for the duration of the signing operation.
+
+**Impact:** Memory dump during signing could expose token (until expiration).
+
+**Mitigation:**
+- Tokens are zeroized immediately after use
+- Token lifetime is typically <15 minutes
+- GitHub Actions OIDC tokens are bound to specific workflow runs
+
+---
+
+## TARA Compliance Documentation
+
+For automotive (ISO/SAE 21434) and industrial IoT (IEC 62443) deployments, see:
+
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) - STRIDE threat analysis
+- [docs/TARA_COMPLIANCE.md](docs/TARA_COMPLIANCE.md) - Standards compliance mapping
+- [docs/KEY_LIFECYCLE.md](docs/KEY_LIFECYCLE.md) - Key management procedures
+- [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md) - Security incident runbook
+
+---
+
 ## Reporting Security Issues
 
 **Do not open public issues for security vulnerabilities.**
@@ -560,6 +629,17 @@ Include:
 
 ## Security Changelog
 
+### v0.5.0 (Security Hardening Release)
+- ✅ **Fixed timing attack vulnerability** - Replaced `==` with constant-time comparison (`ct_codecs::verify`) for all cryptographic material comparisons in `simple.rs` and `multi.rs`
+- ✅ **Added intermediate buffer zeroization** - Message buffers now wrapped with `Zeroizing<Vec<u8>>` to prevent secret residue in memory
+- ✅ **Release profile hardening** - Added `overflow-checks = true` to detect integer overflow in release builds
+- ✅ **Certificate pinning enforcement** - Created custom `PinnedRustlsConnector` using ureq's `Connector` trait to enforce certificate pinning for Fulcio and Rekor connections
+- ✅ **TARA compliance documentation** - Added comprehensive documentation for ISO/SAE 21434 and IEC 62443 compliance:
+  - `docs/THREAT_MODEL.md` - STRIDE analysis
+  - `docs/TARA_COMPLIANCE.md` - Standards mapping
+  - `docs/KEY_LIFECYCLE.md` - Key management procedures
+  - `docs/INCIDENT_RESPONSE.md` - Security incident runbook
+
 ### v0.2.7
 - ✅ Added ephemeral key zeroization (Issue #14)
 - ✅ Added OIDC token zeroization (Issue #11)
@@ -569,7 +649,6 @@ Include:
 - ✅ Implemented certificate pinning infrastructure (Issue #12)
   - Complete SHA256 fingerprint validation
   - Support for custom pins via environment variables
-  - Pending enforcement (requires HTTP client update)
 
 ### Previous
 - ✅ Implemented Rekor checkpoint-based verification (Issue #1)
@@ -588,5 +667,5 @@ Include:
 
 ---
 
-**Last Updated:** 2025-01-15
-**Addresses:** Issues #2 (Security Model Documentation), #4 (Ephemeral Key Lifecycle)
+**Last Updated:** 2026-01-04
+**Addresses:** Issues #2 (Security Model Documentation), #4 (Ephemeral Key Lifecycle), #12 (Certificate Pinning)

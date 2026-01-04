@@ -16,6 +16,8 @@ pub mod oidc;
 pub mod rekor;
 pub mod rekor_verifier;
 pub mod signer;
+/// Custom TLS transport with certificate pinning (Issue #12)
+pub mod transport;
 
 // Certificate pinning types (Issue #12)
 pub use cert_pinning::{PinningConfig, PinnedCertVerifier, check_pinning_enforcement};

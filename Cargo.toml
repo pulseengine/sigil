@@ -23,3 +23,5 @@ panic = "abort"
 opt-level = "z"     # Optimize for size
 lto = true          # Enable link-time optimization
 strip = true        # Strip symbols
+# SECURITY: Detect integer overflow in release builds (TARA requirement)
+overflow-checks = true

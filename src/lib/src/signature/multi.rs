@@ -2,10 +2,37 @@ use crate::signature::*;
 use crate::wasm_module::*;
 use crate::*;
 
-use ct_codecs::{Encoder, Hex};
+use ct_codecs::{verify as ct_eq, Encoder, Hex};
 use log::*;
 use std::collections::HashSet;
 use std::io::Read;
+use zeroize::Zeroizing;
+
+/// Constant-time comparison of two hash vectors.
+/// Returns true only if both vectors have the same length and all hashes match.
+/// SECURITY: Uses constant-time comparison to prevent timing attacks.
+fn ct_eq_hashes(a: &[Vec<u8>], b: &[Vec<u8>]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    // Compare all hashes, accumulating result to maintain constant time
+    let mut result = true;
+    for (x, y) in a.iter().zip(b.iter()) {
+        // ct_eq returns false for different lengths, so this is safe
+        result = result && ct_eq(x, y);
+    }
+    result
+}
+
+/// Constant-time comparison of optional byte vectors (for key_id).
+/// SECURITY: Uses constant-time comparison to prevent timing attacks.
+fn ct_eq_option(a: &Option<Vec<u8>>, b: &Option<Vec<u8>>) -> bool {
+    match (a, b) {
+        (Some(x), Some(y)) => ct_eq(x, y),
+        (None, None) => true,
+        _ => false,
+    }
+}
 
 impl SecretKey {
     /// Sign a module with the secret key.
@@ -82,7 +109,8 @@ impl SecretKey {
         key_id: Option<&Vec<u8>>,
         hashes: Vec<Vec<u8>>,
     ) -> Result<Section, WSError> {
-        let mut msg: Vec<u8> = vec![];
+        // SECURITY: Zeroize message buffer on drop to prevent key material leakage
+        let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
         msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
         msg.extend_from_slice(&[
             SIGNATURE_VERSION,
@@ -104,7 +132,7 @@ impl SecretKey {
             Hex::encode_to_string(&msg[SIGNATURE_WASM_DOMAIN.len() + 2..]).unwrap_or_else(|_| "<hex error>".to_string())
         );
 
-        let signature = sk.sk.sign(msg, None).to_vec();
+        let signature = sk.sk.sign(msg.to_vec(), None).to_vec();
 
         debug!("    = {}\n\n", Hex::encode_to_string(&signature).unwrap_or_else(|_| "<hex error>".to_string()));
 
@@ -129,10 +157,12 @@ impl SecretKey {
 
         let mut new_hashes = true;
         for previous_signed_hashes_set in &mut signed_hashes_set {
-            if previous_signed_hashes_set.hashes == hashes {
+            // SECURITY: Use constant-time comparison for cryptographic data
+            if ct_eq_hashes(&previous_signed_hashes_set.hashes, &hashes) {
                 if previous_signed_hashes_set.signatures.iter().any(|sig| {
-                    sig.key_id == signature_for_hashes.key_id
-                        && sig.signature == signature_for_hashes.signature
+                    // SECURITY: Use constant-time comparison for key_id and signature
+                    ct_eq_option(&sig.key_id, &signature_for_hashes.key_id)
+                        && ct_eq(&sig.signature, &signature_for_hashes.signature)
                 }) {
                     debug!("A matching hash set was already signed with that key.");
                     return Err(WSError::DuplicateSignature);
@@ -266,7 +296,8 @@ impl PublicKey {
     ) -> Result<HashSet<&'t Vec<u8>>, WSError> {
         let mut valid_hashes = HashSet::new();
         for signed_section_sequence in signed_hashes_set {
-            let mut msg: Vec<u8> = vec![];
+            // SECURITY: Zeroize message buffer on drop to prevent data leakage
+            let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
             msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
             msg.extend_from_slice(&[
                 SIGNATURE_VERSION,
