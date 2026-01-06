@@ -1,0 +1,25 @@
+"""WSC Attestation library
+
+Minimal crate providing transformation attestation types for WebAssembly toolchains.
+"""
+
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "wsc-attestation",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "wsc_attestation",
+    edition = "2024",
+    deps = [
+        "@wsc_deps//:chrono",
+        "@wsc_deps//:getrandom",
+        "@wsc_deps//:hex",
+        "@wsc_deps//:serde",
+        "@wsc_deps//:serde_json",
+        "@wsc_deps//:sha2",
+    ],
+)
+
+exports_files(["Cargo.toml"])
