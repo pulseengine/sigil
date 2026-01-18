@@ -2938,6 +2938,186 @@ pub fn extract_transparency_log_entry(
     Ok(None)
 }
 
+// =============================================================================
+// DSSE-based attestation functions (standard format)
+// =============================================================================
+
+/// Section name for DSSE-wrapped attestations
+pub const DSSE_ATTESTATION_SECTION: &str = "wsc.attestation";
+
+/// Embed a SLSA provenance attestation in DSSE format
+///
+/// Creates a signed DSSE envelope containing an in-toto statement
+/// with SLSA v1.0 provenance predicate.
+///
+/// # Arguments
+///
+/// * `module` - The WASM module to embed into
+/// * `provenance` - SLSA v1.0 provenance data
+/// * `signer` - DSSE signer for creating the signature
+///
+/// # Returns
+///
+/// The module with embedded DSSE attestation
+pub fn embed_slsa_provenance(
+    mut module: Module,
+    provenance: &crate::slsa::Provenance,
+    signer: &dyn crate::dsse::DsseSigner,
+) -> Result<Module, WSError> {
+    use crate::dsse::DsseEnvelope;
+    use crate::intoto::{predicate_types, Statement, Subject};
+    use sha2::{Digest, Sha256};
+
+    // Compute module hash for subject
+    let mut module_bytes = Vec::new();
+    module
+        .serialize(&mut module_bytes)
+        .map_err(|e| WSError::InternalError(format!("Failed to serialize module: {}", e)))?;
+    let module_hash = hex::encode(Sha256::digest(&module_bytes));
+
+    // Create in-toto statement
+    let statement = Statement::new(
+        vec![Subject::new("module.wasm", &module_hash)],
+        predicate_types::SLSA_PROVENANCE_V1,
+        provenance.clone(),
+    );
+
+    // Wrap in DSSE envelope
+    let payload = statement.to_json_bytes()?;
+    let envelope = DsseEnvelope::sign(&payload, crate::dsse::payload_types::IN_TOTO, signer)?;
+
+    // Serialize and embed
+    let envelope_json = envelope.to_json()?;
+    let custom_section =
+        CustomSection::new(DSSE_ATTESTATION_SECTION.to_string(), envelope_json.into_bytes());
+    module.sections.push(Section::Custom(custom_section));
+
+    Ok(module)
+}
+
+/// Embed a transformation attestation in DSSE format
+///
+/// Creates a signed DSSE envelope for transformation tracking.
+///
+/// # Arguments
+///
+/// * `module` - The WASM module to embed into
+/// * `attestation` - Transformation attestation from wsc-attestation
+/// * `signer` - DSSE signer for creating the signature
+pub fn embed_transformation_dsse(
+    mut module: Module,
+    attestation: &wsc_attestation::TransformationAttestation,
+    signer: &dyn crate::dsse::DsseSigner,
+) -> Result<Module, WSError> {
+    use crate::dsse::DsseEnvelope;
+    use crate::intoto::{predicate_types, Statement, Subject};
+    use sha2::{Digest, Sha256};
+
+    // Compute module hash for subject
+    let mut module_bytes = Vec::new();
+    module
+        .serialize(&mut module_bytes)
+        .map_err(|e| WSError::InternalError(format!("Failed to serialize module: {}", e)))?;
+    let module_hash = hex::encode(Sha256::digest(&module_bytes));
+
+    // Create in-toto statement with transformation predicate
+    let statement = Statement::new(
+        vec![Subject::new(&attestation.output.name, &module_hash)],
+        predicate_types::WSC_TRANSFORMATION_V1,
+        attestation.clone(),
+    );
+
+    // Wrap in DSSE envelope
+    let payload = statement.to_json_bytes()?;
+    let envelope = DsseEnvelope::sign(&payload, crate::dsse::payload_types::IN_TOTO, signer)?;
+
+    // Serialize and embed
+    let envelope_json = envelope.to_json()?;
+    let custom_section =
+        CustomSection::new(DSSE_ATTESTATION_SECTION.to_string(), envelope_json.into_bytes());
+    module.sections.push(Section::Custom(custom_section));
+
+    Ok(module)
+}
+
+/// Extract DSSE attestation envelope from a module
+///
+/// Returns the raw DSSE envelope which can be:
+/// - Verified with any DSSE-compatible tool
+/// - Saved as a standalone .sigstore bundle
+/// - Parsed to extract the in-toto statement
+pub fn extract_dsse_attestation(module: &Module) -> Result<Option<crate::dsse::DsseEnvelope>, WSError> {
+    for section in &module.sections {
+        if let Section::Custom(custom) = section {
+            if custom.name() == DSSE_ATTESTATION_SECTION {
+                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                    WSError::InternalError(format!("Invalid UTF-8 in DSSE attestation: {}", e))
+                })?;
+
+                let envelope = crate::dsse::DsseEnvelope::from_json(json)?;
+                return Ok(Some(envelope));
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Extract and verify DSSE attestation
+///
+/// Extracts the DSSE envelope and verifies the signature.
+///
+/// # Returns
+///
+/// The verified payload bytes (in-toto statement JSON)
+pub fn extract_and_verify_dsse(
+    module: &Module,
+    verifier: &dyn crate::dsse::DsseVerifier,
+) -> Result<Option<Vec<u8>>, WSError> {
+    if let Some(envelope) = extract_dsse_attestation(module)? {
+        let payload = envelope.verify(verifier)?;
+        Ok(Some(payload))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Extract SLSA provenance from DSSE attestation
+///
+/// Extracts and parses the SLSA v1.0 provenance predicate.
+pub fn extract_slsa_provenance(
+    module: &Module,
+    verifier: &dyn crate::dsse::DsseVerifier,
+) -> Result<Option<crate::slsa::Provenance>, WSError> {
+    use crate::intoto::Statement;
+
+    if let Some(payload) = extract_and_verify_dsse(module, verifier)? {
+        let statement: Statement<crate::slsa::Provenance> = Statement::from_json_bytes(&payload)?;
+        Ok(Some(statement.predicate))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Extract transformation attestation from DSSE envelope
+pub fn extract_transformation_from_dsse(
+    module: &Module,
+    verifier: &dyn crate::dsse::DsseVerifier,
+) -> Result<Option<wsc_attestation::TransformationAttestation>, WSError> {
+    use crate::intoto::Statement;
+
+    if let Some(payload) = extract_and_verify_dsse(module, verifier)? {
+        let statement: Statement<wsc_attestation::TransformationAttestation> =
+            Statement::from_json_bytes(&payload)?;
+        Ok(Some(statement.predicate))
+    } else {
+        Ok(None)
+    }
+}
+
+// =============================================================================
+// Validation functions
+// =============================================================================
+
 /// Validate device attestation
 pub fn validate_device_attestation(
     attestation: &DeviceAttestation,

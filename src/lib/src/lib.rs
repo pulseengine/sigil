@@ -71,6 +71,28 @@ pub mod audit;
 /// Supports per-rule enforcement modes (strict vs report).
 pub mod policy;
 
+/// DSSE (Dead Simple Signing Envelope) implementation
+///
+/// Provides the standard DSSE envelope format for signing attestations.
+/// Used as the wrapper for all embedded attestations, enabling extraction
+/// and verification with standard tooling (cosign, sigstore-rs, etc.).
+/// See: https://github.com/secure-systems-lab/dsse
+pub mod dsse;
+
+/// in-toto Statement v1.0 implementation
+///
+/// Provides the in-toto attestation framework Statement layer.
+/// Statements bind predicates (SLSA provenance, etc.) to subjects (artifacts).
+/// See: https://github.com/in-toto/attestation
+pub mod intoto;
+
+/// SLSA v1.0 Provenance predicate
+///
+/// Provides SLSA Build provenance attestation format for supply chain security.
+/// Describes how artifacts were built, including inputs, builder, and metadata.
+/// See: https://slsa.dev/spec/v1.0/provenance
+pub mod slsa;
+
 #[allow(unused_imports)]
 pub use error::*;
 #[allow(unused_imports)]
