@@ -41,7 +41,6 @@
 
 use crate::error::WSError;
 use crate::platform::{KeyHandle, PublicKey, SecureKeyProvider, SecurityLevel};
-use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -53,7 +52,7 @@ use tss_esapi::{
         resource_handles::Hierarchy,
     },
     structures::{
-        Digest as TpmDigest, EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme,
+        EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme, MaxBuffer,
         PublicBuilder, PublicEccParametersBuilder, SignatureScheme,
     },
     tcti_ldr::{DeviceConfig, NetworkTPMConfig, TctiNameConf},
@@ -346,8 +345,8 @@ impl Tpm2Provider {
     ) -> Result<Vec<u8>, WSError> {
         match signature {
             tss_esapi::structures::Signature::EcDsa(ecdsa_sig) => {
-                let r = ecdsa_sig.signature_r().as_bytes();
-                let s = ecdsa_sig.signature_s().as_bytes();
+                let r = ecdsa_sig.signature_r().value();
+                let s = ecdsa_sig.signature_s().value();
 
                 // Encode as DER SEQUENCE { INTEGER r, INTEGER s }
                 let mut der = Vec::new();
@@ -458,9 +457,7 @@ impl SecureKeyProvider for Tpm2Provider {
         // First get the key data (need to hold keys lock briefly)
         let tpm_handle = {
             let keys = self.keys.lock().unwrap();
-            let key_data = keys.get(&handle.as_raw()).ok_or_else(|| {
-                WSError::InvalidSignature("Key handle not found".to_string())
-            })?;
+            let key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
             key_data.key_handle
         };
 
@@ -469,14 +466,18 @@ impl SecureKeyProvider for Tpm2Provider {
             .lock()
             .map_err(|_| WSError::InternalError("TPM context lock poisoned".to_string()))?;
 
-        // Hash the data first (TPM signs digests, not raw data)
-        let hash = sha2::Sha256::digest(data);
-        let digest = TpmDigest::try_from(hash.as_slice())
-            .map_err(|e| WSError::InternalError(format!("Failed to create digest: {}", e)))?;
+        // Use TPM to hash data and get validation ticket (required for signing)
+        // The ticket proves the digest didn't start with TPM_GENERATED_VALUE
+        let data_buffer = tss_esapi::structures::MaxBuffer::try_from(data.to_vec())
+            .map_err(|e| WSError::InternalError(format!("Data too large for TPM: {}", e)))?;
 
-        // Sign with TPM
+        let (digest, ticket) = ctx
+            .hash(data_buffer, HashingAlgorithm::Sha256, Hierarchy::Owner)
+            .map_err(|e| WSError::InternalError(format!("TPM hash failed: {}", e)))?;
+
+        // Sign with TPM using the ticket
         let signature = ctx
-            .sign(tpm_handle, digest, SignatureScheme::Null, None)
+            .sign(tpm_handle, digest, SignatureScheme::Null, ticket)
             .map_err(|e| WSError::InternalError(format!("TPM signing failed: {}", e)))?;
 
         // Convert signature to standard DER format
@@ -485,9 +486,7 @@ impl SecureKeyProvider for Tpm2Provider {
 
     fn get_public_key(&self, handle: KeyHandle) -> Result<PublicKey, WSError> {
         let keys = self.keys.lock().unwrap();
-        let key_data = keys.get(&handle.as_raw()).ok_or_else(|| {
-            WSError::InvalidSignature("Key handle not found".to_string())
-        })?;
+        let _key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
 
         // For TPM2 with P-256, we store the uncompressed point (65 bytes)
         // The PublicKey struct expects ed25519 format, but we're using P-256
@@ -505,9 +504,7 @@ impl SecureKeyProvider for Tpm2Provider {
     fn delete_key(&self, handle: KeyHandle) -> Result<(), WSError> {
         let key_data = {
             let mut keys = self.keys.lock().unwrap();
-            keys.remove(&handle.as_raw()).ok_or_else(|| {
-                WSError::InvalidSignature("Key handle not found".to_string())
-            })?
+            keys.remove(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?
         };
 
         // Flush the key from TPM
@@ -536,9 +533,7 @@ impl Tpm2Provider {
     /// Returns the uncompressed P-256 point (65 bytes: 0x04 || x || y)
     pub fn get_public_key_bytes(&self, handle: KeyHandle) -> Result<Vec<u8>, WSError> {
         let keys = self.keys.lock().unwrap();
-        let key_data = keys.get(&handle.as_raw()).ok_or_else(|| {
-            WSError::InvalidSignature("Key handle not found".to_string())
-        })?;
+        let key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
         Ok(key_data.public_key.clone())
     }
 
@@ -557,11 +552,11 @@ impl Tpm2Provider {
 
         // Parse the public key (uncompressed point)
         let verifying_key = VerifyingKey::from_sec1_bytes(&public_key_bytes)
-            .map_err(|e| WSError::InvalidSignature(format!("Invalid public key: {}", e)))?;
+            .map_err(|e| WSError::VerificationError(format!("Invalid public key: {}", e)))?;
 
         // Parse the DER signature
         let signature = Signature::from_der(signature_der)
-            .map_err(|e| WSError::InvalidSignature(format!("Invalid signature: {}", e)))?;
+            .map_err(|e| WSError::VerificationError(format!("Invalid signature: {}", e)))?;
 
         // Verify
         Ok(verifying_key.verify(data, &signature).is_ok())
