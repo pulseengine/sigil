@@ -96,11 +96,13 @@ version = "29"
 features = ["component-model"]
 optional = true
 
-# TPM 2.0 support via TSS2 (optional, Linux/Windows only)
-# Requires tpm2-tss libraries installed on Linux, uses TBS on Windows
-# macOS doesn't have TPM2 - use Secure Enclave instead
+# TPM 2.0 support via TSS2 (optional, Linux only)
+# Requires tpm2-tss libraries installed on Linux
 # For testing: use swtpm simulator
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies.tss-esapi]
+# NOTE: Windows TPM support requires a different implementation using TBS API
+#       (tss-esapi doesn't have pre-generated bindings for Windows)
+#       macOS doesn't have TPM2 - use Secure Enclave instead
+[target.'cfg(target_os = "linux")'.dependencies.tss-esapi]
 version = "7"
 optional = true
 

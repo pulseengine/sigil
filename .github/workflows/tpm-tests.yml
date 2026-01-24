@@ -132,7 +132,11 @@ jobs:
         # Regular tests should still pass
         cargo test -p wsc --verbose
 
-  # Windows TPM compile check (optional - most Windows VMs don't have TPM)
+  # Windows compile check - verifies the feature compiles (TPM code is excluded)
+  # NOTE: tss-esapi doesn't have pre-generated bindings for Windows x86_64.
+  #       Windows TPM support would require a different implementation using
+  #       the TBS (TPM Base Services) API. For now, the tpm2 feature on Windows
+  #       simply doesn't include the TPM module (platform guards exclude it).
   tpm2-windows-compile:
     name: TPM2 Compile Check (Windows)
     runs-on: windows-latest
@@ -143,13 +147,14 @@ jobs:
 
     - name: Build with TPM2 feature
       run: |
+        # TPM2 feature will compile on Windows, but TPM code is excluded
+        # via platform guards (cfg(target_os = "linux") only)
         cargo build --features tpm2 -p wsc --verbose
 
-        echo "TPM2 feature compiles on Windows"
+        echo "TPM2 feature compiles on Windows (TPM module excluded via platform guards)"
 
-    # Note: We don't run TPM tests on Windows in CI because:
-    # 1. GitHub Windows runners don't have TPM hardware
-    # 2. swtpm for Windows requires more complex setup
-    #
-    # For local Windows testing with real TPM:
-    # cargo test --features tpm2 -p wsc platform::tpm2::tests -- --ignored
+    # NOTE: Windows TPM2 support is not implemented via tss-esapi because:
+    # 1. tss-esapi doesn't have pre-generated bindings for Windows x86_64
+    # 2. Windows has its own TPM access via TBS (TPM Base Services) API
+    # Future Windows TPM support would need a separate implementation using
+    # the tpm-tbs crate or raw Windows API calls.

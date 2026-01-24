@@ -7,8 +7,11 @@
 //! # Platform Support
 //!
 //! - **Linux**: Requires `tpm2-tss` libraries and access to `/dev/tpmrm0`
-//! - **Windows**: Uses native TBS (TPM Base Services)
 //! - **Testing**: Use `swtpm` software TPM simulator
+//!
+//! **Note**: Windows TPM support requires a different implementation using
+//! the TBS (TPM Base Services) API. The `tss-esapi` crate used here only
+//! supports Linux. macOS doesn't have TPM2 - use Secure Enclave instead.
 //!
 //! # Algorithm Support
 //!
