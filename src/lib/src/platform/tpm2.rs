@@ -56,7 +56,8 @@ use tss_esapi::{
         Digest as TpmDigest, EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme,
         PublicBuilder, PublicEccParametersBuilder, SignatureScheme,
     },
-    tcti_ldr::{DeviceConfig, TctiNameConf},
+    tcti_ldr::{DeviceConfig, NetworkTPMConfig, TctiNameConf},
+    utils::PublicKey as TssPublicKey,
     Context,
 };
 
@@ -130,7 +131,7 @@ impl Tpm2Provider {
     /// ```
     pub fn with_tcti(tcti: TctiNameConf) -> Result<Self, WSError> {
         let context = Context::new(tcti).map_err(|e| {
-            WSError::HardwareNotAvailable(format!("Failed to connect to TPM: {}", e))
+            WSError::HardwareError(format!("Failed to connect to TPM: {}", e))
         })?;
 
         let context = Arc::new(Mutex::new(context));
@@ -160,10 +161,8 @@ impl Tpm2Provider {
     ///
     /// Convenience method for testing. Connects to swtpm on localhost:2321.
     pub fn with_simulator() -> Result<Self, WSError> {
-        use tss_esapi::tcti_ldr::SwtpmConfig;
-
-        let config = SwtpmConfig::default();
-        let tcti = TctiNameConf::Swtpm(config);
+        // NetworkTPMConfig default is localhost:2321, which is swtpm's default
+        let tcti = TctiNameConf::Swtpm(NetworkTPMConfig::default());
         Self::with_tcti(tcti)
     }
 
@@ -172,7 +171,7 @@ impl Tpm2Provider {
         // Check environment variable first (allows override)
         if std::env::var("TPM2_TCTI").is_ok() {
             return TctiNameConf::from_environment_variable().map_err(|e| {
-                WSError::HardwareNotAvailable(format!("Invalid TPM2_TCTI: {}", e))
+                WSError::HardwareError(format!("Invalid TPM2_TCTI: {}", e))
             });
         }
 
@@ -200,7 +199,7 @@ impl Tpm2Provider {
             return Ok(TctiNameConf::Tbs(Default::default()));
         }
 
-        Err(WSError::HardwareNotAvailable(
+        Err(WSError::HardwareError(
             "No TPM2 device found. On Linux, ensure /dev/tpmrm0 exists and is accessible. \
              Set TPM2_TCTI environment variable for custom configuration."
                 .to_string(),
@@ -223,7 +222,7 @@ impl Tpm2Provider {
                 100,
             )
             .map_err(|e| {
-                WSError::HardwareNotAvailable(format!("Failed to query TPM capabilities: {}", e))
+                WSError::HardwareError(format!("Failed to query TPM capabilities: {}", e))
             })?;
 
         // Check if the capability data contains ECC curves
@@ -322,19 +321,17 @@ impl Tpm2Provider {
     fn extract_ecc_public_key(
         public: &tss_esapi::structures::Public,
     ) -> Result<Vec<u8>, WSError> {
-        // Get the unique identifier which contains the ECC point
-        let unique = public.unique();
+        // Convert Public to tss_esapi's PublicKey enum
+        let public_key = TssPublicKey::try_from(public.clone())
+            .map_err(|e| WSError::InternalError(format!("Failed to extract public key: {}", e)))?;
 
-        match unique {
-            tss_esapi::structures::PublicKeyUnion::Ecc(ecc_point) => {
+        match public_key {
+            TssPublicKey::Ecc { x, y } => {
                 // Construct uncompressed point format: 0x04 || x || y
-                let x = ecc_point.x().as_bytes();
-                let y = ecc_point.y().as_bytes();
-
                 let mut pk = Vec::with_capacity(1 + x.len() + y.len());
                 pk.push(0x04); // Uncompressed point prefix
-                pk.extend_from_slice(x);
-                pk.extend_from_slice(y);
+                pk.extend_from_slice(&x);
+                pk.extend_from_slice(&y);
                 Ok(pk)
             }
             _ => Err(WSError::InternalError(
@@ -414,7 +411,7 @@ impl SecureKeyProvider for Tpm2Provider {
             tss_esapi::constants::tss::TPM2_PT_FAMILY_INDICATOR,
             1,
         )
-        .map_err(|e| WSError::HardwareNotAvailable(format!("TPM health check failed: {}", e)))?;
+        .map_err(|e| WSError::HardwareError(format!("TPM health check failed: {}", e)))?;
 
         Ok(())
     }
@@ -442,6 +439,19 @@ impl SecureKeyProvider for Tpm2Provider {
 
         log::debug!("Generated TPM key with handle {}", handle_id);
         Ok(KeyHandle::from_raw(handle_id))
+    }
+
+    fn load_key(&self, key_id: &str) -> Result<KeyHandle, WSError> {
+        // TPM2 persistent keys would be loaded from NVRAM using handles in the
+        // range 0x81000000-0x81FFFFFF. For now, we don't support persistent keys.
+        // Future implementation would:
+        // 1. Parse key_id as a persistent handle or key name
+        // 2. Load the key from TPM NVRAM using ctx.tr_from_tpm_public()
+        // 3. Return a KeyHandle wrapping the loaded key
+        Err(WSError::KeyNotFound(format!(
+            "Loading persistent TPM keys not yet implemented. Key ID: {}",
+            key_id
+        )))
     }
 
     fn sign(&self, handle: KeyHandle, data: &[u8]) -> Result<Vec<u8>, WSError> {
