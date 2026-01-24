@@ -44,31 +44,30 @@ jobs:
         # Create state directory
         mkdir -p /tmp/tpm
 
-        # Initialize swtpm state
-        swtpm_setup --tpm2 \
-          --tpmstate /tmp/tpm \
-          --create-ek-cert \
-          --create-platform-cert \
-          --overwrite \
-          --config /dev/null
-
-        # Start swtpm in the background
+        # Start swtpm directly without certificate setup
+        # The --flags startup-clear handles TPM initialization
         swtpm socket --tpm2 \
           --tpmstate dir=/tmp/tpm \
           --server type=tcp,port=2321 \
           --ctrl type=tcp,port=2322 \
-          --flags not-need-init,startup-clear &
+          --flags startup-clear \
+          --log level=20 &
 
         # Wait for swtpm to be ready
-        sleep 2
+        sleep 3
 
         # Verify it's running
-        if ! nc -z localhost 2321; then
-          echo "❌ swtpm not responding on port 2321"
-          exit 1
-        fi
+        for i in 1 2 3 4 5; do
+          if nc -z localhost 2321 2>/dev/null; then
+            echo "✅ swtpm simulator started on port 2321"
+            exit 0
+          fi
+          echo "Waiting for swtpm... attempt $i"
+          sleep 1
+        done
 
-        echo "✅ swtpm simulator started on port 2321"
+        echo "❌ swtpm not responding on port 2321"
+        exit 1
 
     - name: Verify TPM simulator is working
       run: |
