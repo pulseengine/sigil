@@ -1,0 +1,156 @@
+name: TPM2 Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger
+
+# NOTE: Once verified working, can add path filters to only run when TPM code changes:
+# paths:
+#   - 'src/lib/src/platform/tpm2.rs'
+#   - 'src/lib/Cargo.toml'
+#   - '.github/workflows/tpm-tests.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: debug
+
+jobs:
+  tpm2-tests:
+    name: TPM2 Tests with swtpm
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install swtpm and dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          swtpm \
+          swtpm-tools \
+          libtss2-dev \
+          tpm2-tools
+
+        echo "✅ Installed swtpm and TPM2 tools"
+        swtpm --version
+        tpm2_getrandom --version || true
+
+    - name: Start swtpm simulator
+      run: |
+        # Create state directory
+        mkdir -p /tmp/tpm
+
+        # Initialize swtpm state
+        swtpm_setup --tpm2 \
+          --tpmstate /tmp/tpm \
+          --create-ek-cert \
+          --create-platform-cert \
+          --overwrite \
+          --config /dev/null
+
+        # Start swtpm in the background
+        swtpm socket --tpm2 \
+          --tpmstate dir=/tmp/tpm \
+          --server type=tcp,port=2321 \
+          --ctrl type=tcp,port=2322 \
+          --flags not-need-init,startup-clear &
+
+        # Wait for swtpm to be ready
+        sleep 2
+
+        # Verify it's running
+        if ! nc -z localhost 2321; then
+          echo "❌ swtpm not responding on port 2321"
+          exit 1
+        fi
+
+        echo "✅ swtpm simulator started on port 2321"
+
+    - name: Verify TPM simulator is working
+      run: |
+        export TPM2TOOLS_TCTI="swtpm:host=localhost,port=2321"
+
+        # Basic TPM2 commands to verify the simulator works
+        tpm2_getrandom 8 --hex
+        tpm2_getcap properties-fixed | head -20
+
+        echo "✅ TPM simulator responding correctly"
+
+    - name: Build with TPM2 feature
+      run: |
+        cargo build --features tpm2 -p wsc --verbose
+
+    - name: Run TPM2 tests
+      run: |
+        export TPM2_TCTI="swtpm:host=localhost,port=2321"
+
+        # Run the ignored TPM tests
+        cargo test --features tpm2 -p wsc \
+          platform::tpm2::tests \
+          -- --ignored --nocapture
+      env:
+        RUST_BACKTRACE: 1
+
+    - name: Run TPM2 integration test
+      run: |
+        export TPM2_TCTI="swtpm:host=localhost,port=2321"
+
+        # Simple integration test: generate key, sign, verify
+        cargo test --features tpm2 -p wsc \
+          test_tpm2_sign_verify \
+          -- --ignored --nocapture
+      env:
+        RUST_BACKTRACE: 1
+
+    - name: Stop swtpm
+      if: always()
+      run: |
+        pkill swtpm || true
+        echo "✅ swtpm stopped"
+
+  # Verify the feature compiles on macOS (but doesn't run tests)
+  tpm2-macos-compile:
+    name: TPM2 Compile Check (macOS)
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build with TPM2 feature (should skip TPM code)
+      run: |
+        # On macOS, the tpm2 feature should compile but the module is not included
+        cargo build --features tpm2 -p wsc --verbose
+
+        echo "✅ TPM2 feature compiles on macOS (module excluded)"
+
+    - name: Run non-TPM tests
+      run: |
+        # Regular tests should still pass
+        cargo test -p wsc --verbose
+
+  # Windows TPM compile check (optional - most Windows VMs don't have TPM)
+  tpm2-windows-compile:
+    name: TPM2 Compile Check (Windows)
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Build with TPM2 feature
+      run: |
+        cargo build --features tpm2 -p wsc --verbose
+
+        echo "TPM2 feature compiles on Windows"
+
+    # Note: We don't run TPM tests on Windows in CI because:
+    # 1. GitHub Windows runners don't have TPM hardware
+    # 2. swtpm for Windows requires more complex setup
+    #
+    # For local Windows testing with real TPM:
+    # cargo test --features tpm2 -p wsc platform::tpm2::tests -- --ignored

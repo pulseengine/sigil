@@ -60,19 +60,76 @@ rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 # Policy file parsing (TOML format)
 toml = "0.8"
 
+# Async/sync abstraction - compile-time switch
+# is_sync feature enabled by default (WASM requires sync, native can override)
+maybe-async = { version = "0.2", features = ["is_sync"] }
+
+# Cross-platform secure key storage (OS keychain/keyring)
+# macOS: Keychain, Linux: secret-service (GNOME Keyring), Windows: Credential Manager
+[dependencies.keyring]
+version = "3"
+features = ["apple-native", "sync-secret-service"]
+optional = true
+
+# Async runtime and HTTP client (optional, native only)
+[dependencies.tokio]
+version = "1.43"
+features = ["rt-multi-thread", "net", "time", "sync"]
+optional = true
+
+[dependencies.reqwest]
+version = "0.12"
+default-features = false
+features = ["rustls-tls", "json"]
+optional = true
+
+# Rego policy language support (optional, for power users)
+# Regorus is Microsoft's fast Rust implementation of OPA/Rego
+[dependencies.regorus]
+version = "0.2"
+optional = true
+
+# Wasmtime runtime for hosting WASM components (optional)
+# Enables running WASM components that use wsc:crypto interface
+[dependencies.wasmtime]
+version = "29"
+features = ["component-model"]
+optional = true
+
+# TPM 2.0 support via TSS2 (optional, Linux/Windows only)
+# Requires tpm2-tss libraries installed on Linux, uses TBS on Windows
+# macOS doesn't have TPM2 - use Secure Enclave instead
+# For testing: use swtpm simulator
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies.tss-esapi]
+version = "7"
+optional = true
+
 [dev-dependencies]
 # WAT (WebAssembly Text) parser for tests
 wat = "1.221"
 
 [features]
-default = ["software-keys"]
+default = ["software-keys", "sync"]
+
+# API mode: sync (default) or async (native only)
+# Note: maybe-async/is_sync is enabled by default in the dependency
+# The async feature would require removing is_sync and using async runtime
+sync = []
+async = ["tokio", "reqwest"]
+
 # Software-based key storage (always available, for development/testing)
 software-keys = []
-# Hardware security backends (planned - traits available, implementations pending)
-tpm2 = []  # TPM 2.0 support (planned)
+# Cross-platform OS keyring/keychain storage (macOS Keychain, Linux secret-service, Windows Credential Manager)
+keyring-storage = ["keyring"]
+# Hardware security backends
+tpm2 = ["tss-esapi"]  # TPM 2.0 support (Linux/Windows)
 secure-element = []  # Generic secure element support (planned)
 se050 = ["secure-element"]  # NXP SE050 EdgeLock (planned)
 trustzone = []  # ARM TrustZone / OP-TEE support (planned)
 sgx = []  # Intel SGX support (planned)
 # Alternative serialization formats (planned)
 cbor = []  # CBOR serialization support (planned)
+# Rego policy language support via Regorus (Microsoft's Rust OPA implementation)
+rego = ["regorus"]
+# Wasmtime runtime for hosting WASM components with hardware crypto
+runtime = ["wasmtime"]

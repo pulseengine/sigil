@@ -1,0 +1,220 @@
+/// Hardware-backed cryptographic operations
+///
+/// This interface provides a handle-based abstraction for cryptographic
+/// operations that can be backed by hardware (TPM, HSM, Secure Element)
+/// or software. Key material never leaves the secure boundary.
+///
+/// Stopgap interface until wasi-crypto standardizes WIT format.
+/// See: https://github.com/WebAssembly/wasi-crypto
+package wsc:crypto@0.1.0;
+
+/// Hardware-backed signing operations
+///
+/// Keys are represented as opaque handles, not raw bytes.
+/// This enables hardware-backed implementations where keys
+/// never leave the secure element.
+interface hardware-signing {
+    /// Opaque handle to a signing key
+    /// The actual key material is stored in the secure backend
+    type key-handle = u64;
+
+    /// Security level of the cryptographic backend
+    enum security-level {
+        /// Software-only implementation (development/testing)
+        software,
+        /// Hardware-protected but basic (e.g., filesystem encryption)
+        hardware-basic,
+        /// Hardware-backed key storage (e.g., TPM without attestation)
+        hardware-backed,
+        /// Certified hardware with attestation (e.g., TPM 2.0 with EK cert)
+        hardware-certified,
+    }
+
+    /// Supported signing algorithms
+    enum signing-algorithm {
+        /// Ed25519 (EdDSA on Curve25519)
+        ed25519,
+        /// ECDSA with P-256 (secp256r1)
+        ecdsa-p256,
+        /// ECDSA with P-384 (secp384r1)
+        ecdsa-p384,
+    }
+
+    /// Key usage constraints (bit flags)
+    /// - 0x01: sign - Key can be used for signing
+    /// - 0x02: verify - Key can be used for verification
+    /// - 0x04: exportable - Key can be exported (software keys only)
+    type key-usage = u8;
+
+    /// Error types for hardware crypto operations
+    variant hardware-error {
+        /// Hardware backend not available
+        not-available(string),
+        /// Key not found in storage
+        key-not-found(string),
+        /// Signing operation failed
+        signing-failed(string),
+        /// Access denied (e.g., PIN required)
+        access-denied(string),
+        /// Unsupported algorithm for this backend
+        unsupported-algorithm(string),
+        /// Key generation failed
+        generation-failed(string),
+        /// Invalid key handle
+        invalid-handle(string),
+    }
+
+    /// Information about the crypto backend
+    record backend-info {
+        /// Human-readable name (e.g., "TPM 2.0", "Software")
+        name: string,
+        /// Security level provided
+        level: security-level,
+        /// Supported algorithms
+        algorithms: list<signing-algorithm>,
+        /// Manufacturer (for hardware)
+        manufacturer: option<string>,
+        /// Firmware version (for hardware)
+        firmware-version: option<string>,
+    }
+
+    /// Public key information (safe to export)
+    record public-key-info {
+        /// Key handle (matches the signing key)
+        handle: key-handle,
+        /// Algorithm used
+        algorithm: signing-algorithm,
+        /// DER-encoded public key bytes
+        public-key-der: list<u8>,
+        /// Optional key identifier
+        key-id: option<string>,
+    }
+
+    /// Check if the hardware backend is available
+    is-available: func() -> bool;
+
+    /// Get information about the crypto backend
+    get-backend-info: func() -> result<backend-info, hardware-error>;
+
+    /// Get the security level of the current backend
+    get-security-level: func() -> security-level;
+
+    /// Generate a new signing key in the secure backend
+    ///
+    /// # Arguments
+    /// * `algorithm` - The signing algorithm to use
+    /// * `usage` - Key usage constraints
+    /// * `key-id` - Optional human-readable identifier
+    ///
+    /// # Returns
+    /// Handle to the new key (key material stays in hardware)
+    generate-key: func(
+        algorithm: signing-algorithm,
+        usage: key-usage,
+        key-id: option<string>
+    ) -> result<key-handle, hardware-error>;
+
+    /// Sign data using a hardware-protected key
+    ///
+    /// # Arguments
+    /// * `handle` - Handle to the signing key
+    /// * `data` - Data to sign
+    ///
+    /// # Returns
+    /// Signature bytes (algorithm-specific format)
+    sign: func(
+        handle: key-handle,
+        data: list<u8>
+    ) -> result<list<u8>, hardware-error>;
+
+    /// Get the public key for a key handle
+    ///
+    /// Public keys can be safely exported for verification
+    /// by other parties.
+    get-public-key: func(handle: key-handle) -> result<public-key-info, hardware-error>;
+
+    /// Verify a signature (optional - can be done in software)
+    ///
+    /// Some hardware backends support verification acceleration.
+    /// Software verification is always available as fallback.
+    verify: func(
+        public-key-der: list<u8>,
+        algorithm: signing-algorithm,
+        data: list<u8>,
+        signature: list<u8>
+    ) -> result<bool, hardware-error>;
+
+    /// Delete a key from the secure backend
+    ///
+    /// For hardware keys, this may require additional authorization.
+    delete-key: func(handle: key-handle) -> result<_, hardware-error>;
+
+    /// List all available key handles
+    list-keys: func() -> result<list<key-handle>, hardware-error>;
+}
+
+/// Key attestation for hardware-backed keys
+///
+/// Provides cryptographic proof that a key was generated
+/// and is protected by specific hardware.
+interface key-attestation {
+    use hardware-signing.{key-handle, hardware-error, signing-algorithm};
+
+    /// Attestation evidence format
+    enum attestation-format {
+        /// TPM 2.0 quote format
+        tpm2-quote,
+        /// WebAuthn attestation statement
+        webauthn,
+        /// Custom format (vendor-specific)
+        custom,
+    }
+
+    /// Attestation evidence for a key
+    record key-attestation-evidence {
+        /// Key being attested
+        key-handle: key-handle,
+        /// Attestation format
+        format: attestation-format,
+        /// Attestation data (format-specific)
+        evidence: list<u8>,
+        /// Certificate chain (if available)
+        certificate-chain: option<list<list<u8>>>,
+        /// Timestamp of attestation
+        timestamp: string,
+    }
+
+    /// Get attestation evidence for a hardware-backed key
+    ///
+    /// This proves the key was generated in and is protected
+    /// by the hardware. Not available for software keys.
+    get-attestation: func(handle: key-handle) -> result<key-attestation-evidence, hardware-error>;
+
+    /// Verify attestation evidence
+    ///
+    /// Validates that the attestation was produced by
+    /// legitimate hardware with a known certificate chain.
+    verify-attestation: func(evidence: key-attestation-evidence) -> result<bool, hardware-error>;
+}
+
+// ============================================================================
+// Worlds
+// ============================================================================
+
+/// World for components that IMPORT hardware crypto
+///
+/// Use this world for WASM components that need to call hardware-backed
+/// signing operations. The host runtime provides the implementation.
+world crypto-guest {
+    import hardware-signing;
+}
+
+/// World for components that EXPORT hardware crypto
+///
+/// Use this world for components that provide hardware-backed signing.
+/// This generates:
+/// - WASM bindings for component implementation
+/// - Native bindings (crypto_provider_bindings_host) for native implementation
+world crypto-provider {
+    export hardware-signing;
+}
