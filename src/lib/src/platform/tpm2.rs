@@ -52,7 +52,7 @@ use tss_esapi::{
         resource_handles::Hierarchy,
     },
     structures::{
-        EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme, MaxBuffer,
+        EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme,
         PublicBuilder, PublicEccParametersBuilder, SignatureScheme,
     },
     tcti_ldr::{DeviceConfig, NetworkTPMConfig, TctiNameConf},
@@ -306,8 +306,11 @@ impl Tpm2Provider {
             .map_err(|e| WSError::InternalError(format!("Failed to build public template: {}", e)))?;
 
         // Create the primary key under the owner hierarchy
+        // Use execute_with_nullauth_session for proper authorization handling
         let result = ctx
-            .create_primary(Hierarchy::Owner, public, None, None, None, None)
+            .execute_with_nullauth_session(|ctx| {
+                ctx.create_primary(Hierarchy::Owner, public.clone(), None, None, None, None)
+            })
             .map_err(|e| WSError::InternalError(format!("TPM key creation failed: {}", e)))?;
 
         // Extract public key bytes from the result
@@ -471,13 +474,18 @@ impl SecureKeyProvider for Tpm2Provider {
         let data_buffer = tss_esapi::structures::MaxBuffer::try_from(data.to_vec())
             .map_err(|e| WSError::InternalError(format!("Data too large for TPM: {}", e)))?;
 
-        let (digest, ticket) = ctx
-            .hash(data_buffer, HashingAlgorithm::Sha256, Hierarchy::Owner)
-            .map_err(|e| WSError::InternalError(format!("TPM hash failed: {}", e)))?;
-
-        // Sign with TPM using the ticket
+        // Hash and sign with proper session handling
         let signature = ctx
-            .sign(tpm_handle, digest, SignatureScheme::Null, ticket)
+            .execute_with_nullauth_session(|ctx| {
+                let (digest, ticket) = ctx.hash(
+                    data_buffer.clone(),
+                    HashingAlgorithm::Sha256,
+                    Hierarchy::Owner,
+                )?;
+
+                // Sign with TPM using the ticket
+                ctx.sign(tpm_handle, digest, SignatureScheme::Null, ticket)
+            })
             .map_err(|e| WSError::InternalError(format!("TPM signing failed: {}", e)))?;
 
         // Convert signature to standard DER format
