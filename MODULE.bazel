@@ -29,9 +29,11 @@ use_repo(cc_configure, "local_config_cc")
 bazel_dep(name = "rules_wasm_component", version = "1.0.0")
 
 # Git repository override - use pulseengine fork with latest fixes
+# Note: Using older commit to avoid componentize-py canary checksum issues
+# The newer commits (58b80d2+) have unstable canary checksums that break CI
 git_override(
     module_name = "rules_wasm_component",
-    commit = "27eefae46a6b542fedf066d924a3c07a7b3d6f6a",  # Latest: hermetic Go tools + go_sum support
+    commit = "27eefae46a6b542fedf066d924a3c07a7b3d6f6a",  # Stable: hermetic Go tools + go_sum support
     remote = "https://github.com/pulseengine/rules_wasm_component.git",
 )
 
