@@ -13,6 +13,7 @@ rust_library(
     crate_name = "wsc_attestation",
     edition = "2024",
     deps = [
+        "@wsc_deps//:base64",
         "@wsc_deps//:chrono",
         "@wsc_deps//:getrandom",
         "@wsc_deps//:hex",

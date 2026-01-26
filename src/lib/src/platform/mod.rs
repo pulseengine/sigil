@@ -314,7 +314,13 @@ impl HardwareVerifier for SoftwareEd25519Verifier {
 #[cfg(feature = "software-keys")]
 pub mod software;
 
-#[cfg(feature = "tpm2")]
+#[cfg(feature = "keyring-storage")]
+pub mod keyring_storage;
+
+// TPM2 is only available on Linux via tss-esapi (macOS uses Secure Enclave instead)
+// NOTE: Windows TPM support requires a different implementation using TBS API
+//       (tss-esapi doesn't have pre-generated bindings for Windows)
+#[cfg(all(feature = "tpm2", target_os = "linux"))]
 pub mod tpm2;
 
 #[cfg(feature = "secure-element")]
@@ -615,7 +621,7 @@ impl fmt::Display for SecurityLevel {
 /// Only returns error if NO providers are available (should never happen
 /// as software provider is always available).
 pub fn detect_platform() -> Result<Box<dyn SecureKeyProvider>, WSError> {
-    #[cfg(feature = "tpm2")]
+    #[cfg(all(feature = "tpm2", target_os = "linux"))]
     {
         if let Ok(provider) = tpm2::Tpm2Provider::new() {
             log::info!("Detected TPM 2.0 hardware");

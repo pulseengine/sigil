@@ -70,12 +70,12 @@ use std::sync::Arc;
 /// Sigstore uses Google Trust Services certificates (GTS Root R1 -> GTS CA 1D4 -> fulcio.sigstore.dev)
 /// We pin both the intermediate and root CA for defense in depth.
 const FULCIO_PRODUCTION_PINS: &[&str] = &[
-    // Current fulcio.sigstore.dev leaf certificate (updated 2026-01-05)
+    // Current fulcio.sigstore.dev leaf certificate (updated 2026-01-25)
     // Run: echo | openssl s_client -connect fulcio.sigstore.dev:443 -servername fulcio.sigstore.dev 2>/dev/null | openssl x509 -outform DER | sha256sum
-    "b856b7083ffae1147d0358ab4a21838657d226169e7e3b2de212c92a6830530a",
+    "a1ab2a71570894a6d9b2e539ec31419968cc3192b8c64bafb016bb72013f4087",
     // Previous pins kept for rotation grace period
+    "b856b7083ffae1147d0358ab4a21838657d226169e7e3b2de212c92a6830530a",
     "d947432abde7b7fa90fc2e6b59101b12780fe0b4f02be0d81f4a6e2a0d5f2c17",
-    "730c1bdfc3b143e8a6a937e64c6a6c6e79f2c6e0d1c8e8e8c4f6f7a2b0e8d1c3",
 ];
 
 /// Production Rekor certificate pins (SHA256 fingerprints)

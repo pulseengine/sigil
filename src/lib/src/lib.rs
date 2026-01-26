@@ -6,6 +6,13 @@
 #![allow(clippy::vec_init_then_push)]
 #![forbid(unsafe_code)]
 
+// Compile-time guard: async feature requires native target (until WASI 0.3)
+#[cfg(all(target_arch = "wasm32", feature = "async"))]
+compile_error!(
+    "The 'async' feature is not supported on WASM targets until WASI 0.3 (expected Feb 2026). \
+    Use the default 'sync' feature for WASM builds."
+);
+
 mod error;
 mod signature;
 mod split;
@@ -92,6 +99,32 @@ pub mod intoto;
 /// Describes how artifacts were built, including inputs, builder, and metadata.
 /// See: https://slsa.dev/spec/v1.0/provenance
 pub mod slsa;
+
+/// HTTP client abstraction for sync/async support
+///
+/// Provides a unified HTTP client interface using `maybe_async` for compile-time
+/// sync/async selection. Uses `ureq` in sync mode (default) and `reqwest` in async mode.
+/// Not available on WASM targets - use WASI HTTP instead.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod http;
+
+/// Wasmtime runtime for hosting WASM components with hardware crypto
+///
+/// Provides a wasmtime-based execution environment that implements the
+/// `wsc:crypto` WIT interface, allowing WASM components to access
+/// hardware-backed cryptographic operations (TPM, HSM, Secure Element)
+/// through opaque key handles.
+///
+/// # Feature Flag
+///
+/// This module requires the `runtime` feature:
+///
+/// ```toml
+/// [dependencies]
+/// wsc = { version = "0.5", features = ["runtime"] }
+/// ```
+#[cfg(all(feature = "runtime", not(target_arch = "wasm32")))]
+pub mod runtime;
 
 #[allow(unused_imports)]
 pub use error::*;

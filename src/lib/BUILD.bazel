@@ -11,8 +11,16 @@ rust_library(
     name = "wsc",
     srcs = glob(["src/**/*.rs"]),
     crate_name = "wsc",
+    crate_features = [
+        "software-keys",  # Enable software key provider
+        "sync",           # Use synchronous HTTP client
+    ],
     edition = "2024",
     compile_data = glob(["src/**/*.json"]),
+    proc_macro_deps = [
+        # Async/sync abstraction for HTTP client (proc-macro)
+        "@wsc_deps//:maybe-async",
+    ],
     deps = [
         "//src/attestation:wsc-attestation",
         "@wsc_deps//:anyhow",
