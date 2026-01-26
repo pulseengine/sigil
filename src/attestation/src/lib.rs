@@ -61,6 +61,16 @@ use std::collections::HashMap;
 pub use in_toto_attestation;
 
 // ============================================================================
+// Submodules
+// ============================================================================
+
+/// Dead Simple Signing Envelope (DSSE) for standards-compliant attestation signing
+pub mod dsse;
+
+/// SLSA L4 reproducibility tracking - build environment and material manifest
+pub mod reproducibility;
+
+// ============================================================================
 // Section Name Constants
 // ============================================================================
 
