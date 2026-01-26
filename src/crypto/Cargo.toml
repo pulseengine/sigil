@@ -1,0 +1,21 @@
+[package]
+name = "wsc-crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hardware-backed cryptographic operations provider component"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core signing library (provides platform module)
+wsc = { version = "0.5.0", path = "../lib", features = ["software-keys"] }
+
+# WIT bindings generation
+wit-bindgen = { version = "0.47.0", default-features = false, features = ["realloc"] }
+
+# Ed25519 for signature verification
+ed25519-compact = "2.1"

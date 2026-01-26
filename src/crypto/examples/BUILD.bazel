@@ -1,0 +1,21 @@
+"""Native demo using WIT bindings for hardware-signing interface"""
+
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "native_demo",
+    srcs = ["native_demo.rs"],
+    crate_features = [
+        "software-keys",
+        "sync",
+    ],
+    edition = "2024",
+    deps = [
+        "//src/crypto:crypto_provider_bindings_host",
+        "//src/lib:wsc",
+        "@wsc_deps//:ed25519-compact",
+        "@wsc_deps//:hex",
+    ],
+)
