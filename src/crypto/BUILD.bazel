@@ -1,0 +1,31 @@
+"""Hardware-backed cryptographic operations provider
+
+This component exports the wsc:crypto/hardware-signing interface,
+providing both:
+- WASM component for embedding in other components
+- Native bindings (crypto_provider_bindings_host) for native builds
+
+The implementation delegates to wsc's platform module for the actual
+cryptographic operations.
+"""
+
+load("@rules_wasm_component//rust:defs.bzl", "rust_wasm_component_bindgen")
+
+package(default_visibility = ["//visibility:public"])
+
+# Crypto provider component
+# This creates:
+#   crypto_provider                  - WASM component
+#   crypto_provider_bindings         - WASM bindings library
+#   crypto_provider_bindings_host    - Native bindings library (for native builds!)
+rust_wasm_component_bindgen(
+    name = "crypto_provider",
+    srcs = ["src/lib.rs"],
+    crate_features = ["software-keys"],  # Enable software key provider
+    profiles = ["release"],
+    wit = "//wit:wsc_crypto_wit",
+    deps = [
+        "//src/lib:wsc",
+        "@wsc_deps//:ed25519-compact",
+    ],
+)

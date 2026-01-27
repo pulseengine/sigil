@@ -42,3 +42,12 @@ filegroup(
     name = "signing_interface",
     srcs = ["signing.wit"],
 )
+
+# WIT interface for hardware-backed cryptographic operations
+# Provides wsc:crypto/hardware-signing interface
+wit_library(
+    name = "wsc_crypto_wit",
+    srcs = ["deps/wsc-crypto/crypto.wit"],
+    package_name = "wsc:crypto",
+    world = "crypto-provider",
+)

@@ -39,3 +39,4 @@ profiles/
 
 # Old binary name
 wasmsign2
+.env

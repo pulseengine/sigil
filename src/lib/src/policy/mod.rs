@@ -54,6 +54,9 @@ use std::time::Duration;
 pub mod slsa;
 pub mod eval;
 
+#[cfg(feature = "rego")]
+pub mod rego;
+
 pub use slsa::{SlsaLevel, detect_slsa_level};
 pub use eval::{evaluate_policy, PolicyEvaluationResult, RuleResult, PolicySummary};
 
