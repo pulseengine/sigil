@@ -11,7 +11,8 @@ use std::thread;
 use std::time::Duration;
 
 // List of crates to publish in dependency order
-const CRATES_TO_PUBLISH: &[&str] = &["wsc", "wsc-cli"];
+// wsc-attestation MUST be first: wsc depends on it, wsc-cli depends on wsc
+const CRATES_TO_PUBLISH: &[&str] = &["wsc-attestation", "wsc", "wsc-cli"];
 
 struct Workspace {
     version: String,
@@ -43,6 +44,10 @@ fn main() {
     let ws = Workspace {
         version: ws_version,
     };
+
+    // Add attestation crate (must be published first - wsc depends on it)
+    let attestation_crate = read_crate(Some(&ws), "./src/attestation/Cargo.toml".as_ref());
+    crates.push(attestation_crate);
 
     // Add main library crate
     let lib_crate = read_crate(Some(&ws), "./src/lib/Cargo.toml".as_ref());
