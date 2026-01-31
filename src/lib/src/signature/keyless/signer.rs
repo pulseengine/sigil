@@ -94,7 +94,7 @@ impl KeylessSigner {
     /// # Ok::<(), wsc::WSError>(())
     /// ```
     pub fn with_config(config: KeylessConfig) -> Result<Self, WSError> {
-        use super::cert_pinning::{check_pinning_enforcement, PinningConfig};
+        use super::cert_pinning::PinningConfig;
 
         // Check if strict certificate pinning is required
         let require_pinning = config.require_cert_pinning
@@ -128,10 +128,14 @@ impl KeylessSigner {
             rekor_pins.service_name()
         );
 
-        // Check if pinning can be enforced (currently cannot due to ureq limitations)
+        // Validate pinning configuration if required
         if require_pinning {
-            check_pinning_enforcement("fulcio")?;
-            check_pinning_enforcement("rekor")?;
+            if !fulcio_pins.is_enabled() || !rekor_pins.is_enabled() {
+                return Err(WSError::CertificatePinningError(
+                    "Certificate pinning required but no pins configured".to_string(),
+                ));
+            }
+            log::info!("Certificate pinning enforcement enabled");
         }
 
         // Auto-detect OIDC provider
