@@ -21,6 +21,96 @@ env:
   RUST_VERSION: "1.90.0"
 
 jobs:
+  # Build native CLI binaries for all platforms
+  build-native-cli:
+    name: Build CLI (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: wsc
+            asset_name: wsc-linux-x86_64
+          # Linux x86_64 with TPM2
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: wsc
+            asset_name: wsc-linux-x86_64-tpm2
+            features: tpm2
+          # Linux aarch64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: wsc
+            asset_name: wsc-linux-aarch64
+            cross: true
+          # macOS x86_64 (Intel)
+          - target: x86_64-apple-darwin
+            os: macos-13
+            artifact_name: wsc
+            asset_name: wsc-macos-x86_64
+          # macOS aarch64 (Apple Silicon)
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact_name: wsc
+            asset_name: wsc-macos-aarch64
+          # Windows x86_64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact_name: wsc.exe
+            asset_name: wsc-windows-x86_64.exe
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+        rustup target add ${{ matrix.target }}
+
+    - name: Install cross-compilation tools (Linux aarch64)
+      if: matrix.cross
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+
+    - name: Install TPM2 dependencies
+      if: matrix.features == 'tpm2'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libtss2-dev
+
+    - name: Build CLI
+      run: |
+        cargo build --release --bin wsc --target ${{ matrix.target }} ${{ matrix.features && format('--features {0}', matrix.features) || '' }}
+
+    - name: Create artifact directory
+      shell: bash
+      run: |
+        mkdir -p artifacts
+        cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
+
+    - name: Create checksum
+      shell: bash
+      run: |
+        cd artifacts
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
+        else
+          shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
+        fi
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.asset_name }}
+        path: artifacts/*
+        retention-days: 1
+
   publish-crates:
     if: github.repository == 'pulseengine/wsc'
     name: Publish Rust Crates
@@ -49,7 +139,7 @@ jobs:
       contents: write
       packages: write
       id-token: write  # For Cosign keyless signing
-    needs: publish-crates
+    needs: [publish-crates, build-native-cli]
 
     steps:
     - name: Checkout code
@@ -314,6 +404,19 @@ jobs:
 
         echo "✅ Signature verification completed"
 
+    - name: Download Native CLI Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: native-cli
+        pattern: wsc-*
+        merge-multiple: true
+
+    - name: List downloaded artifacts
+      run: |
+        echo "Downloaded native CLI artifacts:"
+        ls -la native-cli/ || echo "No native-cli directory"
+        find . -name "wsc-*" -type f | head -20
+
     - name: Upload Release Assets
       if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
       uses: softprops/action-gh-release@v2
@@ -323,20 +426,41 @@ jobs:
           wsc-component.wasm.sha256
           wsc-cli.wasm
           wsc-cli.wasm.sha256
+          native-cli/wsc-linux-x86_64
+          native-cli/wsc-linux-x86_64.sha256
+          native-cli/wsc-linux-x86_64-tpm2
+          native-cli/wsc-linux-x86_64-tpm2.sha256
+          native-cli/wsc-linux-aarch64
+          native-cli/wsc-linux-aarch64.sha256
+          native-cli/wsc-macos-x86_64
+          native-cli/wsc-macos-x86_64.sha256
+          native-cli/wsc-macos-aarch64
+          native-cli/wsc-macos-aarch64.sha256
+          native-cli/wsc-windows-x86_64.exe
+          native-cli/wsc-windows-x86_64.exe.sha256
         body: |
-          ## 🎉 wsc WebAssembly Components Release
+          ## 🎉 wsc v${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }} Release
 
-          ### 📦 What's Included
+          ### 📦 Native CLI Binaries
+
+          | Platform | Binary | TPM2 Support |
+          |----------|--------|--------------|
+          | Linux x86_64 | `wsc-linux-x86_64` | ❌ |
+          | Linux x86_64 | `wsc-linux-x86_64-tpm2` | ✅ |
+          | Linux aarch64 | `wsc-linux-aarch64` | ❌ |
+          | macOS x86_64 (Intel) | `wsc-macos-x86_64` | ❌ |
+          | macOS aarch64 (Apple Silicon) | `wsc-macos-aarch64` | ❌ |
+          | Windows x86_64 | `wsc-windows-x86_64.exe` | ❌ |
+
+          ### 📦 WebAssembly Components
 
           **Component Library (WIT Interface):**
-          - `wsc-component.wasm` - WebAssembly component library with WIT bindings
-          - `wsc-component.wasm.sha256` - SHA256 checksum
-          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}`
+          - `wsc-component.wasm` - WebAssembly component with WIT bindings
+          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}`
 
           **CLI Tool (WASI Binary):**
           - `wsc-cli.wasm` - WASI command-line tool for Wasmtime
-          - `wsc-cli.wasm.sha256` - SHA256 checksum
-          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}-cli`
+          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}-cli`
 
           ### 🔐 Security Features
 
@@ -345,86 +469,45 @@ jobs:
           - ✅ **SLSA Provenance** - Build attestation included
           - ✅ **SHA256 Checksums** - For download verification
 
-          **wsc Keyless Signing:**
+          **Keyless Signing:**
           - Identity: GitHub Actions OIDC
           - Certificate: Short-lived from Fulcio (Sigstore)
-          - Transparency: Logged in Rekor transparency log
+          - Transparency: Logged in Rekor
 
-          ### 🚀 Usage
+          ### 🚀 Quick Start
 
-          #### Download WASM Component
           ```bash
-          # Download and verify checksum
-          TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
-          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc.wasm
-          wget https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc.wasm.sha256
-          sha256sum -c wsc.wasm.sha256
+          # Download native CLI for your platform
+          TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+          # Linux x86_64
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc-linux-x86_64
+          chmod +x wsc-linux-x86_64
+          ./wsc-linux-x86_64 --version
+
+          # macOS Apple Silicon
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc-macos-aarch64
+          chmod +x wsc-macos-aarch64
+          ./wsc-macos-aarch64 --version
           ```
 
-          #### Pull Signed OCI Artifact
+          ### 🔍 Verify Signatures
+
           ```bash
-          TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
-
-          # Pull the signed OCI artifact with oras
-          oras pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
-
-          # Verify signature with Cosign
-          cosign verify \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
-
-          # Verify SLSA provenance
-          cosign verify-attestation \
-            --type slsaprovenance \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
-          ```
-
-          ### 🔍 Verification
-
-          #### Verify WASM Module Signature (wsc)
-          ```bash
-          # Verify keyless signature (offline - no network required!)
-          wsc verify --keyless \
-            --cert-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${TAG}" \
-            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
-            -i wsc-component.wasm
-
-          # Or verify without identity constraints
+          # Verify WASM module signature
           wsc verify --keyless -i wsc-component.wasm
-          ```
 
-          #### Verify OCI Artifact Signature (Cosign)
-          ```bash
-          TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
-
-          # Verify Cosign signature
+          # Verify OCI artifact signature
           cosign verify \
             --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
-
-          # Verify SLSA provenance
-          cosign verify-attestation \
-            --type slsaprovenance \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
           ```
-
-          All releases are:
-          - Built in GitHub Actions with full transparency
-          - Signed with wsc keyless signing (WASM modules)
-          - Signed with Cosign using keyless signing (OCI artifacts)
-          - Attested with SLSA provenance
-          - Checksummed with SHA256
 
           ### 📚 Documentation
 
-          See [README.md](https://github.com/${{ github.repository }}/blob/master/README.md) for usage details.
-        tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+          See [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation.
+        tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
     - name: Create Release Summary
       run: |
