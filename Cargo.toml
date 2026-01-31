@@ -11,9 +11,9 @@ exclude = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
-authors = ["Frank Denis <github@pureftpd.org>"]
+authors = ["Frank Denis <github@pureftpd.org>", "Ralf Anton Beier <ralf_beier@me.com>"]
 license = "MIT"
 repository = "https://github.com/pulseengine/wsc"
 
