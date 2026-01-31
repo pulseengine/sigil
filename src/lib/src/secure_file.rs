@@ -25,9 +25,12 @@
 //! ```
 
 use crate::error::WSError;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
+
+#[cfg(unix)]
+use std::fs;
 
 /// The restrictive permission mode for sensitive files (owner read/write only)
 #[cfg(unix)]

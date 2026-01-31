@@ -47,14 +47,25 @@
 /// ```
 /// This will cause an error if pinning cannot be enforced due to HTTP client limitations.
 use crate::error::WSError;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerifier};
-use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
-use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+
+// Platform-agnostic imports
+#[cfg(not(target_arch = "wasm32"))]
+use sha2::{Digest, Sha256};
+#[cfg(not(target_arch = "wasm32"))]
 use std::fmt;
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
+
+// Rustls-dependent imports (native only)
+#[cfg(not(target_arch = "wasm32"))]
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerifier};
+#[cfg(not(target_arch = "wasm32"))]
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
+#[cfg(not(target_arch = "wasm32"))]
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+#[cfg(not(target_arch = "wasm32"))]
+use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 
 /// Production Fulcio certificate pins (SHA256 fingerprints)
 ///
@@ -265,7 +276,11 @@ impl PinningConfig {
         self.enforce = false;
         self
     }
+}
 
+// Rustls-dependent methods (native only)
+#[cfg(not(target_arch = "wasm32"))]
+impl PinningConfig {
     /// Verify a certificate matches one of the pins
     fn verify_certificate(&self, cert_der: &CertificateDer) -> Result<(), WSError> {
         if !self.is_enabled() {
@@ -311,6 +326,7 @@ impl PinningConfig {
 }
 
 /// Custom certificate verifier that implements pinning
+#[cfg(not(target_arch = "wasm32"))]
 pub struct PinnedCertVerifier {
     /// Base verifier for standard WebPKI validation
     base_verifier: Arc<dyn ServerCertVerifier>,
@@ -320,6 +336,7 @@ pub struct PinnedCertVerifier {
     crypto_provider: Arc<CryptoProvider>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl PinnedCertVerifier {
     /// Create a new pinned certificate verifier
     ///
@@ -352,6 +369,7 @@ impl PinnedCertVerifier {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl fmt::Debug for PinnedCertVerifier {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PinnedCertVerifier")
@@ -361,6 +379,7 @@ impl fmt::Debug for PinnedCertVerifier {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ServerCertVerifier for PinnedCertVerifier {
     fn verify_server_cert(
         &self,
@@ -436,40 +455,65 @@ impl ServerCertVerifier for PinnedCertVerifier {
     }
 }
 
-/// Check if strict certificate pinning is required
+/// Create a rustls ClientConfig with certificate pinning enabled.
 ///
-/// Returns an error if `WSC_REQUIRE_CERT_PINNING=1` is set and pinning cannot
-/// be enforced due to HTTP client limitations.
+/// This config can be used with any HTTP client that supports custom rustls configs:
+/// - For ureq: use with custom Connector (see transport.rs)
+/// - For reqwest: use with `ClientBuilder::use_preconfigured_tls()`
+///
+/// # Arguments
+/// * `pinning` - Certificate pinning configuration
+///
+/// # Returns
+/// A rustls `ClientConfig` configured with our `PinnedCertVerifier`
+#[cfg(not(target_arch = "wasm32"))]
+pub fn create_pinned_rustls_config(
+    pinning: PinningConfig,
+) -> Result<Arc<rustls::ClientConfig>, WSError> {
+    use rustls::ClientConfig;
+
+    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+
+    // Create our custom certificate verifier with pinning
+    let verifier = PinnedCertVerifier::new(pinning, crypto_provider.clone())?;
+
+    // Build ClientConfig with our pinned verifier
+    let config = ClientConfig::builder_with_provider(crypto_provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| WSError::CertificatePinningError(format!("TLS version error: {}", e)))?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth();
+
+    log::debug!("Created pinned rustls ClientConfig");
+
+    Ok(Arc::new(config))
+}
+
+/// Check if strict certificate pinning is required via environment variable.
+///
+/// When `WSC_REQUIRE_CERT_PINNING=1` is set, this function returns an error if
+/// pinning cannot be configured (e.g., empty pins). Otherwise it logs a warning.
 ///
 /// # Usage
 ///
-/// Call this from FulcioClient and RekorClient before making connections:
+/// Call this when pinning configuration fails:
 /// ```ignore
-/// check_pinning_enforcement("fulcio.sigstore.dev")?;
+/// if let Err(e) = create_pinned_rustls_config(config) {
+///     check_pinning_requirement("fulcio.sigstore.dev")?;
+///     // Fall back to unpinned if not required
+/// }
 /// ```
-pub fn check_pinning_enforcement(service: &str) -> Result<(), WSError> {
+pub fn check_pinning_requirement(service: &str) -> Result<(), WSError> {
     if std::env::var("WSC_REQUIRE_CERT_PINNING").unwrap_or_default() == "1" {
-        log::error!(
-            "Certificate pinning is REQUIRED (WSC_REQUIRE_CERT_PINNING=1) but cannot be enforced for {}",
-            service
-        );
-        log::error!(
-            "Current HTTP client (ureq 3.x) does not support custom certificate verification"
-        );
-        log::error!("To enable pinning, either:");
-        log::error!("  1. Upgrade to a future version of ureq that supports custom TLS config");
-        log::error!("  2. Wait for wsc to migrate to reqwest or another HTTP client");
-        log::error!("  3. Unset WSC_REQUIRE_CERT_PINNING to allow connections (less secure)");
-
         return Err(WSError::CertificatePinningError(format!(
-            "Strict certificate pinning required but cannot be enforced for {} (HTTP client limitation)",
+            "Certificate pinning required (WSC_REQUIRE_CERT_PINNING=1) but not configured for {}",
             service
         )));
     }
 
-    // Log informational message about pinning status
-    log::debug!(
-        "Certificate pinning infrastructure ready for {} (not yet enforced, pending HTTP client support)",
+    log::warn!(
+        "Certificate pinning not configured for {} (set WSC_REQUIRE_CERT_PINNING=1 to enforce)",
         service
     );
 
@@ -604,7 +648,7 @@ mod tests {
 
     // NOTE: Tests for WSC_REQUIRE_CERT_PINNING env var cannot be included
     // because the codebase has #![forbid(unsafe_code)] and env var manipulation
-    // requires unsafe. The check_pinning_enforcement() function is manually tested.
+    // requires unsafe. The check_pinning_requirement() function is manually tested.
 
     #[test]
     fn test_pinning_with_multiple_certs() {

@@ -32,15 +32,19 @@
 //! ```
 
 use crate::error::WSError;
-use crate::signature::keyless::cert_pinning::{PinningConfig, PinnedCertVerifier};
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::Arc;
 
+#[cfg(not(target_os = "wasi"))]
+use crate::signature::keyless::cert_pinning::{create_pinned_rustls_config, PinningConfig};
 #[cfg(not(target_os = "wasi"))]
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 #[cfg(not(target_os = "wasi"))]
 use rustls_pki_types::ServerName;
+#[cfg(not(target_os = "wasi"))]
+use std::convert::TryInto;
+#[cfg(not(target_os = "wasi"))]
+use std::fmt;
+#[cfg(not(target_os = "wasi"))]
+use std::sync::Arc;
 #[cfg(not(target_os = "wasi"))]
 use ureq::unversioned::transport::{
     Buffers, ConnectionDetails, Connector, Either, LazyBuffers, NextTimeout, TcpConnector,
@@ -68,24 +72,11 @@ impl PinnedRustlsConnector {
     /// # Errors
     /// Returns error if TLS configuration fails
     pub fn new(pinning: PinningConfig) -> Result<Self, WSError> {
-        let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
-
-        // Create our custom certificate verifier with pinning
-        let verifier = PinnedCertVerifier::new(pinning, crypto_provider.clone())?;
-
-        // Build ClientConfig with our pinned verifier
-        let config = ClientConfig::builder_with_provider(crypto_provider)
-            .with_safe_default_protocol_versions()
-            .map_err(|e| WSError::CertificatePinningError(format!("TLS version error: {}", e)))?
-            .dangerous()
-            .with_custom_certificate_verifier(Arc::new(verifier))
-            .with_no_client_auth();
+        let config = create_pinned_rustls_config(pinning)?;
 
         log::info!("Created PinnedRustlsConnector with certificate pinning");
 
-        Ok(Self {
-            config: Arc::new(config),
-        })
+        Ok(Self { config })
     }
 }
 
@@ -103,6 +94,17 @@ impl fmt::Debug for PinnedRustlsConnector {
 pub struct PinnedRustlsTransport {
     buffers: LazyBuffers,
     stream: StreamOwned<ClientConnection, TransportAdapter<Box<dyn Transport>>>,
+}
+
+#[cfg(not(target_os = "wasi"))]
+impl PinnedRustlsTransport {
+    /// Create a new pinned TLS transport.
+    pub fn new(
+        buffers: LazyBuffers,
+        stream: StreamOwned<ClientConnection, TransportAdapter<Box<dyn Transport>>>,
+    ) -> Self {
+        Self { buffers, stream }
+    }
 }
 
 #[cfg(not(target_os = "wasi"))]
