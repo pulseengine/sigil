@@ -112,7 +112,8 @@ jobs:
         retention-days: 1
 
   publish-crates:
-    if: github.repository == 'pulseengine/wsc'
+    # Only publish on tag pushes to prevent race condition with main branch
+    if: github.repository == 'pulseengine/wsc' && github.ref_type == 'tag'
     name: Publish Rust Crates
     runs-on: ubuntu-latest
     permissions:
