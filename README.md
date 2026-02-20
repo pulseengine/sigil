@@ -1,256 +1,143 @@
-# wsc - WebAssembly Signature Component
+<div align="center">
 
-**Sign in the cloud. Verify anywhere.**
+# Sigil
 
-A tool and library for signing WebAssembly modules with embedded signatures that can be verified completely offline - perfect for embedded systems, edge devices, and air-gapped environments.
+<sup>Supply chain security for WebAssembly</sup>
 
-## Why wsc?
+&nbsp;
 
-Unlike OCI registry signatures (Cosign) that require network access at verification time, wsc embeds signatures directly in the WASM module. This enables:
+![Rust](https://img.shields.io/badge/Rust-CE422B?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)
+![Sigstore](https://img.shields.io/badge/Sigstore-keyless_signing-654FF0?style=flat-square&labelColor=1a1b27)
+![SLSA](https://img.shields.io/badge/SLSA-L4_provenance-00C853?style=flat-square&labelColor=1a1b27)
+![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square&labelColor=1a1b27)
 
-| Scenario | Cosign/OCI | wsc |
-|----------|------------|-----|
+&nbsp;
+
+<h6>
+  <a href="https://github.com/pulseengine/meld">Meld</a>
+  &middot;
+  <a href="https://github.com/pulseengine/loom">Loom</a>
+  &middot;
+  <a href="https://github.com/pulseengine/synth">Synth</a>
+  &middot;
+  <a href="https://github.com/pulseengine/kiln">Kiln</a>
+  &middot;
+  <a href="https://github.com/pulseengine/sigil">Sigil</a>
+</h6>
+
+</div>
+
+&nbsp;
+
+Meld fuses. Loom weaves. Synth transpiles. Kiln fires. Sigil seals.
+
+The cryptographic backbone of the PulseEngine pipeline. Sigil signs WebAssembly modules with embedded signatures that can be verified completely offline — perfect for embedded systems, edge devices, and air-gapped environments. Every pipeline stage (fusion, optimization, transpilation) creates a signed transformation attestation recording what changed, which tool version ran, and cryptographic hashes of inputs and outputs.
+
+Built on the [WebAssembly modules signatures proposal](https://github.com/wasm-signatures/design) and extended with Sigstore keyless signing, SLSA policy enforcement, and hardware security via TPM 2.0. All signatures are embedded directly in WebAssembly modules — no external registry required.
+
+## Quick Start
+
+```bash
+# Install from source
+cargo install wsc-cli
+
+# Or build from source
+git clone https://github.com/pulseengine/sigil.git
+cd sigil
+cargo build --release
+```
+
+### Keyless Signing (Sigstore)
+
+```bash
+# Sign in GitHub Actions (or any OIDC-enabled CI)
+sigil sign --keyless -i module.wasm -o signed.wasm
+
+# Verify offline — no network required
+sigil verify --keyless -i signed.wasm
+
+# With identity constraints
+sigil verify --keyless -i signed.wasm \
+  --cert-identity "user@example.com" \
+  --cert-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
+### Traditional Key-Based Signing
+
+```bash
+# Generate key pair
+sigil keygen -k secret.key -K public.key
+
+# Sign
+sigil sign -k secret.key -i module.wasm -o signed.wasm
+
+# Verify
+sigil verify -K public.key -i signed.wasm
+```
+
+## Features
+
+- **Offline-First Verification** — Embedded signatures survive distribution; no network required at runtime
+- **Keyless Signing** — Full Sigstore/Fulcio/Rekor integration with OIDC authentication (GitHub Actions, Google Cloud, GitLab CI)
+- **Keyless Verification** — Verify Sigstore signatures offline with certificate chain and SET validation
+- **Enhanced Rekor Verification** — Checkpoint-based verification with security hardening
+- **Bazel Integration** — Full BUILD and MODULE.bazel support for hermetic builds
+- **WIT Component Model** — Both library and CLI WebAssembly component builds
+- **OpenSSH Key Support** — Works with Ed25519 SSH keys
+- **GitHub Integration** — Verify using a GitHub user's SSH public keys
+- **Multiple Signatures** — Compact representation for multi-signer workflows
+
+### Offline Verification vs Registry Signatures
+
+| Scenario | Cosign/OCI | Sigil |
+|----------|------------|-------|
 | IoT device with intermittent WiFi | Needs connectivity | Verify offline |
 | Industrial controller | Requires registry access | Signature embedded |
 | Edge CDN node | Registry latency | Local verification |
 | Air-gapped network | Cannot verify | Works offline |
 
-## About
-
-**wsc** is an enhanced WebAssembly signing toolkit built on the foundation of [wasmsign2](https://github.com/wasm-signatures/wasmsign2) by Frank Denis. While maintaining compatibility with the WebAssembly modules signatures proposal, wsc adds production-oriented features:
-
-- **Offline-First Verification**: Embedded signatures survive distribution - no network required at runtime
-- **Keyless Signing**: Full Sigstore/Fulcio/Rekor integration with OIDC authentication (GitHub Actions, Google Cloud, GitLab CI)
-- **Keyless Verification**: Verify Sigstore signatures offline with certificate chain and SET validation
-- **Enhanced Rekor Verification**: Checkpoint-based verification with security hardening
-- **Bazel Integration**: Full BUILD and MODULE.bazel support for hermetic builds
-- **WIT Component Model**: Both library (`wsc-component.wasm`) and CLI (`wsc-cli.wasm`) builds
-
-## About This Project
-
-**wsc** is based on [wasmsign2](https://github.com/wasm-signatures/wasmsign2) by Frank Denis, a reference implementation of the [WebAssembly modules signatures proposal](https://github.com/wasm-signatures/design).
-
-We plan to add additional features to support production use cases, including:
-
-- Enhanced Rekor verification with checkpoint-based proofs
-- Bazel build system integration for hermetic builds
-- WebAssembly Component Model (WIT) support
-- Expanded keyless signing capabilities
-- Additional security hardening and validation
-
-MIT License - Original wasmsign2 Copyright (c) 2024 Frank Denis
-
-## WASM Signatures
-
-Unlike typical desktop and mobile applications, WebAssembly binaries do not embed any kind of digital signatures to verify that they come from a trusted source, and haven't been tampered with.
-
-wsc takes an existing WebAssembly module, computes a signature for its content, and stores the signature in a custom section.
-
-The resulting binary remains a standalone, valid WebAssembly module, but signatures can be verified prior to executing it.
-
-wsc implements the [WebAssembly modules signatures](https://github.com/wasm-signatures/design) proposal.
-The file format is documented in the [WebAssembly tool conventions repository](https://github.com/WebAssembly/tool-conventions/blob/main/Signatures.md).
-
-The proposal, and this implementation, support domain-specific features such as:
-
-- The ability to have multiple signatures for a single module, with a compact representation
-- The ability to sign a module which was already signed with different keys
-- The ability to extend an existing module with additional custom sections, without invalidating existing signatures
-- The ability to verify multiple subsets of a module's sections with a single signature
-- The ability to turn an embedded signature into a detached one, and the other way round
-
-## Installation
-
-`wsc` is a Rust crate that can be used in other applications.
-
-It is also a CLI tool to perform common operations, whose usage is summarized below.
-
-### Using Cargo
+## Additional Operations
 
 ```bash
-cargo install wsc-cli
+# Inspect a module
+sigil show -i module.wasm
+
+# Detach signature
+sigil detach -i signed.wasm -o unsigned.wasm -S signature.bin
+
+# Attach signature
+sigil attach -i unsigned.wasm -o signed.wasm -S signature.bin
+
+# Partial verification (specific custom sections)
+sigil verify -K public.key -i signed.wasm --split "custom_section_regex"
 ```
 
-### From Source
+## Formal Verification
 
-```bash
-git clone https://github.com/pulseengine/wsc.git
-cd wsc
-cargo build --release
-```
-
-### Using Bazel
-
-```bash
-bazel build //src/cli:wsc
-```
-
-## Usage
-
-### Keyless Signing (Sigstore)
-
-wsc supports keyless signing using [Sigstore](https://www.sigstore.dev/) - sign in CI, verify anywhere:
-
-```bash
-# Sign in GitHub Actions (or any OIDC-enabled CI)
-wsc sign --keyless -i module.wasm -o signed.wasm
-```
-
-This will:
-1. Authenticate via OIDC (GitHub Actions, Google Cloud, GitLab CI)
-2. Generate an ephemeral key pair
-3. Obtain a certificate from Fulcio
-4. Sign the module
-5. Upload signature to Rekor transparency log
-6. Embed the certificate and Rekor proof in the module
-
-### Keyless Verification (Offline)
-
-Verify a keyless-signed module - no network required:
-
-```bash
-# Basic verification (offline)
-wsc verify --keyless -i signed.wasm
-
-# With identity constraints
-wsc verify --keyless -i signed.wasm \
-  --cert-identity "user@example.com" \
-  --cert-oidc-issuer "https://token.actions.githubusercontent.com"
-```
-
-Verification performs:
-1. Certificate chain validation against embedded Fulcio roots
-2. Rekor SET (Signed Entry Timestamp) verification
-3. Identity and issuer validation (optional)
-
-### Traditional Key-Based Signing
-
-#### Creating a Key Pair
-
-```bash
-wsc keygen -k secret.key -K public.key
-```
-
-#### Signing a Module
-
-```bash
-wsc sign -k secret.key -i module.wasm -o signed.wasm
-```
-
-#### Verifying a Module
-
-```bash
-wsc verify -K public.key -i signed.wasm
-```
-
-### Inspecting a Module
-
-```bash
-wsc show -i module.wasm
-```
-
-### Detaching/Attaching Signatures
-
-```bash
-# Detach signature to a file
-wsc detach -i signed.wasm -o unsigned.wasm -S signature.bin
-
-# Attach signature from a file
-wsc attach -i unsigned.wasm -o signed.wasm -S signature.bin
-```
-
-### Partial Verification
-
-wsc can verify signatures for specific custom sections:
-
-```bash
-wsc verify -K public.key -i signed.wasm --split "custom_section_regex"
-```
-
-### OpenSSH Keys Support
-
-wsc supports OpenSSH-formatted Ed25519 keys:
-
-```bash
-# Generate SSH key
-ssh-keygen -t ed25519 -f key
-
-# Sign module (use --ssh flag)
-wsc sign -k key --ssh -i module.wasm -o signed.wasm
-
-# Verify module
-wsc verify -K key.pub --ssh -i signed.wasm
-```
-
-### GitHub Integration
-
-Verify using a GitHub user's SSH public keys:
-
-```bash
-wsc verify --from-github username -i signed.wasm
-```
-
-## Enhanced Features
-
-### Rekor Verification
-
-wsc includes comprehensive Rekor inclusion proof verification:
-
-- ✅ **SET (Signed Entry Timestamp)** verification
-- ✅ **Checkpoint-based verification** with cryptographic tree state proofs
-- ✅ **Security hardening**: Key fingerprint validation, origin validation, cross-shard attack prevention
-- ✅ **Defense-in-depth**: 5 layers of security validation
-
-See [docs/checkpoint_security_audit.md](docs/checkpoint_security_audit.md) for details.
-
-### Bazel Integration
-
-Full Bazel support for hermetic builds:
-
-```python
-# BUILD.bazel
-load("@rules_rust//rust:defs.bzl", "rust_binary")
-
-rust_binary(
-    name = "wsc",
-    srcs = ["//src/cli:wsc"],
-)
-```
-
-See [MODULE.bazel](MODULE.bazel) for dependency configuration.
-
-### WebAssembly Component Model
-
-Build both library and CLI as WebAssembly components:
-
-```bash
-# Build WIT component library
-bazel build //src/component:wsc-component.wasm
-
-# Build WASI CLI binary
-bazel build //src/cli:wsc-cli.wasm
-```
+> [!NOTE]
+> **Cross-cutting verification** &mdash; Rocq mechanized proofs, Kani bounded model checking, Z3 SMT verification, and Verus Rust verification are used across the PulseEngine toolchain. Sigil attestation chains bind it all together.
 
 ## Documentation
 
-- [Checkpoint Implementation](docs/checkpoint_implementation.md) - Checkpoint-based verification details
-- [Security Audit](docs/checkpoint_security_audit.md) - Security vulnerabilities found and fixed
-- [Checkpoint Format](docs/rekor_checkpoint_format.md) - Complete format specification
-- [sigstore-rs Comparison](docs/sigstore-rs_comparison.md) - Comparison with official Rust implementation
-- [Security Documentation](SECURITY.md) - Comprehensive security model and operational security
-- [Keyless Signing](docs/keyless.md) - Keyless signing with Sigstore/Fulcio
-- [Testing Guide](docs/testing.md) - Testing procedures and guidelines
-
-## Development Status
-
-wsc is under active development. Core signing/verification and Rekor validation are functional. See [open issues](https://github.com/pulseengine/wsc/issues) for planned enhancements.
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
+- [Checkpoint Implementation](docs/checkpoint_implementation.md)
+- [Security Audit](docs/checkpoint_security_audit.md)
+- [Checkpoint Format](docs/rekor_checkpoint_format.md)
+- [Security Model](SECURITY.md)
+- [Keyless Signing](docs/keyless.md)
+- [Testing Guide](docs/testing.md)
 
 ## Acknowledgments
 
-- **Frank Denis** - Original wasmsign2 implementation
-- **Sigstore Project** - Keyless signing infrastructure
-- **WebAssembly Community** - Signatures proposal and specification
+Based on [wasmsign2](https://github.com/wasm-signatures/wasmsign2) by Frank Denis. MIT License &mdash; original wasmsign2 Copyright (c) 2024 Frank Denis.
+
+## License
+
+MIT License &mdash; see [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+<sub>Part of <a href="https://github.com/pulseengine">PulseEngine</a> &mdash; formally verified WebAssembly toolchain for safety-critical systems</sub>
+
+</div>
