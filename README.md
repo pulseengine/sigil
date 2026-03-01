@@ -6,6 +6,7 @@
 
 &nbsp;
 
+[![CI](https://github.com/pulseengine/sigil/actions/workflows/rust.yml/badge.svg)](https://github.com/pulseengine/sigil/actions/workflows/rust.yml)
 ![Rust](https://img.shields.io/badge/Rust-CE422B?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)
 ![Sigstore](https://img.shields.io/badge/Sigstore-keyless_signing-654FF0?style=flat-square&labelColor=1a1b27)
 ![SLSA](https://img.shields.io/badge/SLSA-L4_provenance-00C853?style=flat-square&labelColor=1a1b27)
@@ -82,7 +83,7 @@ sigil verify -K public.key -i signed.wasm
 - **Keyless Verification** — Verify Sigstore signatures offline with certificate chain and SET validation
 - **Enhanced Rekor Verification** — Checkpoint-based verification with security hardening
 - **Bazel Integration** — Full BUILD and MODULE.bazel support for hermetic builds
-- **WIT Component Model** — Both library and CLI WebAssembly component builds
+- **WebAssembly Component Model** — Both library and CLI WebAssembly component builds
 - **OpenSSH Key Support** — Works with Ed25519 SSH keys
 - **GitHub Integration** — Verify using a GitHub user's SSH public keys
 - **Multiple Signatures** — Compact representation for multi-signer workflows
