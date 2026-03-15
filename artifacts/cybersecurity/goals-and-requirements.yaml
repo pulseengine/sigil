@@ -694,3 +694,161 @@ artifacts:
     links:
       - type: assesses
         target: TS-005
+
+  - id: CG-9
+    type: cybersecurity-goal
+    title: Protection Against Signature Section Manipulation
+    status: approved
+    description: >
+      The signature section embedded in WASM modules must be tamper-evident,
+      preventing substitution of a different valid signature.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-011
+
+  - id: CG-10
+    type: cybersecurity-goal
+    title: Protection Against Repudiation
+    status: approved
+    description: >
+      Signing operations must produce irrefutable evidence binding signer
+      identity and timestamp to the signed module, preventing both signer
+      denial and timestamp disputes.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-013
+      - type: mitigates
+        target: TS-014
+
+  - id: CG-11
+    type: cybersecurity-goal
+    title: Acceptable Information Disclosure
+    status: approved
+    description: >
+      Certificate chain disclosure is accepted by design since signer
+      identity is intentionally public in the transparency model.
+    fields:
+      cal: "1"
+    links:
+      - type: mitigates
+        target: TS-015
+
+  - id: CG-12
+    type: cybersecurity-goal
+    title: Protection Against Processing-Based DoS
+    status: approved
+    description: >
+      The system must be resilient against denial-of-service attacks
+      targeting parser resource consumption and network endpoint flooding.
+    fields:
+      cal: "1"
+    links:
+      - type: mitigates
+        target: TS-016
+      - type: mitigates
+        target: TS-017
+
+  - id: CG-13
+    type: cybersecurity-goal
+    title: Protection Against Code Execution via Parser
+    status: approved
+    description: >
+      The parser must not allow crafted input to achieve arbitrary code
+      execution, enforced through memory safety and fuzz testing.
+    fields:
+      cal: "3"
+    links:
+      - type: mitigates
+        target: TS-018
+
+  - id: CD-10
+    type: cybersecurity-design
+    title: Incident Response Procedures
+    status: approved
+    description: >
+      Documented key revocation procedures, signing suspension workflow,
+      and forensic evidence collection as specified in INCIDENT_RESPONSE.md.
+    fields:
+      mechanism: key-revocation
+    links:
+      - type: satisfies
+        target: CR-9
+
+  - id: CD-11
+    type: cybersecurity-design
+    title: Structured Audit Log Emitter
+    status: draft
+    description: >
+      JSON-structured audit log emitter producing records with timestamp,
+      signer identity, module hash, key ID, Rekor UUID, and operation result
+      for every signing and verification operation.
+    fields:
+      mechanism: audit-logging
+      algorithm: JSON-structured
+    links:
+      - type: satisfies
+        target: CR-10
+
+  - id: CD-12
+    type: cybersecurity-design
+    title: Vulnerability Disclosure Process
+    status: approved
+    description: >
+      Documented vulnerability disclosure process in SECURITY.md with
+      contact information, 48-hour response SLA, and responsible disclosure
+      guidelines.
+    fields:
+      mechanism: disclosure-process
+    links:
+      - type: satisfies
+        target: CR-11
+
+  - id: CV-9
+    type: cybersecurity-verification
+    title: Incident Response Procedure Test
+    status: draft
+    description: >
+      Verify that key revocation removes signing capability, suspended keys
+      cannot produce new signatures, and audit trail is preserved for
+      forensic analysis.
+    fields:
+      method: manual-test
+    links:
+      - type: verifies
+        target: CR-9
+      - type: verifies
+        target: CD-10
+
+  - id: CV-10
+    type: cybersecurity-verification
+    title: Audit Log Format Verification
+    status: draft
+    description: >
+      Verify that audit records are JSON-structured with all required fields
+      present and emitted for every sign and verify operation.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CR-10
+      - type: verifies
+        target: CD-11
+
+  - id: CV-11
+    type: cybersecurity-verification
+    title: Vulnerability Disclosure Process Verification
+    status: draft
+    description: >
+      Verify that SECURITY.md contains complete vulnerability reporting
+      instructions and that the disclosure process is functional.
+    fields:
+      method: manual-test
+    links:
+      - type: verifies
+        target: CR-11
+      - type: verifies
+        target: CD-12

@@ -438,14 +438,18 @@ impl KeylessVerifier {
         log::info!("Certificate chain verified successfully");
 
         // Step 3: Verify Rekor SET (Signed Entry Timestamp)
-        if !keyless_sig.rekor_entry.uuid.is_empty() && keyless_sig.rekor_entry.uuid != "skipped" {
-            log::debug!("Verifying Rekor SET");
-            let verifier = RekorKeyring::from_embedded_trust_root()?;
-            verifier.verify_set(&keyless_sig.rekor_entry)?;
-            log::info!("Rekor SET verified successfully");
-        } else {
-            log::warn!("Rekor verification skipped (no Rekor entry)");
+        // Fail-closed: Rekor verification is MANDATORY for keyless signatures (DD-2).
+        // A missing or skipped Rekor entry means the signature lacks transparency
+        // proof and MUST be rejected.
+        if keyless_sig.rekor_entry.uuid.is_empty() || keyless_sig.rekor_entry.uuid == "skipped" {
+            return Err(WSError::RekorError(
+                "Rekor transparency log entry is required for keyless verification".into(),
+            ));
         }
+        log::debug!("Verifying Rekor SET");
+        let verifier = RekorKeyring::from_embedded_trust_root()?;
+        verifier.verify_set(&keyless_sig.rekor_entry)?;
+        log::info!("Rekor SET verified successfully");
 
         // Step 4: Extract identity and issuer from certificate
         let identity = keyless_sig.get_identity()?;
