@@ -93,12 +93,12 @@ const FULCIO_PRODUCTION_PINS: &[&str] = &[
 ///
 /// Rekor uses the same Google Trust Services infrastructure as Fulcio.
 const REKOR_PRODUCTION_PINS: &[&str] = &[
-    // Current rekor.sigstore.dev leaf certificate (updated 2026-01-05)
+    // Current rekor.sigstore.dev leaf certificate (updated 2026-03-15)
     // Run: echo | openssl s_client -connect rekor.sigstore.dev:443 -servername rekor.sigstore.dev 2>/dev/null | openssl x509 -outform DER | sha256sum
-    "1d1d8295591c131c4e3581c8bdaa6ee0a76baae16f454467069cd1211756b88d",
+    "b4eb704754cb6f968f0aad64e4f8dedea5105ca2eb5974cbf82a38021cd54433",
     // Previous pins kept for rotation grace period
+    "1d1d8295591c131c4e3581c8bdaa6ee0a76baae16f454467069cd1211756b88d",
     "d947432abde7b7fa90fc2e6b59101b12780fe0b4f02be0d81f4a6e2a0d5f2c17",
-    "730c1bdfc3b143e8a6a937e64c6a6c6e79f2c6e0d1c8e8e8c4f6f7a2b0e8d1c3",
 ];
 
 /// Staging Fulcio certificate pins (SHA256 fingerprints)
