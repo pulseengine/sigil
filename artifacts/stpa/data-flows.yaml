@@ -1,0 +1,329 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Data Flows
+  # ──────────────────────────────────────────────
+
+  - id: DF-1
+    type: data-flow
+    title: Secret Key Loading
+    status: approved
+    description: >
+      Ed25519 secret key read from disk into the signing module for use in
+      signature generation.
+    fields:
+      data-type: key-material
+      sensitivity: critical
+      persistence: transient
+      protection:
+        - 0600-permissions
+        - zeroization-on-drop
+    links:
+      - type: flows-from
+        target: CP-2
+      - type: flows-to
+        target: CTRL-2
+
+  - id: DF-2
+    type: data-flow
+    title: OIDC Token Flow
+    status: approved
+    description: >
+      JWT token from the CI environment to the keyless signing module for
+      Fulcio certificate issuance.
+    fields:
+      data-type: identity-token
+      sensitivity: high
+      persistence: ephemeral
+      protection:
+        - memory-only
+        - zeroization
+    links:
+      - type: flows-from
+        target: CTRL-7
+      - type: flows-to
+        target: CTRL-3
+
+  - id: DF-3
+    type: data-flow
+    title: Fulcio Certificate Response
+    status: approved
+    description: >
+      X.509 certificate returned from Fulcio CA to the keyless signing module,
+      binding the ephemeral public key to the OIDC identity.
+    fields:
+      data-type: certificate
+      sensitivity: medium
+      persistence: ephemeral
+      protection:
+        - TLS
+        - cert-pinning
+    links:
+      - type: flows-from
+        target: CP-3
+      - type: flows-to
+        target: CTRL-3
+
+  - id: DF-4
+    type: data-flow
+    title: Rekor Submission
+    status: approved
+    description: >
+      Signed entry submitted to the Rekor transparency log for tamper-evident
+      recording of the signing event.
+    fields:
+      data-type: audit-record
+      sensitivity: medium
+      persistence: persistent
+      protection:
+        - TLS
+        - cert-pinning
+    links:
+      - type: flows-from
+        target: CTRL-3
+      - type: flows-to
+        target: CP-3
+
+  - id: DF-5
+    type: data-flow
+    title: Signature Embedding
+    status: approved
+    description: >
+      Computed signature written into a WASM custom section, binding the
+      signature to the module content via SHA-256.
+    fields:
+      data-type: signature
+      sensitivity: low
+      persistence: persistent
+      protection:
+        - SHA-256-binding
+    links:
+      - type: flows-from
+        target: CTRL-2
+      - type: flows-to
+        target: CP-1
+
+  - id: DF-6
+    type: data-flow
+    title: Trust Bundle Distribution
+    status: approved
+    description: >
+      Pre-built trust bundle distributed to air-gapped devices for offline
+      signature verification.
+    fields:
+      data-type: trust-bundle
+      sensitivity: high
+      persistence: persistent
+      protection:
+        - integrity-hash
+        - secure-channel
+    links:
+      - type: flows-from
+        target: CTRL-5
+      - type: flows-to
+        target: CTRL-4
+
+  - id: DF-7
+    type: data-flow
+    title: Ephemeral Key Generation
+    status: approved
+    description: >
+      P-256 key pair generated in memory for a single keyless signing
+      operation, never persisted to disk.
+    fields:
+      data-type: key-material
+      sensitivity: critical
+      persistence: ephemeral
+      protection:
+        - memory-only
+        - zeroization
+        - CSPRNG
+    links:
+      - type: flows-from
+        target: CTRL-3
+      - type: flows-to
+        target: CP-2
+
+  - id: DF-8
+    type: data-flow
+    title: Module Hash
+    status: approved
+    description: >
+      SHA-256 hash of the WASM module computed and sent to the signing module
+      as input for signature generation.
+    fields:
+      data-type: module-binary
+      sensitivity: low
+      persistence: transient
+    links:
+      - type: flows-from
+        target: CP-1
+      - type: flows-to
+        target: CTRL-2
+
+  - id: DF-9
+    type: data-flow
+    title: Verification Result
+    status: approved
+    description: >
+      Signature verification outcome returned to the calling developer or CI
+      pipeline indicating whether the module is authentic and intact.
+    fields:
+      data-type: attestation
+      sensitivity: medium
+      persistence: transient
+    links:
+      - type: flows-from
+        target: CTRL-4
+      - type: flows-to
+        target: CTRL-7
+
+  - id: DF-10
+    type: data-flow
+    title: Certificate Pin Set
+    status: approved
+    description: >
+      SHA-256 fingerprints of trusted TLS certificates loaded for certificate
+      pinning verification against Sigstore infrastructure.
+    fields:
+      data-type: configuration
+      sensitivity: high
+      persistence: persistent
+      protection:
+        - integrity-check
+    links:
+      - type: flows-from
+        target: CP-4
+      - type: flows-to
+        target: CTRL-6
+
+  # ──────────────────────────────────────────────
+  # Security Properties
+  # ──────────────────────────────────────────────
+
+  - id: SP-1
+    type: security-property
+    title: Key material confidentiality
+    status: approved
+    description: >
+      Signing keys must never be exposed outside the signing module boundary,
+      in memory dumps, logs, or error messages.
+    fields:
+      property-type: confidentiality
+      required-level: critical
+    links:
+      - type: property-of
+        target: CP-2
+      - type: property-of
+        target: DF-1
+      - type: property-of
+        target: DF-7
+
+  - id: SP-2
+    type: security-property
+    title: Module integrity
+    status: approved
+    description: >
+      Signed WASM modules must not be modifiable after signing without
+      detection by the verification module.
+    fields:
+      property-type: integrity
+      required-level: critical
+    links:
+      - type: property-of
+        target: CP-1
+      - type: property-of
+        target: DF-5
+
+  - id: SP-3
+    type: security-property
+    title: Signer authenticity
+    status: approved
+    description: >
+      Signatures must cryptographically prove the identity of the signer,
+      whether via static keys or OIDC-backed keyless signing.
+    fields:
+      property-type: authenticity
+      required-level: high
+    links:
+      - type: property-of
+        target: DF-2
+      - type: property-of
+        target: DF-3
+
+  - id: SP-4
+    type: security-property
+    title: Transparency log integrity
+    status: approved
+    description: >
+      Rekor transparency log entries must be immutable and independently
+      verifiable via inclusion proofs.
+    fields:
+      property-type: integrity
+      required-level: high
+    links:
+      - type: property-of
+        target: CP-3
+      - type: property-of
+        target: DF-4
+
+  - id: SP-5
+    type: security-property
+    title: Trust bundle integrity
+    status: approved
+    description: >
+      Trust bundles must not be modifiable after creation, ensuring air-gapped
+      devices can rely on their contents for verification.
+    fields:
+      property-type: integrity
+      required-level: critical
+    links:
+      - type: property-of
+        target: CP-4
+      - type: property-of
+        target: DF-6
+
+  - id: SP-6
+    type: security-property
+    title: Verification availability
+    status: approved
+    description: >
+      Verification must work offline with pre-provisioned trust bundles,
+      without requiring network access to Sigstore infrastructure.
+    fields:
+      property-type: availability
+      required-level: high
+    links:
+      - type: property-of
+        target: CTRL-4
+      - type: property-of
+        target: DF-9
+
+  - id: SP-7
+    type: security-property
+    title: Non-repudiation of signing
+    status: approved
+    description: >
+      A signer cannot deny having signed a module once the signature is
+      recorded in the Rekor transparency log.
+    fields:
+      property-type: non-repudiation
+      required-level: high
+    links:
+      - type: property-of
+        target: DF-4
+      - type: property-of
+        target: CP-3
+
+  - id: SP-8
+    type: security-property
+    title: Token confidentiality
+    status: approved
+    description: >
+      OIDC tokens must not be persisted to disk or written to logs, remaining
+      in memory only for the duration of the signing operation.
+    fields:
+      property-type: confidentiality
+      required-level: high
+    links:
+      - type: property-of
+        target: DF-2

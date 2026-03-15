@@ -1,0 +1,842 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Assets
+  # ──────────────────────────────────────────────
+
+  - id: ASSET-001
+    type: asset
+    title: Ed25519 Secret Key
+    status: approved
+    description: >
+      64-byte Ed25519 signing key used to produce module signatures.
+      Compromise allows an attacker to forge signatures on arbitrary
+      WASM modules.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties:
+        - confidentiality
+        - integrity
+
+  - id: ASSET-002
+    type: asset
+    title: Ed25519 Public Key
+    status: approved
+    description: >
+      32-byte Ed25519 verification key distributed to verifiers.
+      Corruption or unavailability prevents legitimate signature
+      verification.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties:
+        - integrity
+        - availability
+
+  - id: ASSET-003
+    type: asset
+    title: OIDC Identity Token
+    status: approved
+    description: >
+      JWT issued by an OpenID Connect provider, used to authenticate
+      the signer to Fulcio during Sigstore keyless signing.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - confidentiality
+        - integrity
+
+  - id: ASSET-004
+    type: asset
+    title: Fulcio Certificate
+    status: approved
+    description: >
+      Ephemeral X.509 signing certificate issued by Fulcio, binding
+      an OIDC identity to a short-lived ECDSA P-256 key pair.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+
+  - id: ASSET-005
+    type: asset
+    title: Signed WASM Module
+    status: approved
+    description: >
+      WebAssembly module with an embedded cryptographic signature in a
+      custom section. The signature covers a SHA-256 digest of the
+      module content.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+        - authenticity
+
+  - id: ASSET-006
+    type: asset
+    title: Trust Bundle
+    status: approved
+    description: >
+      Offline verification package containing public keys, certificate
+      chains, and optional Rekor inclusion proofs for air-gapped
+      signature verification.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+        - availability
+
+  - id: ASSET-007
+    type: asset
+    title: Rekor Entry
+    status: approved
+    description: >
+      Transparency log entry in Rekor containing the signature,
+      public key, and a signed inclusion proof anchoring the entry
+      in a Merkle tree.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+        - availability
+
+  - id: ASSET-008
+    type: asset
+    title: ECDSA P-256 Ephemeral Key
+    status: approved
+    description: >
+      Short-lived ECDSA P-256 key pair generated for a single Sigstore
+      keyless signing session. The private key is discarded after the
+      Fulcio certificate expires.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties:
+        - confidentiality
+        - integrity
+
+  - id: ASSET-009
+    type: asset
+    title: Signature Section
+    status: approved
+    description: >
+      WASM custom section named "signature" that stores the
+      cryptographic signature, signer identity, and verification
+      metadata within the module binary.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+
+  - id: ASSET-010
+    type: asset
+    title: Certificate Pins
+    status: approved
+    description: >
+      SHA-256 fingerprints of Sigstore infrastructure TLS certificates
+      used to pin connections to Fulcio and Rekor, preventing
+      man-in-the-middle attacks.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+
+  # ──────────────────────────────────────────────
+  # Threat Scenarios
+  # ──────────────────────────────────────────────
+
+  - id: TS-001
+    type: threat-scenario
+    title: Private Key Theft via File Access
+    status: approved
+    description: >
+      Attacker with local access reads the Ed25519 secret key file
+      from disk, enabling forged signatures on arbitrary WASM modules.
+    fields:
+      attack-vector: local
+      attack-feasibility: low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-001
+
+  - id: TS-002
+    type: threat-scenario
+    title: OIDC Token Theft
+    status: approved
+    description: >
+      OIDC identity token is stolen from a CI environment variable,
+      log output, or process memory, allowing an attacker to obtain
+      a Fulcio certificate under the victim's identity.
+    fields:
+      attack-vector: adjacent
+      attack-feasibility: very-low
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-003
+
+  - id: TS-003
+    type: threat-scenario
+    title: Module Tampering Post-Signature
+    status: approved
+    description: >
+      Infeasible attack — SHA-256 hash in signature detects any
+      modification. An attacker who modifies a signed WASM binary
+      invalidates the cryptographic signature, causing verification
+      to fail deterministically.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: negligible
+    links:
+      - type: threatens
+        target: ASSET-005
+
+  - id: TS-004
+    type: threat-scenario
+    title: Trust Bundle Manipulation
+    status: approved
+    description: >
+      Attacker with local access replaces the trust bundle with one
+      containing rogue public keys, causing the verifier to accept
+      modules signed by the attacker.
+    fields:
+      attack-vector: local
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-006
+
+  - id: TS-005
+    type: threat-scenario
+    title: Timing Side-Channel on Key Material
+    status: approved
+    description: >
+      Attacker co-located on the same host extracts Ed25519 secret
+      key bits by measuring timing variations during signing
+      operations.
+    fields:
+      attack-vector: local
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-001
+
+  - id: TS-006
+    type: threat-scenario
+    title: Fulcio CA Compromise
+    status: approved
+    description: >
+      Fulcio certificate authority is compromised and issues
+      unauthorized signing certificates, allowing an attacker to
+      produce validly-chained signatures without legitimate OIDC
+      authentication.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-004
+
+  - id: TS-007
+    type: threat-scenario
+    title: Rekor Log Tampering
+    status: approved
+    description: >
+      Attacker modifies or removes entries from the Rekor transparency
+      log, undermining the auditability of signing events and enabling
+      signature repudiation.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-007
+
+  - id: TS-008
+    type: threat-scenario
+    title: Resource Exhaustion via Malicious Input
+    status: approved
+    description: >
+      Attacker supplies an oversized or malformed WASM module that
+      triggers excessive memory allocation or CPU consumption during
+      parsing, signing, or verification, causing denial of service.
+    fields:
+      attack-vector: network
+      attack-feasibility: medium
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-005
+
+  - id: TS-009
+    type: threat-scenario
+    title: Replay of Expired OIDC Token
+    status: approved
+    description: >
+      Attacker captures and replays an expired OIDC identity token to
+      obtain a Fulcio certificate, bypassing the intended short-lived
+      authentication window.
+    fields:
+      attack-vector: adjacent
+      attack-feasibility: very-low
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-003
+
+  - id: TS-010
+    type: threat-scenario
+    title: Certificate Chain Bypass
+    status: approved
+    description: >
+      Verification logic fails to validate intermediate CA certificates
+      in the Fulcio chain, allowing an attacker to present a certificate
+      signed by an untrusted CA that appears to chain to Fulcio's root.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-004
+      - type: threatens
+        target: ASSET-005
+
+  # ──────────────────────────────────────────────
+  # Risk Assessments
+  # ──────────────────────────────────────────────
+
+  - id: RA-001
+    type: risk-assessment
+    title: Key theft risk
+    status: approved
+    description: >
+      Risk of Ed25519 secret key exfiltration via local file access.
+      Mitigated by restrictive file permissions, memory zeroization,
+      and recommendation to use hardware-backed key storage.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-001
+
+  - id: RA-002
+    type: risk-assessment
+    title: OIDC token theft risk
+    status: approved
+    description: >
+      Risk of OIDC identity token theft from CI environments.
+      Accepted because tokens are short-lived and Fulcio certificates
+      are bound to the token's expiry window.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-002
+
+  - id: RA-003
+    type: risk-assessment
+    title: Module tampering risk
+    status: approved
+    description: >
+      Infeasible by design — SHA-256 integrity check embedded in the
+      signature ensures any post-signature modification is detected
+      during verification.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-003
+
+  - id: RA-004
+    type: risk-assessment
+    title: Trust bundle manipulation risk
+    status: approved
+    description: >
+      Risk of trust bundle replacement with rogue keys. Mitigated by
+      embedding trust bundles at build time, verifying bundle integrity
+      with checksums, and supporting pinned public keys.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-004
+
+  - id: RA-005
+    type: risk-assessment
+    title: Timing side-channel risk
+    status: approved
+    description: >
+      Risk of key extraction via timing side-channels. Mitigated by
+      using constant-time Ed25519 implementations from the ed25519-dalek
+      crate.
+    fields:
+      risk-level: acceptable
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-005
+
+  - id: RA-006
+    type: risk-assessment
+    title: Fulcio CA compromise risk
+    status: approved
+    description: >
+      Risk of unauthorized certificate issuance from a compromised
+      Fulcio CA. Mitigated by requiring Rekor inclusion proofs that
+      provide an independent audit trail, and by certificate pinning.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-006
+
+  - id: RA-007
+    type: risk-assessment
+    title: Rekor tampering risk
+    status: approved
+    description: >
+      Risk of transparency log modification. Mitigated by verifying
+      Merkle inclusion proofs and signed tree heads, ensuring any
+      tampering is cryptographically detectable.
+    fields:
+      risk-level: acceptable
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-007
+
+  - id: RA-008
+    type: risk-assessment
+    title: Resource exhaustion risk
+    status: approved
+    description: >
+      Risk of denial of service via oversized or malformed WASM input.
+      Mitigated by input size limits, streaming parsers, and bounded
+      memory allocation during module processing.
+    fields:
+      risk-level: acceptable
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-008
+
+  - id: RA-009
+    type: risk-assessment
+    title: OIDC replay risk
+    status: approved
+    description: >
+      Risk of expired OIDC token replay. Accepted because Fulcio
+      validates token expiry before issuing certificates, rejecting
+      expired tokens server-side.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-009
+
+  - id: RA-010
+    type: risk-assessment
+    title: Certificate chain bypass risk
+    status: approved
+    description: >
+      Risk of verification skipping intermediate CA validation.
+      Mitigated by enforcing full chain-of-trust verification from
+      leaf certificate to pinned Fulcio root, with no path-shortening
+      allowed.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-010
+
+  # ── Missing assets from ASSET_INVENTORY.md ──────────────────────────────
+
+  - id: ASSET-011
+    type: asset
+    title: X.509 Device Private Key
+    status: approved
+    description: >
+      Certificate-bound device identity key used for device-level attestation
+      and mutual TLS authentication in deployment environments.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties: [confidentiality, integrity, availability]
+
+  - id: ASSET-012
+    type: asset
+    title: X.509 Device Certificate
+    status: approved
+    description: >
+      Public certificate for device identity, bound to the device private key.
+      Used for device attestation and verification of device-signed artifacts.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-013
+    type: asset
+    title: Unsigned WASM Module
+    status: approved
+    description: >
+      Original WebAssembly binary before signing. Integrity must be maintained
+      during the signing pipeline to ensure the correct module is signed.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity]
+
+  - id: ASSET-014
+    type: asset
+    title: Detached Signature
+    status: approved
+    description: >
+      Separate signature file produced when signing in detached mode, used
+      when the WASM module cannot be modified to embed a custom section.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-015
+    type: asset
+    title: Public Key Set
+    status: approved
+    description: >
+      Collection of trusted Ed25519 public verification keys maintained by
+      the verifier. Integrity is critical — injection of a rogue key would
+      allow acceptance of malicious modules.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-016
+    type: asset
+    title: Root CA Certificate
+    status: approved
+    description: >
+      Fulcio or custom root CA certificate used as the trust anchor for
+      certificate chain validation in keyless signing mode.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-017
+    type: asset
+    title: In-toto Provenance Statement
+    status: approved
+    description: >
+      SLSA-compliant provenance attestation in in-toto format, recording
+      build inputs, outputs, and the pipeline that produced the artifact.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity]
+
+  - id: ASSET-018
+    type: asset
+    title: SBOM (CycloneDX)
+    status: approved
+    description: >
+      Software Bill of Materials in CycloneDX format listing all direct and
+      transitive dependencies with version and license information.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-019
+    type: asset
+    title: Composition Manifest
+    status: approved
+    description: >
+      Component dependency graph tracking the full supply chain from source
+      to signed artifact, used for SLSA provenance and rollback detection.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity]
+
+  - id: ASSET-020
+    type: asset
+    title: Audit Log Entries
+    status: approved
+    description: >
+      Structured signing and verification event logs recording timestamps,
+      signer identities, module hashes, key IDs, and Rekor UUIDs.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity, availability]
+
+  - id: ASSET-021
+    type: asset
+    title: Key ID Mappings
+    status: approved
+    description: >
+      Logical name to public key associations used by the CLI to resolve
+      human-friendly key names to cryptographic key material.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity]
+
+  - id: ASSET-022
+    type: asset
+    title: Configuration Files
+    status: approved
+    description: >
+      WSC runtime configuration including Sigstore endpoint URLs, certificate
+      pin sets, key storage paths, and signing policy settings.
+    fields:
+      asset-type: data
+      cybersecurity-properties: [integrity]
+
+  # ── Missing threat scenarios from THREAT_MODEL.md ───────────────────────
+
+  - id: TS-011
+    type: threat-scenario
+    title: Signature Section Substitution
+    status: approved
+    description: >
+      Attacker replaces the signature section in a signed WASM module with a
+      valid signature from a different module, attempting to transfer
+      authenticity from one module to another.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: negligible
+    links:
+      - type: threatens
+        target: ASSET-009
+
+  - id: TS-012
+    type: threat-scenario
+    title: Rollback Attack with Older Signed Module
+    status: approved
+    description: >
+      Attacker substitutes a current signed module with an older validly-signed
+      version that contains known vulnerabilities. Mitigated by provenance
+      embedding, composition manifest versioning, and rollback detection in
+      the air-gapped verification flow.
+    fields:
+      attack-vector: network
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-005
+      - type: threatens
+        target: ASSET-019
+
+  - id: TS-013
+    type: threat-scenario
+    title: Signer Repudiation
+    status: approved
+    description: >
+      A legitimate signer denies having signed a module. Mitigated by Rekor
+      transparency log which provides cryptographic proof of signing with
+      OIDC identity binding and immutable timestamps.
+    fields:
+      attack-vector: local
+      attack-feasibility: very-low
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-020
+
+  - id: TS-014
+    type: threat-scenario
+    title: Timestamp Dispute
+    status: approved
+    description: >
+      Dispute over when a signing operation occurred. Mitigated by Rekor
+      timestamps and Signed Certificate Timestamps (SCTs) from Fulcio
+      which provide independently verifiable temporal evidence.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-007
+
+  - id: TS-015
+    type: threat-scenario
+    title: Certificate Chain Identity Disclosure
+    status: approved
+    description: >
+      Attacker learns signer identity from the certificate chain embedded in
+      the signature. This is an accepted risk — signer identity is public by
+      design in the transparency model, not a confidentiality violation.
+    fields:
+      attack-vector: network
+      attack-feasibility: high
+      impact: negligible
+    links:
+      - type: threatens
+        target: ASSET-004
+
+  - id: TS-016
+    type: threat-scenario
+    title: Infinite Loop via Crafted Input
+    status: approved
+    description: >
+      Crafted WASM module causes CPU-bound infinite processing during parsing
+      through deeply nested structures or circular references. Mitigated by
+      bounded iteration counts, no recursion in parser, and fuzz testing.
+    fields:
+      attack-vector: network
+      attack-feasibility: medium
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-005
+
+  - id: TS-017
+    type: threat-scenario
+    title: Network DoS Against Sigstore Endpoints
+    status: approved
+    description: >
+      Attacker floods Fulcio or Rekor endpoints with requests, making keyless
+      signing unavailable. Mitigated by Sigstore's own rate limiting and WSC's
+      fallback to certificate-based signing when keyless is unavailable.
+    fields:
+      attack-vector: network
+      attack-feasibility: medium
+      impact: moderate
+    links:
+      - type: threatens
+        target: ASSET-007
+
+  - id: TS-018
+    type: threat-scenario
+    title: Code Execution via Parser Vulnerability
+    status: approved
+    description: >
+      Crafted WASM module exploits a parser bug to achieve arbitrary code
+      execution. Mitigated by Rust memory safety (forbid(unsafe_code)),
+      bounded parsing, and 6 fuzz targets covering the attack surface.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-005
+
+  # ── Missing risk assessments ────────────────────────────────────────────
+
+  - id: RA-011
+    type: risk-assessment
+    title: Signature substitution risk
+    status: approved
+    description: >
+      Infeasible by design — signature binds to module hash and public key,
+      preventing cross-module signature transfer.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-011
+
+  - id: RA-012
+    type: risk-assessment
+    title: Rollback attack risk
+    status: approved
+    description: >
+      Mitigated by composition manifest versioning and provenance chain.
+      System integrators must implement version pinning at the deployment level.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-012
+
+  - id: RA-013
+    type: risk-assessment
+    title: Signer repudiation risk
+    status: approved
+    description: >
+      Mitigated by Rekor transparency log. Non-repudiation is a core
+      security guarantee of keyless signing.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-013
+
+  - id: RA-014
+    type: risk-assessment
+    title: Timestamp dispute risk
+    status: approved
+    description: >
+      Mitigated by Rekor timestamps and Fulcio SCTs providing independent
+      temporal evidence.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-014
+
+  - id: RA-015
+    type: risk-assessment
+    title: Identity disclosure risk
+    status: approved
+    description: >
+      Accepted by design — signer identity is intentionally public in the
+      Sigstore transparency model.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-015
+
+  - id: RA-016
+    type: risk-assessment
+    title: Infinite loop risk
+    status: approved
+    description: >
+      Mitigated by bounded iteration, no recursion, and fuzz testing.
+    fields:
+      risk-level: acceptable
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-016
+
+  - id: RA-017
+    type: risk-assessment
+    title: Network DoS risk
+    status: approved
+    description: >
+      Mitigated by Sigstore rate limiting and fallback to certificate-based
+      signing. Availability of external infrastructure is outside WSC scope.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-017
+
+  - id: RA-018
+    type: risk-assessment
+    title: Parser code execution risk
+    status: approved
+    description: >
+      Mitigated by Rust memory safety (forbid(unsafe_code)), bounded parsing,
+      and comprehensive fuzz testing with 6 targets.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-018

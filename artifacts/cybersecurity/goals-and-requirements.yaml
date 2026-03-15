@@ -1,0 +1,696 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Cybersecurity Goals
+  # ──────────────────────────────────────────────
+
+  - id: CG-1
+    type: cybersecurity-goal
+    title: Authenticity of WASM Modules
+    status: approved
+    description: >
+      All signed WASM modules must be cryptographically verifiable as
+      authentic, ensuring that only modules produced by a trusted signer
+      are accepted by verification pipelines.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-003
+      - type: mitigates
+        target: TS-010
+
+  - id: CG-2
+    type: cybersecurity-goal
+    title: Integrity of Signed Content
+    status: approved
+    description: >
+      Any modification to a signed WASM module must be detectable,
+      guaranteeing that post-signature tampering is identified and
+      rejected during verification.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-003
+      - type: mitigates
+        target: TS-008
+
+  - id: CG-3
+    type: cybersecurity-goal
+    title: Non-Repudiation of Signing
+    status: approved
+    description: >
+      Signing operations must produce immutable evidence binding signer
+      identity to module, ensuring that signing events are auditable and
+      cannot be denied after the fact.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-002
+      - type: mitigates
+        target: TS-007
+
+  - id: CG-4
+    type: cybersecurity-goal
+    title: Confidentiality of Key Material
+    status: approved
+    description: >
+      Private key material must be protected from unauthorized access at
+      rest and in memory, preventing key theft that would enable signature
+      forgery.
+    fields:
+      cal: "3"
+    links:
+      - type: mitigates
+        target: TS-001
+      - type: mitigates
+        target: TS-005
+
+  - id: CG-5
+    type: cybersecurity-goal
+    title: Availability of Verification
+    status: approved
+    description: >
+      Verification must be possible in both online and air-gapped
+      environments, ensuring that legitimate modules can always be
+      validated regardless of network connectivity.
+    fields:
+      cal: "1"
+    links:
+      - type: mitigates
+        target: TS-008
+
+  # ──────────────────────────────────────────────
+  # Cybersecurity Requirements
+  # ──────────────────────────────────────────────
+
+  - id: CR-1
+    type: cybersecurity-req
+    title: Use Approved Cryptographic Algorithms
+    status: approved
+    description: >
+      Ed25519 for signatures, SHA-256 for hashing, and ECDSA P-256 for
+      Sigstore keyless signing. Only approved algorithms with established
+      security margins may be used for cryptographic operations.
+    fields:
+      req-type: encryption
+      priority: must
+      verification-criteria: "All signature operations use ed25519-compact or ECDSA P-256; all hash operations use SHA-256"
+    links:
+      - type: derives-from
+        target: CG-1
+      - type: derives-from
+        target: CG-2
+
+  - id: CR-2
+    type: cybersecurity-req
+    title: Protect Key Material at Rest
+    status: approved
+    description: >
+      Secret key files must be stored with 0600 permissions and verified
+      before loading. The signing tool must refuse to operate if key file
+      permissions are too permissive.
+    fields:
+      req-type: authorization
+      priority: must
+      verification-criteria: "Key file permissions checked on every load; signing aborts if permissions are too permissive"
+    links:
+      - type: derives-from
+        target: CG-4
+
+  - id: CR-3
+    type: cybersecurity-req
+    title: Verify Software Integrity
+    status: approved
+    description: >
+      Every signature verification must validate the full module hash
+      against the embedded signature, ensuring that any modification to
+      the signed content is detected.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: "SHA-256 hash of WASM module recomputed and compared constant-time against signature"
+    links:
+      - type: derives-from
+        target: CG-1
+      - type: derives-from
+        target: CG-2
+
+  - id: CR-4
+    type: cybersecurity-req
+    title: Implement Defense in Depth
+    status: approved
+    description: >
+      Multiple independent security layers must be enforced: cryptographic
+      verification, file permissions, certificate pinning, and transparency
+      log validation, so that compromise of a single layer does not defeat
+      the system.
+    fields:
+      req-type: authentication
+      priority: must
+      verification-criteria: "Certificate pinning enabled by default; Rekor verification required for keyless; permissions enforced on key files"
+    links:
+      - type: derives-from
+        target: CG-1
+      - type: derives-from
+        target: CG-4
+
+  - id: CR-5
+    type: cybersecurity-req
+    title: Log Security Events via Transparency Log
+    status: approved
+    description: >
+      All keyless signing operations must be recorded in Rekor, providing
+      an immutable audit trail that binds signer identity to signed content
+      with verifiable inclusion proofs.
+    fields:
+      req-type: logging
+      priority: must
+      verification-criteria: "Rekor UUID returned for every keyless signing; inclusion proof verifiable"
+    links:
+      - type: derives-from
+        target: CG-3
+
+  - id: CR-6
+    type: cybersecurity-req
+    title: Zeroize Ephemeral Key Material
+    status: approved
+    description: >
+      All ephemeral keys and tokens must be zeroized from memory after
+      use, preventing extraction of sensitive material from process memory
+      after signing operations complete.
+    fields:
+      req-type: encryption
+      priority: must
+      verification-criteria: "zeroize crate Drop impl on all key types; OIDC tokens zeroized after Fulcio request"
+    links:
+      - type: derives-from
+        target: CG-4
+
+  - id: CR-7
+    type: cybersecurity-req
+    title: Enforce Certificate Pinning for Sigstore
+    status: approved
+    description: >
+      TLS connections to Fulcio and Rekor must validate against pinned
+      certificate fingerprints, preventing man-in-the-middle attacks on
+      the Sigstore infrastructure endpoints.
+    fields:
+      req-type: authentication
+      priority: should
+      verification-criteria: "SHA-256 fingerprints validated via custom ServerCertVerifier; configurable via WSC_FULCIO_PINS and WSC_REKOR_PINS"
+    links:
+      - type: derives-from
+        target: CG-1
+      - type: derives-from
+        target: CG-3
+
+  - id: CR-8
+    type: cybersecurity-req
+    title: Bound Resource Consumption
+    status: approved
+    description: >
+      Parser must enforce maximum allocation limits to prevent denial of
+      service from crafted or oversized inputs during module parsing,
+      signing, or verification.
+    fields:
+      req-type: availability
+      priority: must
+      verification-criteria: "16MB maximum allocation; bounded iteration; maximum section counts; verified by 6 fuzz targets"
+    links:
+      - type: derives-from
+        target: CG-5
+
+  # ──────────────────────────────────────────────
+  # Cybersecurity Design
+  # ──────────────────────────────────────────────
+
+  - id: CD-1
+    type: cybersecurity-design
+    title: Ed25519 Signature Engine
+    status: approved
+    description: >
+      ed25519-compact crate with constant-time operations and 128-bit
+      security level, providing the core signing and verification
+      primitive for traditional key-based workflows.
+    fields:
+      mechanism: Ed25519
+      algorithm: Ed25519-SHA-512
+    links:
+      - type: satisfies
+        target: CR-1
+      - type: satisfies
+        target: CR-3
+
+  - id: CD-2
+    type: cybersecurity-design
+    title: Secure File Permission Model
+    status: approved
+    description: >
+      0600 permission enforcement with pre-load verification and warning
+      on violation, ensuring that key files are accessible only to the
+      file owner.
+    fields:
+      mechanism: file-permissions
+    links:
+      - type: satisfies
+        target: CR-2
+
+  - id: CD-3
+    type: cybersecurity-design
+    title: Zeroize-on-Drop Key Wrapper
+    status: approved
+    description: >
+      All key types implement zeroize::Zeroize and ZeroizeOnDrop for
+      automatic memory cleanup, ensuring sensitive material does not
+      persist in process memory beyond its required lifetime.
+    fields:
+      mechanism: zeroization
+      algorithm: memory-overwrite
+    links:
+      - type: satisfies
+        target: CR-6
+
+  - id: CD-4
+    type: cybersecurity-design
+    title: PinnedHttpClient
+    status: approved
+    description: >
+      Custom TLS client with SHA-256 certificate fingerprint validation
+      for Sigstore endpoints, preventing man-in-the-middle interception
+      of Fulcio and Rekor communications.
+    fields:
+      mechanism: TLS
+      algorithm: SHA-256-fingerprint
+    links:
+      - type: satisfies
+        target: CR-7
+
+  - id: CD-5
+    type: cybersecurity-design
+    title: Rekor Transparency Integration
+    status: approved
+    description: >
+      Submission and verification of Rekor signed entries with merkle
+      inclusion proofs, providing an immutable audit trail for keyless
+      signing operations.
+    fields:
+      mechanism: transparency-log
+      algorithm: merkle-tree
+    links:
+      - type: satisfies
+        target: CR-5
+
+  - id: CD-6
+    type: cybersecurity-design
+    title: Bounded WASM Parser
+    status: approved
+    description: >
+      Resource-limited parser with 16MB allocation cap, bounded iteration,
+      and max section limits, preventing denial of service from crafted
+      WebAssembly inputs.
+    fields:
+      mechanism: resource-limits
+    links:
+      - type: satisfies
+        target: CR-8
+
+  - id: CD-7
+    type: cybersecurity-design
+    title: Multi-Layer Verification Pipeline
+    status: approved
+    description: >
+      Certificate chain, signature, and Rekor proof verification pipeline
+      with fail-closed semantics, ensuring that a failure at any layer
+      rejects the module.
+    fields:
+      mechanism: defense-in-depth
+    links:
+      - type: satisfies
+        target: CR-3
+      - type: satisfies
+        target: CR-4
+
+  # ──────────────────────────────────────────────
+  # Cybersecurity Verification
+  # ──────────────────────────────────────────────
+
+  - id: CV-1
+    type: cybersecurity-verification
+    title: Ed25519 Signature Unit Tests
+    status: approved
+    description: >
+      Verify correct signing and verification with known test vectors,
+      ensuring that the Ed25519 implementation produces and validates
+      signatures correctly.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CR-1
+      - type: verifies
+        target: CD-1
+
+  - id: CV-2
+    type: cybersecurity-verification
+    title: Air-gapped End-to-End Test
+    status: approved
+    description: >
+      Full sign, bundle, and verify cycle in offline mode, demonstrating
+      that the complete verification pipeline works without network
+      connectivity.
+    fields:
+      method: automated-test
+      steps: "cargo test --test airgapped_e2e"
+    links:
+      - type: verifies
+        target: CR-3
+      - type: verifies
+        target: CD-7
+
+  - id: CV-3
+    type: cybersecurity-verification
+    title: Fuzz Testing Suite
+    status: approved
+    description: >
+      6 fuzz targets covering signature parsing, module parsing, and key
+      handling, exercising boundary conditions and malformed inputs to
+      verify resource-bounded behavior.
+    fields:
+      method: fuzz-test
+      steps: "cargo fuzz run fuzz_target_1 through fuzz_target_6"
+    links:
+      - type: verifies
+        target: CR-8
+      - type: verifies
+        target: CD-6
+
+  - id: CV-4
+    type: cybersecurity-verification
+    title: File Permission Verification
+    status: approved
+    description: >
+      Test that signing aborts when key file has wrong permissions,
+      confirming that the permission enforcement mechanism correctly
+      prevents key use with insecure file modes.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CR-2
+      - type: verifies
+        target: CD-2
+
+  - id: CV-5
+    type: cybersecurity-verification
+    title: Memory Zeroization Verification
+    status: approved
+    description: >
+      Verify key material is cleared after signing operations, confirming
+      that the zeroize-on-drop mechanism prevents sensitive data from
+      persisting in process memory.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CR-6
+      - type: verifies
+        target: CD-3
+
+  - id: CV-6
+    type: cybersecurity-verification
+    title: Certificate Pinning Test
+    status: approved
+    description: >
+      Verify TLS connections fail when certificate fingerprints don't match
+      pins, confirming that the PinnedHttpClient rejects connections to
+      endpoints with unexpected certificates.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CR-7
+      - type: verifies
+        target: CD-4
+
+  - id: CV-7
+    type: cybersecurity-verification
+    title: Rekor Integration Test
+    status: approved
+    description: >
+      Submit and verify Rekor entries with inclusion proof validation,
+      confirming end-to-end transparency log integration for keyless
+      signing workflows.
+    fields:
+      method: automated-test
+      steps: "cargo test --test keyless_integration -- --ignored"
+    links:
+      - type: verifies
+        target: CR-5
+      - type: verifies
+        target: CD-5
+
+  # ── Missing cybersecurity goals ─────────────────────────────────────────
+
+  - id: CG-6
+    type: cybersecurity-goal
+    title: Resilience Against Trust Bundle Compromise
+    status: approved
+    description: >
+      Trust bundle distribution and verification must be resilient against
+      tampering, ensuring air-gapped devices cannot be tricked into accepting
+      modules signed by rogue keys.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-004
+
+  - id: CG-7
+    type: cybersecurity-goal
+    title: Resilience Against Fulcio CA Compromise
+    status: approved
+    description: >
+      The signing infrastructure must limit blast radius of a Fulcio CA
+      compromise through certificate pinning, short certificate validity,
+      and SCT monitoring.
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-006
+
+  - id: CG-8
+    type: cybersecurity-goal
+    title: Protection Against Replay and Rollback
+    status: approved
+    description: >
+      The system must prevent replay of expired credentials and rollback
+      to older signed module versions through temporal verification and
+      provenance chain integrity.
+    fields:
+      cal: "1"
+    links:
+      - type: mitigates
+        target: TS-009
+      - type: mitigates
+        target: TS-012
+
+  # ── Missing cybersecurity requirement ───────────────────────────────────
+
+  - id: CR-9
+    type: cybersecurity-req
+    title: Support Incident Response Procedures
+    status: approved
+    description: >
+      The system must support key revocation procedures, signing suspension,
+      and forensic evidence collection as documented in INCIDENT_RESPONSE.md.
+    fields:
+      req-type: availability
+      priority: must
+      verification-criteria: >
+        Key revocation removes signing capability; suspended keys cannot produce
+        new signatures; audit trail preserved for forensic analysis.
+    links:
+      - type: derives-from
+        target: CG-3
+
+  - id: CR-10
+    type: cybersecurity-req
+    title: Structured Audit Trail Format
+    status: approved
+    description: >
+      All signing and verification operations must produce structured audit
+      records containing timestamp, signer identity, module hash, key ID,
+      Rekor UUID, and operation result.
+    fields:
+      req-type: logging
+      priority: should
+      verification-criteria: >
+        Audit records are JSON-structured with all required fields present;
+        records are emitted for every sign and verify operation.
+    links:
+      - type: derives-from
+        target: CG-3
+
+  - id: CR-11
+    type: cybersecurity-req
+    title: Vulnerability Disclosure Process
+    status: approved
+    description: >
+      A documented vulnerability disclosure process must exist with clear
+      contact information, expected response times, and responsible
+      disclosure guidelines.
+    fields:
+      req-type: availability
+      priority: must
+      verification-criteria: >
+        SECURITY.md contains vulnerability reporting instructions; response
+        within 48 hours acknowledged.
+    links:
+      - type: derives-from
+        target: CG-5
+
+  # ── Missing cybersecurity design ────────────────────────────────────────
+
+  - id: CD-8
+    type: cybersecurity-design
+    title: Ephemeral Key Lifecycle (6-phase)
+    status: approved
+    description: >
+      Six-phase lifecycle for keyless signing ephemeral keys: (1) Key
+      Generation via CSPRNG, (2) Public Key Extraction, (3) Fulcio
+      Certificate Issuance with OIDC binding, (4) Signing Operation with
+      SHA-256 hash and ECDSA/RFC 6979 nonce, (5) Transparency Logging via
+      Rekor with inclusion proof, (6) Key Zeroization via Drop impl.
+      Maximum key lifetime is under 1 second.
+    fields:
+      mechanism: ephemeral-key-lifecycle
+      algorithm: ECDSA-P256-SHA256
+    links:
+      - type: satisfies
+        target: CR-6
+
+  - id: CD-9
+    type: cybersecurity-design
+    title: Certificate Pin Rotation Strategy
+    status: approved
+    description: >
+      Four-step pin rotation process: (1) Pre-rotate — add new pin alongside
+      old, (2) Deploy — update all clients, (3) Grace period — 30-90 days
+      with both pins active, (4) Post-rotate — remove old pin. Configured
+      via WSC_FULCIO_PINS and WSC_REKOR_PINS environment variables.
+    fields:
+      mechanism: certificate-pinning
+      algorithm: SHA-256-fingerprint
+    links:
+      - type: satisfies
+        target: CR-7
+
+  # ── Missing cybersecurity verification ──────────────────────────────────
+
+  - id: CV-8
+    type: cybersecurity-verification
+    title: Defense-in-Depth Verification
+    status: draft
+    description: >
+      Verify that multiple independent security layers are active
+      simultaneously: cryptographic signatures, file permissions, certificate
+      pinning, and Rekor transparency verification.
+    fields:
+      method: manual-test
+    links:
+      - type: verifies
+        target: CR-4
+
+  # ── Residual risks ─────────────────────────────────────────────────────
+
+  - id: RR-1
+    type: risk-assessment
+    title: "Residual: Software-only key storage"
+    status: approved
+    description: >
+      Secret keys stored as files on disk are less secure than hardware-backed
+      storage. HSM integration is a roadmap item (Q2 2026). Until then,
+      file permissions (0600) and memory zeroization provide defense-in-depth.
+    fields:
+      risk-level: conditional
+      risk-treatment: mitigate
+    links:
+      - type: assesses
+        target: TS-001
+
+  - id: RR-2
+    type: risk-assessment
+    title: "Residual: No OCSP/CRL certificate revocation"
+    status: approved
+    description: >
+      Fulcio certificates cannot be revoked before expiry. Mitigated by
+      short certificate validity (~10 minutes). OCSP stapling is a roadmap
+      item (Q2 2026).
+    fields:
+      risk-level: conditional
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-006
+
+  - id: RR-3
+    type: risk-assessment
+    title: "Residual: Swap file key exposure"
+    status: approved
+    description: >
+      Key material in process memory could be swapped to disk by the OS.
+      Mitigated by short key lifetime and zeroization. Production systems
+      should use mlock() or equivalent to prevent swapping.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-005
+
+  - id: RR-4
+    type: risk-assessment
+    title: "Residual: ureq certificate pinning limitation"
+    status: approved
+    description: >
+      The ureq HTTP client's certificate pinning is implemented via custom
+      ServerCertVerifier. Track ureq issue #1087 for native pinning support.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-006
+
+  - id: RR-5
+    type: risk-assessment
+    title: "Residual: Offline keyless verification impossible"
+    status: approved
+    description: >
+      Keyless signature verification requires Rekor access for inclusion
+      proof. Air-gapped environments must use certificate-based signing with
+      pre-provisioned trust bundles instead.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-017
+
+  - id: RR-6
+    type: risk-assessment
+    title: "Residual: Quantum computing threat"
+    status: approved
+    description: >
+      Shor's algorithm could break ECDSA and Ed25519. Not currently practical.
+      Post-quantum signature support (SLH-DSA/FIPS 205) is tracked as
+      FEAT-1 / GitHub Issue #46 for long-lived embedded targets.
+    fields:
+      risk-level: acceptable
+      risk-treatment: accept
+    links:
+      - type: assesses
+        target: TS-005

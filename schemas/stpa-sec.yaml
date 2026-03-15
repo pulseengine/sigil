@@ -1,0 +1,412 @@
+# STPA-Sec — Systems-Theoretic Process Analysis for Security
+#
+# Extends the STPA safety analysis schema with security-specific concepts
+# from STPA-Sec (Young & Leveson, 2013) and STPA-DFSec (data-flow-based
+# STPA-Sec) for information security properties.
+#
+# The base STPA schema provides the full control-theoretic analysis
+# framework (losses, hazards, constraints, controllers, UCAs, loss
+# scenarios).  This schema adds:
+#
+#   - Data flows (STPA-DFSec): first-class objects for data moving between
+#     controllers and processes — critical for reasoning about key material,
+#     tokens, certificates, and trust bundles.
+#
+#   - Threat agents: who could cause an unsecure control action, with
+#     capability and motivation modeling for attack feasibility assessment.
+#
+#   - Security properties: CIA + authenticity annotations attachable to
+#     controlled processes and data flows.
+#
+#   - Attack scenarios: security-specific causal pathways extending STPA
+#     loss scenarios with attacker intent and feasibility scoring.
+#
+# Designed to compose with the `cybersecurity` schema (ISO/SAE 21434 TARA)
+# via `traces-to` links: STPA-Sec hazards trace to cybersecurity threat
+# scenarios, and STPA-Sec constraints trace to cybersecurity requirements.
+#
+# References:
+#   Young, W. & Leveson, N. (2013). "Systems Thinking for Safety and
+#     Security." ACSAC 2013.
+#   Schmittner, C. et al. (2016). "STPA-SafeSec: Safety and Security
+#     Analysis for Cyber-Physical Systems." SAFECOMP 2016.
+#   Dürrwang, J. et al. (2021). "STPA-DFSec: Data-Flow-based STPA-Sec
+#     for Information Security." MDPI Sensors 21(5).
+
+schema:
+  name: stpa-sec
+  version: "0.1.0"
+  namespace: "http://pulseengine.dev/ns/stpa-sec#"
+  extends: [stpa]
+  description: >
+    Security extension of STPA for systems-theoretic security analysis.
+    Adds data flows, threat agents, security properties, and attack
+    scenarios to the base STPA control structure model.
+
+# ──────────────────────────────────────────────────────────────────────────
+# Artifact types
+# ──────────────────────────────────────────────────────────────────────────
+artifact-types:
+
+  # ── Data flows (STPA-DFSec) ────────────────────────────────────────────
+  - name: data-flow
+    description: >
+      A flow of data between controllers, controlled processes, or external
+      entities.  Data flows are first-class objects in STPA-DFSec, enabling
+      analysis of confidentiality, integrity, and availability properties
+      on data in transit — not just control actions.  Critical for
+      reasoning about key material, tokens, certificates, and trust
+      bundles moving through the system.
+    fields:
+      - name: data-type
+        type: string
+        required: true
+        description: >
+          Classification of data carried by this flow.
+        allowed-values:
+          - key-material
+          - credential
+          - signature
+          - certificate
+          - trust-bundle
+          - module-binary
+          - attestation
+          - configuration
+          - audit-record
+          - identity-token
+      - name: sensitivity
+        type: string
+        required: true
+        description: >
+          Sensitivity classification affecting required protections.
+        allowed-values: [critical, high, medium, low]
+      - name: protection
+        type: list<string>
+        required: false
+        description: >
+          Protection mechanisms applied to this data flow
+          (e.g., TLS, encryption-at-rest, zeroization, memory-only).
+      - name: persistence
+        type: string
+        required: false
+        description: >
+          Whether data is persisted, transient in memory, or ephemeral.
+        allowed-values: [persistent, transient, ephemeral]
+    link-fields:
+      - name: source
+        link-type: flows-from
+        target-types: [controller, controlled-process]
+        required: true
+        cardinality: exactly-one
+      - name: target
+        link-type: flows-to
+        target-types: [controller, controlled-process]
+        required: true
+        cardinality: exactly-one
+
+  # ── Threat agents ──────────────────────────────────────────────────────
+  - name: threat-agent
+    description: >
+      An entity (person, organization, or automated system) that could
+      intentionally or unintentionally cause an unsecure control action.
+      Models attacker capability, motivation, and access level for
+      feasibility assessment aligned with ISO/SAE 21434 Annex H.
+    fields:
+      - name: agent-type
+        type: string
+        required: true
+        allowed-values:
+          - external-attacker
+          - insider
+          - supply-chain
+          - state-level
+          - automated
+          - accidental
+      - name: capability
+        type: string
+        required: true
+        description: >
+          Attacker capability level per ISO 21434 attack feasibility.
+        allowed-values: [layman, proficient, expert, multiple-experts]
+      - name: motivation
+        type: string
+        required: false
+        allowed-values: [financial, espionage, disruption, ideological, accidental]
+      - name: access
+        type: string
+        required: false
+        description: >
+          Required access to mount the attack.
+        allowed-values: [remote, adjacent, local, physical]
+      - name: window-of-opportunity
+        type: string
+        required: false
+        description: >
+          Window of opportunity per ISO 21434 Annex H.
+        allowed-values: [unlimited, easy, moderate, difficult]
+    link-fields: []
+
+  # ── Security properties ────────────────────────────────────────────────
+  - name: security-property
+    description: >
+      A security property (CIA + authenticity + non-repudiation) required
+      on a controlled process, data flow, or controller.  Annotates the
+      STPA control structure with security-specific requirements that
+      drive the identification of unsecure control actions.
+    fields:
+      - name: property-type
+        type: string
+        required: true
+        allowed-values:
+          - confidentiality
+          - integrity
+          - availability
+          - authenticity
+          - non-repudiation
+      - name: required-level
+        type: string
+        required: true
+        allowed-values: [critical, high, medium, low]
+      - name: justification
+        type: text
+        required: false
+        description: >
+          Why this property is required at this level.
+    link-fields:
+      - name: applies-to
+        link-type: property-of
+        target-types: [controlled-process, data-flow, controller]
+        required: true
+        cardinality: one-or-many
+      - name: violated-by
+        link-type: violates-property
+        target-types: [uca, loss-scenario]
+        required: false
+        cardinality: zero-or-many
+
+  # ── Attack scenarios ───────────────────────────────────────────────────
+  - name: attack-scenario
+    description: >
+      A security-specific causal pathway describing how a threat agent
+      could cause an unsecure control action or exploit a data flow.
+      Extends STPA loss scenarios with attacker intent, attack feasibility
+      scoring (ISO 21434 Annex H), and links to threat agents.
+    fields:
+      - name: attack-type
+        type: string
+        required: true
+        allowed-values:
+          - exploit-vulnerability
+          - credential-theft
+          - side-channel
+          - supply-chain-compromise
+          - data-exfiltration
+          - man-in-the-middle
+          - replay-attack
+          - denial-of-service
+          - privilege-escalation
+          - social-engineering
+      - name: attack-feasibility
+        type: string
+        required: false
+        description: >
+          Overall attack feasibility per ISO 21434 Annex H
+          (sum of elapsed-time, expertise, knowledge, window, equipment).
+        allowed-values: [high, medium, low, very-low]
+      - name: elapsed-time
+        type: number
+        required: false
+        description: "AF factor: elapsed time (0-19)"
+      - name: specialist-expertise
+        type: number
+        required: false
+        description: "AF factor: specialist expertise (0-8)"
+      - name: knowledge-of-item
+        type: number
+        required: false
+        description: "AF factor: knowledge of item (0-11)"
+      - name: window-of-opportunity
+        type: number
+        required: false
+        description: "AF factor: window of opportunity (0-10)"
+      - name: equipment
+        type: number
+        required: false
+        description: "AF factor: equipment (0-9)"
+      - name: impact-safety
+        type: string
+        required: false
+        allowed-values: [severe, major, moderate, negligible, none]
+      - name: impact-financial
+        type: string
+        required: false
+        allowed-values: [severe, major, moderate, negligible, none]
+      - name: impact-operational
+        type: string
+        required: false
+        allowed-values: [severe, major, moderate, negligible, none]
+      - name: impact-privacy
+        type: string
+        required: false
+        allowed-values: [severe, major, moderate, negligible, none]
+    link-fields:
+      - name: exploits
+        link-type: exploits
+        target-types: [uca, data-flow]
+        required: true
+        cardinality: one-or-many
+      - name: threat-agents
+        link-type: executed-by
+        target-types: [threat-agent]
+        required: true
+        cardinality: one-or-many
+      - name: hazards
+        link-type: leads-to-hazard
+        target-types: [hazard, sub-hazard]
+        required: true
+        cardinality: one-or-many
+
+# ──────────────────────────────────────────────────────────────────────────
+# STPA-Sec link types
+# ──────────────────────────────────────────────────────────────────────────
+link-types:
+  - name: flows-from
+    inverse: sends-flow
+    description: Data flow originates from a controller or process
+    source-types: [data-flow]
+    target-types: [controller, controlled-process]
+
+  - name: flows-to
+    inverse: receives-flow
+    description: Data flow is received by a controller or process
+    source-types: [data-flow]
+    target-types: [controller, controlled-process]
+
+  - name: property-of
+    inverse: has-property
+    description: Security property applies to a process, flow, or controller
+    source-types: [security-property]
+    target-types: [controlled-process, data-flow, controller]
+
+  - name: violates-property
+    inverse: property-violated-by
+    description: UCA or loss scenario violates a security property
+    source-types: [uca, loss-scenario, attack-scenario]
+    target-types: [security-property]
+
+  - name: exploits
+    inverse: exploited-by
+    description: Attack scenario exploits an unsecure control action or data flow
+    source-types: [attack-scenario]
+    target-types: [uca, data-flow]
+
+  - name: executed-by
+    inverse: executes
+    description: Attack scenario is executed by a threat agent
+    source-types: [attack-scenario]
+    target-types: [threat-agent]
+
+  - name: carries
+    inverse: carried-by
+    description: Control action or feedback carries a data flow
+    source-types: [control-action]
+    target-types: [data-flow]
+
+  - name: protects
+    inverse: protected-by
+    description: System constraint or controller constraint protects a security property
+    source-types: [system-constraint, controller-constraint]
+    target-types: [security-property]
+
+# ──────────────────────────────────────────────────────────────────────────
+# STPA-Sec traceability rules
+# ──────────────────────────────────────────────────────────────────────────
+traceability-rules:
+  # Data flow completeness
+  - name: data-flow-has-source
+    description: Every data flow must have a source
+    source-type: data-flow
+    required-link: flows-from
+    target-types: [controller, controlled-process]
+    severity: error
+
+  - name: data-flow-has-target
+    description: Every data flow must have a target
+    source-type: data-flow
+    required-link: flows-to
+    target-types: [controller, controlled-process]
+    severity: error
+
+  # Security property completeness
+  - name: security-property-has-subject
+    description: Every security property must apply to at least one element
+    source-type: security-property
+    required-link: property-of
+    target-types: [controlled-process, data-flow, controller]
+    severity: error
+
+  # Attack scenario completeness
+  - name: attack-has-exploit-target
+    description: Every attack scenario must exploit a UCA or data flow
+    source-type: attack-scenario
+    required-link: exploits
+    target-types: [uca, data-flow]
+    severity: error
+
+  - name: attack-has-agent
+    description: Every attack scenario must be linked to a threat agent
+    source-type: attack-scenario
+    required-link: executed-by
+    target-types: [threat-agent]
+    severity: error
+
+  - name: attack-has-hazard
+    description: Every attack scenario must lead to at least one hazard
+    source-type: attack-scenario
+    required-link: leads-to-hazard
+    target-types: [hazard, sub-hazard]
+    severity: error
+
+  # Coverage rules
+  - name: sensitive-flow-has-property
+    description: Critical or high sensitivity data flows should have security properties
+    source-type: data-flow
+    required-backlink: property-of
+    from-types: [security-property]
+    severity: warning
+
+  - name: security-property-has-constraint
+    description: Every security property should be protected by a constraint
+    source-type: security-property
+    required-backlink: protects
+    from-types: [system-constraint, controller-constraint]
+    severity: warning
+
+  - name: uca-has-attack-scenario
+    description: Every UCA should have at least one attack scenario explaining how it could be caused
+    source-type: uca
+    required-backlink: exploits
+    from-types: [attack-scenario]
+    severity: warning
+
+# ──────────────────────────────────────────────────────────────────────────
+# Conditional rules
+# ──────────────────────────────────────────────────────────────────────────
+conditional-rules:
+  - name: critical-flow-needs-protection
+    description: Critical data flows must document protection mechanisms
+    when:
+      field: sensitivity
+      equals: critical
+    then:
+      required-fields: [protection]
+    severity: error
+
+  - name: approved-attack-needs-feasibility
+    description: Attack scenarios with feasibility factors should have overall rating
+    when:
+      field: elapsed-time
+      exists: true
+    then:
+      required-fields: [attack-feasibility]
+    severity: warning

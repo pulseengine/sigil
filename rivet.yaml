@@ -1,0 +1,38 @@
+project:
+  name: sigil
+  version: "0.5.1"
+  schemas:
+    - common
+    - dev
+    - stpa
+    - stpa-sec
+    - cybersecurity
+
+sources:
+  - path: artifacts
+    format: generic-yaml
+
+schemas-path: schemas
+
+docs:
+  - docs
+  - docs/security
+  - .
+
+commits:
+  format: trailers
+  trailers:
+    Implements: implements
+    Fixes: fixes
+    Verifies: verifies
+    Satisfies: satisfies
+    Refs: traces-to
+  exempt-types:
+    - chore
+    - style
+    - ci
+    - docs
+    - build
+  skip-trailer: "Trace: skip"
+  traced-paths:
+    - src/

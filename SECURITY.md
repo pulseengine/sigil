@@ -1,6 +1,14 @@
+---
+id: DOC-SECURITY
+title: Security Model and Operational Guide
+type: specification
+status: approved
+tags: [security, keyless-signing, operational, certificate-pinning]
+---
+
 # Security Documentation
 
-This document provides comprehensive security information for developers and operators using wsc (WebAssembly Signature Component).
+This document provides comprehensive security information for developers and operators using wsc (WebAssembly Signature Component). It connects operational guidance to the underlying security analysis artifacts defined throughout the project's threat model, STPA analysis, and cybersecurity architecture.
 
 ## Table of Contents
 
@@ -22,7 +30,7 @@ wsc provides two signing approaches, each with distinct security models:
 1. **Keyless Signing** - Ephemeral keys with OIDC identity and Rekor transparency log
 2. **Certificate-Based Signing** - Long-lived keys with X.509 PKI and hardware security
 
-This document focuses primarily on **keyless signing** security (addressing Issues #4 and #2).
+This document focuses primarily on **keyless signing** security (addressing Issues #4 and #2). The keyless signing module is modeled as [[CTRL-3]] in the STPA control structure; the data flows it participates in are [[DF-2]], [[DF-3]], [[DF-4]], and [[DF-7]], and the ephemeral key lifecycle is governed by [[CD-8]].
 
 ---
 
@@ -35,8 +43,8 @@ This document focuses primarily on **keyless signing** security (addressing Issu
 │   CI/CD     │────▶│  OIDC Token  │────▶│  Fulcio   │
 │ Environment │     │  (Identity)  │     │  (Certs)  │
 └─────────────┘     └──────────────┘     └─────┬─────┘
-                                                │
-                    ┌───────────────────────────┘
+                                               │
+                    ┌──────────────────────────┘
                     │
                     ▼
             ┌───────────────┐
@@ -61,9 +69,11 @@ This document focuses primarily on **keyless signing** security (addressing Issu
             └───────────────┘
 ```
 
+The architecture maps to the following data flows: the OIDC token acquisition is [[DF-2]], certificate issuance from Fulcio is [[DF-3]], transparency log submission is [[DF-4]], and the ephemeral key material itself is [[DF-7]]. The signing module as a controller is [[CTRL-3]].
+
 ### Ephemeral Key Lifecycle
 
-Keyless signing uses **ephemeral ECDSA P-256 keys** that exist only for the duration of a single signing operation.
+Keyless signing uses **ephemeral ECDSA P-256 keys** that exist only for the duration of a single signing operation. The full lifecycle is governed by [[CD-8]] (Ephemeral Key Lifecycle).
 
 #### Phase 1: Key Generation
 ```rust
@@ -76,6 +86,8 @@ let signing_key = SigningKey::<p256::NistP256>::random(&mut OsRng);
 - 256-bit key strength (128-bit security level)
 - Never written to disk
 - Never leaves process memory
+
+The ephemeral private key is tracked as [[ASSET-009]] and the CSPRNG quality contributes to [[SP-3]].
 
 #### Phase 2: Public Key Extraction
 ```rust
@@ -99,6 +111,8 @@ let certificate = fulcio.get_certificate(&oidc_token, public_key, &proof)?;
 3. Fulcio issues short-lived X.509 certificate (~10 minutes validity)
 4. Certificate binds public key to OIDC identity
 
+This phase corresponds to data flow [[DF-3]] (Fulcio Cert). The Fulcio certificate is [[ASSET-011]], and the OIDC token consumed here is [[ASSET-010]].
+
 **Trust Assumptions:**
 - OIDC provider correctly authenticates user
 - Fulcio CA is trusted and not compromised
@@ -115,6 +129,8 @@ let signature = signing_key.sign_digest(module_hash);
 - Signature binds to exact module content
 - Uses ECDSA with deterministic nonce (RFC 6979)
 
+This step directly implements [[SP-1]] (Authenticity) and [[SP-2]] (Integrity).
+
 #### Phase 5: Transparency Log (Rekor)
 ```rust
 let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
@@ -126,11 +142,15 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 3. Returns signed entry timestamp (SET) and inclusion proof
 4. Provides public auditability
 
+This phase corresponds to data flow [[DF-4]] (Rekor Submission). The Rekor log entry is [[ASSET-012]].
+
 **Security Properties:**
 - Immutable public log (append-only)
 - Cryptographic proof of inclusion in log
 - Timestamped by trusted timestamping authority
 - Enables detection of misissuance or compromise
+
+These properties implement [[SP-4]] (Freshness) and [[SP-5]] (Auditability).
 
 #### Phase 6: Key Zeroization
 ```rust
@@ -144,11 +164,15 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 - Prevents key recovery from memory dumps
 - Mitigates cold boot attacks
 
+This phase is the terminal state of [[CD-8]] (Ephemeral Key Lifecycle). The zeroization control directly mitigates the attack scenarios modeled in [[AS-2]] (memory-based key extraction).
+
 **Implementation:** See `src/lib/src/signature/keyless/signer.rs:142-157`
 
 ---
 
 ### Trust Model
+
+The trust model is structured around five threat agents ([[TA-1]] through [[TA-5]]) and the security properties ([[SP-1]] through [[SP-8]]) that must hold under their activity.
 
 #### What We Trust
 
@@ -156,29 +180,34 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
    - Correctly authenticates workflow identity
    - Protects token issuance
    - Provides authentic `sub` and `iss` claims
+   - Compromise of this trust anchor is modeled by [[TA-1]]
 
 2. **Fulcio Certificate Authority**
    - Issues certificates only for valid OIDC tokens
    - Properly validates proof of possession
    - Certificate validity period is accurate (~10 min)
    - Root CA private key is secure
+   - Compromise of this trust anchor is modeled by [[TA-2]]
 
 3. **Rekor Transparency Log**
    - Accepts and timestamps all entries honestly
    - Provides correct inclusion proofs
    - Signed tree heads (checkpoints) are authentic
    - Log is append-only and immutable
+   - Compromise is modeled by [[TA-3]]
 
 4. **Cryptographic Primitives**
    - ECDSA P-256 is secure (no known practical attacks)
    - SHA-256 is collision-resistant
    - Random number generator is unpredictable
    - Zeroize library correctly clears memory
+   - These underpin [[SP-1]] through [[SP-4]]
 
 5. **Rust Language & Libraries**
    - Memory safety prevents use-after-free, buffer overflows
    - Type system prevents many logic errors
    - `p256`, `ecdsa`, `webpki` crates are correctly implemented
+   - Supply chain compromise of dependencies is modeled by [[TA-5]]
 
 #### What We Don't Trust
 
@@ -186,11 +215,12 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
    - May be compromised or malicious
    - Ephemeral key only exists during signing
    - No long-lived secrets to steal
+   - Threat agent: [[TA-4]] (insider / compromised environment)
 
 2. **Network Infrastructure**
    - TLS protects in transit
    - But assumes HTTPS is properly configured
-   - Certificate pinning can be added (Issue #12)
+   - Certificate pinning provides defense-in-depth (see [[CR-7]], [[CD-4]], [[CV-6]])
 
 3. **Verification Environment**
    - Verifier must have correct Fulcio root CA
@@ -206,34 +236,37 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 #### 1. OIDC Token Theft
 
 **Attack:** Adversary steals OIDC token from environment variables.
+Modeled as [[TS-001]] and STPA attack scenario [[AS-1]].
 
 **Impact:** Can request Fulcio certificate for stolen identity.
 
 **Mitigations:**
 - Tokens are single-use with short lifetime (~15 minutes)
-- Token zeroized from memory after use (Issue #11 ✅)
+- Token zeroized from memory after use (Issue #11)
 - Rekor log provides audit trail of all signatures
 - Token theft requires environment access (same as private key theft)
 
-**Residual Risk:** LOW - Token lifetime limits exposure window
+**Residual Risk:** LOW - Token lifetime limits exposure window. See [[RA-001]].
 
 #### 2. Ephemeral Key Compromise
 
 **Attack:** Memory dump or debugger extracts private key.
+Modeled as [[TS-002]] and STPA attack scenario [[AS-2]].
 
 **Impact:** Can forge signatures for the duration of key's lifetime.
 
 **Mitigations:**
 - Key exists only during signing operation (<1 second)
-- Zeroized immediately after use (Issue #14 ✅)
+- Zeroized immediately after use (Issue #14), governed by [[CD-8]]
 - Requires attacker to time attack perfectly
 - Signature is logged in Rekor (detectable)
 
-**Residual Risk:** VERY LOW - Tiny attack window
+**Residual Risk:** VERY LOW - Tiny attack window. See [[RA-002]].
 
 #### 3. Man-in-the-Middle (MITM)
 
 **Attack:** Intercept communication with Fulcio/Rekor.
+Modeled as [[TS-003]] and STPA attack scenario [[AS-3]].
 
 **Impact:** Could steal OIDC token, modify responses.
 
@@ -241,23 +274,24 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 - TLS encryption for all HTTPS requests
 - Fulcio certificate chains to trusted root
 - Rekor entries have signed timestamps
-- Certificate pinning available (Issue #12 - future)
+- Certificate pinning enforced (see [[CR-7]], [[CD-4]], [[CD-9]])
 
-**Residual Risk:** LOW - Requires TLS compromise
+**Residual Risk:** LOW - Requires TLS compromise. See [[RA-003]].
 
 #### 4. Rekor Log Tampering
 
 **Attack:** Modify Rekor log after signature creation.
+Modeled as [[TS-004]] and STPA attack scenario [[AS-4]].
 
 **Impact:** Could hide evidence of signature or forge timestamps.
 
 **Mitigations:**
-- Merkle tree inclusion proofs (Issue #15 ✅)
+- Merkle tree inclusion proofs (Issue #15)
 - Signed tree heads (checkpoints) from Rekor
 - Gossip protocol for checkpoint consistency (Sigstore project)
 - Multiple monitors can detect tampering
 
-**Residual Risk:** LOW - Cryptographically protected
+**Residual Risk:** LOW - Cryptographically protected. See [[RA-004]].
 
 ### Out-of-Scope Threats
 
@@ -265,7 +299,7 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 
 **Threat:** Fulcio or Rekor completely compromised.
 
-**Rationale:** If core infrastructure is compromised, system security fails. This is a trust anchor. Mitigation requires infrastructure-level security (HSMs, monitoring, incident response) which is Sigstore's responsibility.
+**Rationale:** If core infrastructure is compromised, system security fails. This is a trust anchor. Mitigation requires infrastructure-level security (HSMs, monitoring, incident response) which is Sigstore's responsibility. Residual risk accepted as [[RR-1]].
 
 #### 2. Side-Channel Attacks
 
@@ -277,6 +311,8 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 - Ephemeral keys reduce exposure window
 - Production environments typically not vulnerable to physical side-channels
 
+Residual risk accepted as [[RR-2]].
+
 #### 3. Quantum Computing Attacks
 
 **Threat:** Shor's algorithm breaks ECDSA.
@@ -287,36 +323,42 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 - Ephemeral keys limit retroactive compromise risk
 - Will adopt post-quantum algorithms when standardized
 
+Residual risk accepted as [[RR-3]].
+
 ---
 
 ## Security Guarantees
 
 ### What Keyless Signing Provides
 
-✅ **Authenticity** - Signature proves WASM module came from specific OIDC identity
-✅ **Integrity** - Any modification to module invalidates signature
-✅ **Non-Repudiation** - Public Rekor log prevents denial of signing
-✅ **Freshness** - Rekor timestamp proves when signature was created
-✅ **Auditability** - All signatures publicly logged and verifiable
-✅ **No Key Management** - No long-lived private keys to protect
+These map directly to the cybersecurity goals [[CG-1]] through [[CG-8]]:
+
+- **Authenticity** ([[CG-1]]) - Signature proves WASM module came from specific OIDC identity
+- **Integrity** ([[CG-2]]) - Any modification to module invalidates signature
+- **Non-Repudiation** ([[CG-3]]) - Public Rekor log prevents denial of signing
+- **Freshness** ([[CG-4]]) - Rekor timestamp proves when signature was created
+- **Auditability** ([[CG-5]]) - All signatures publicly logged and verifiable
+- **No Key Management** ([[CG-6]]) - No long-lived private keys to protect
 
 ### What Keyless Signing Does NOT Provide
 
-❌ **Revocation** - Cannot revoke a signature after creation (certificate expired anyway)
-❌ **Offline Verification** - Requires Rekor access for inclusion proof
-❌ **Anonymity** - OIDC identity is in certificate (intentional)
-❌ **Forward Secrecy** - Compromise of Fulcio CA root invalidates all past signatures
+These limitations are captured as residual risks:
+
+- **Revocation** ([[RR-4]]) - Cannot revoke a signature after creation (certificate expired anyway)
+- **Offline Verification** ([[RR-5]]) - Requires Rekor access for inclusion proof
+- **Anonymity** ([[RR-6]]) - OIDC identity is in certificate (intentional)
+- **Forward Secrecy** - Compromise of Fulcio CA root invalidates all past signatures
 
 ### Security Comparison: Keyless vs Certificate-Based
 
 | Property | Keyless | Certificate-Based |
 |----------|---------|-------------------|
-| **Offline verification** | ❌ No (needs Rekor) | ✅ Yes |
-| **Key management** | ✅ None | ❌ Complex |
-| **Transparency log** | ✅ Yes (Rekor) | ❌ No |
-| **Hardware security** | ⚠️ Optional | ✅ Yes (ATECC608) |
-| **Revocation** | ❌ Expiry only | ❌ Expiry only |
-| **Internet required** | ✅ Yes (signing) | ❌ No |
+| **Offline verification** | No (needs Rekor) | Yes |
+| **Key management** | None | Complex |
+| **Transparency log** | Yes (Rekor) | No |
+| **Hardware security** | Optional | Yes (ATECC608) |
+| **Revocation** | Expiry only | Expiry only |
+| **Internet required** | Yes (signing) | No |
 | **Best for** | CI/CD, cloud | IoT, embedded, air-gapped |
 
 ---
@@ -324,6 +366,8 @@ let rekor_entry = rekor.upload_entry(&module_hash, &signature, &certificate)?;
 ## Operational Security
 
 ### For Users (Developers)
+
+The operational guidance below connects to the cybersecurity requirements [[CR-1]] through [[CR-11]] and the verification procedures [[CV-1]] through [[CV-8]].
 
 #### Using Keyless Signing in CI/CD
 
@@ -338,19 +382,21 @@ steps:
 ```
 
 **Security Checklist:**
-- ✅ Enable `id-token: write` permission
-- ✅ Verify workflow identity matches expectations
-- ✅ Review Rekor log for unexpected signatures
-- ✅ Use branch protection to control who can trigger workflows
+- Enable `id-token: write` permission
+- Verify workflow identity matches expectations
+- Review Rekor log for unexpected signatures
+- Use branch protection to control who can trigger workflows
+
+These practices implement the operational controls described in [[CR-1]] and [[CR-2]].
 
 #### Verifying Keyless Signatures
 
 **Verification includes:**
-1. Certificate chain validation (to Fulcio root CA)
-2. Certificate validity at Rekor timestamp
-3. Signature verification against module hash
-4. Rekor inclusion proof verification
-5. Optional: identity and issuer validation
+1. Certificate chain validation (to Fulcio root CA) -- [[CV-1]]
+2. Certificate validity at Rekor timestamp -- [[CV-2]]
+3. Signature verification against module hash -- [[CV-3]]
+4. Rekor inclusion proof verification -- [[CV-4]]
+5. Optional: identity and issuer validation -- [[CV-5]]
 
 **Example:**
 ```rust
@@ -362,6 +408,8 @@ KeylessVerifier::verify(
 ```
 
 #### Monitoring and Auditing
+
+Monitoring supports [[CG-5]] (Auditability) and enables detection of scenarios described by [[TS-005]] through [[TS-008]].
 
 **Monitor Rekor for:**
 - Unexpected signatures from your identity
@@ -376,21 +424,25 @@ KeylessVerifier::verify(
 
 #### Secure Environment Variables
 
-**OIDC tokens are sensitive:**
+**OIDC tokens are sensitive** (see [[ASSET-010]]):
 - Never log `ACTIONS_ID_TOKEN_REQUEST_TOKEN`
 - Tokens are single-use but should be zeroized
 - Use GitHub's OIDC provider security best practices
 
+This guidance implements [[CR-3]] and helps prevent [[TS-001]] (OIDC Token Theft).
+
 #### Network Security
 
 **Outbound HTTPS Required:**
-- `https://fulcio.sigstore.dev` - Certificate issuance
-- `https://rekor.sigstore.dev` - Transparency log
-- `https://token.actions.githubusercontent.com` - OIDC (GitHub)
+- `https://fulcio.sigstore.dev` - Certificate issuance ([[DF-3]])
+- `https://rekor.sigstore.dev` - Transparency log ([[DF-4]])
+- `https://token.actions.githubusercontent.com` - OIDC (GitHub) ([[DF-2]])
 
 **Firewall Rules:**
 - Allow outbound HTTPS (port 443)
-- Certificate pinning available (future - Issue #12)
+- Certificate pinning enforced for defense-in-depth (see [[CR-7]])
+
+These network controls implement [[CR-4]] and mitigate [[TS-003]] (MITM attacks).
 
 #### Rate Limiting
 
@@ -402,6 +454,8 @@ KeylessVerifier::verify(
 
 ## Certificate Pinning (Issue #12)
 
+Certificate pinning is a critical defense-in-depth control, modeled as cybersecurity requirement [[CR-7]], with design detail in [[CD-4]] and [[CD-9]], and verification in [[CV-6]]. The pinned certificates protect [[ASSET-010]] (OIDC Token) and [[ASSET-011]] (Fulcio Certificate) in transit.
+
 ### Overview
 
 Certificate pinning adds defense-in-depth protection for TLS connections to Sigstore endpoints (Fulcio and Rekor). Even if a trusted Certificate Authority is compromised, pinning prevents man-in-the-middle attacks by validating that server certificates match known fingerprints.
@@ -409,14 +463,14 @@ Certificate pinning adds defense-in-depth protection for TLS connections to Sigs
 ### Threat Model
 
 **Threats Mitigated:**
-- ✅ CA compromise (rogue certificates from trusted CAs)
-- ✅ DNS/BGP hijacking with valid certificates
-- ✅ State-level adversaries with CA access
-- ✅ Certificate mis-issuance attacks
+- CA compromise (rogue certificates from trusted CAs) -- [[TS-005]], [[AS-5]]
+- DNS/BGP hijacking with valid certificates -- [[TS-006]], [[AS-6]]
+- State-level adversaries with CA access -- [[TS-007]], [[AS-7]]
+- Certificate mis-issuance attacks -- [[TS-008]], [[AS-8]]
 
 ### Implementation Status
 
-**Current State:** ✅ Fully implemented and enforced
+**Current State:** Fully implemented and enforced
 
 The wsc library includes complete certificate pinning with enforcement:
 - SHA256 fingerprint validation for Fulcio and Rekor endpoints
@@ -465,7 +519,7 @@ To require that pinning be enforced (fail if cannot):
 export WSC_REQUIRE_CERT_PINNING=1
 ```
 
-This will cause connection attempts to fail with an error if certificate pinning cannot be enforced due to HTTP client limitations.
+This will cause connection attempts to fail with an error if certificate pinning cannot be enforced due to HTTP client limitations. This implements the strict enforcement mode described in [[CD-9]].
 
 ### Pin Rotation Strategy
 
@@ -478,16 +532,13 @@ Certificate pins should be rotated when Sigstore updates their TLS certificates:
 
 ### Security Properties
 
-**When Enforced (future):**
+**When Enforced:**
 - Prevents MITM even with compromised CA
 - Validates leaf certificate fingerprint
 - Optionally validates intermediate certificates
 - Combines with standard WebPKI validation (defense-in-depth)
 
-**Current State:**
-- Standard WebPKI validation only
-- Pinning infrastructure ready for integration
-- Manual validation possible via custom code
+These properties satisfy the verification criteria in [[CV-6]] and implement the cybersecurity design [[CD-4]].
 
 ### Code Location
 
@@ -518,13 +569,13 @@ wsc's keyless signing **is built on** Sigstore infrastructure (Fulcio + Rekor) b
 
 | Feature | wsc | Cosign |
 |---------|-----|--------|
-| WASM Support | ✅ Native | ⚠️ Via blob |
-| Keyless | ✅ Yes | ✅ Yes |
-| Fulcio | ✅ Yes | ✅ Yes |
-| Rekor | ✅ Yes | ✅ Yes |
-| Multi-signature | ✅ Composition | ✅ Attestations |
-| Hardware keys | ✅ ATECC608 | ❌ Software only (keyless) |
-| Offline | ✅ Cert mode | ✅ Key mode |
+| WASM Support | Native | Via blob |
+| Keyless | Yes | Yes |
+| Fulcio | Yes | Yes |
+| Rekor | Yes | Yes |
+| Multi-signature | Composition | Attestations |
+| Hardware keys | ATECC608 | Software only (keyless) |
+| Offline | Cert mode | Key mode |
 
 ### vs. Traditional Code Signing
 
@@ -533,18 +584,21 @@ wsc's keyless signing **is built on** Sigstore infrastructure (Fulcio + Rekor) b
 | Algorithm | ECDSA P-256 | RSA/ECDSA | RSA |
 | Timestamp | Rekor | TSA | TSA |
 | Hardware | Optional | Optional (T2) | Optional (HSM) |
-| Transparency | ✅ Rekor | ❌ No | ❌ No |
-| Revocation | ❌ Expiry | ✅ CRL/OCSP | ✅ CRL/OCSP |
-| Key Mgmt | ✅ None | ❌ Complex | ❌ Complex |
+| Transparency | Rekor | No | No |
+| Revocation | Expiry | CRL/OCSP | CRL/OCSP |
+| Key Mgmt | None | Complex | Complex |
 | Cost | Free | $99+/year | $100+/year |
 
 ---
 
 ## Known Limitations
 
-This section documents known security limitations that users should be aware of.
+This section documents known security limitations that users should be aware of. Each limitation is tracked as a residual risk ([[RR-1]] through [[RR-6]]) and, where applicable, linked to a roadmap item ([[FEAT-1]] through [[FEAT-5]]).
 
 ### 1. No OCSP/CRL Certificate Revocation (IEC 62443 Gap)
+
+**Residual Risk:** [[RR-4]]
+**Roadmap:** [[FEAT-1]]
 
 **Limitation:** WSC does not implement OCSP (Online Certificate Status Protocol) or CRL (Certificate Revocation Lists) checking.
 
@@ -556,6 +610,9 @@ This section documents known security limitations that users should be aware of.
 
 ### 2. HSM Integration Incomplete (IEC 62443 SL3+ Gap)
 
+**Residual Risk:** [[RR-5]]
+**Roadmap:** [[FEAT-2]]
+
 **Limitation:** Hardware Security Module support is scaffolded but not complete.
 
 **Impact:** Cannot achieve Security Level 3+ under IEC 62443 without hardware-backed key storage.
@@ -565,6 +622,9 @@ This section documents known security limitations that users should be aware of.
 **Roadmap:** HSM integration for ATECC608A, TPM 2.0, and NXP SE050 planned for Q2 2026.
 
 ### 3. Swap File Exposure
+
+**Residual Risk:** [[RR-2]]
+**Roadmap:** [[FEAT-3]]
 
 **Limitation:** Key material in memory could be swapped to disk by the operating system.
 
@@ -580,6 +640,9 @@ This section documents known security limitations that users should be aware of.
 
 ### 4. Offline Verification Requires Trust Bundle Distribution
 
+**Residual Risk:** [[RR-5]]
+**Roadmap:** [[FEAT-4]]
+
 **Limitation:** Keyless signature verification requires Rekor access for inclusion proof verification.
 
 **Impact:** Air-gapped or offline environments cannot verify keyless signatures without pre-fetching Rekor entries.
@@ -590,6 +653,9 @@ This section documents known security limitations that users should be aware of.
 - The `--offline` flag supports verification with pre-distributed trust bundles
 
 ### 5. OIDC Token Exposure Window
+
+**Residual Risk:** [[RR-1]]
+**Roadmap:** [[FEAT-5]]
 
 **Limitation:** OIDC tokens exist in memory for the duration of the signing operation.
 
@@ -606,9 +672,9 @@ This section documents known security limitations that users should be aware of.
 
 For automotive (ISO/SAE 21434) and industrial IoT (IEC 62443) deployments, see:
 
-- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) - STRIDE threat analysis
+- [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) - STRIDE threat analysis (covers [[TS-001]] through [[TS-018]])
 - [docs/TARA_COMPLIANCE.md](docs/TARA_COMPLIANCE.md) - Standards compliance mapping
-- [docs/KEY_LIFECYCLE.md](docs/KEY_LIFECYCLE.md) - Key management procedures
+- [docs/KEY_LIFECYCLE.md](docs/KEY_LIFECYCLE.md) - Key management procedures (covers [[CD-1]] through [[CD-9]])
 - [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md) - Security incident runbook
 
 ---
@@ -630,29 +696,29 @@ Include:
 ## Security Changelog
 
 ### v0.5.0 (Security Hardening Release)
-- ✅ **Fixed timing attack vulnerability** - Replaced `==` with constant-time comparison (`ct_codecs::verify`) for all cryptographic material comparisons in `simple.rs` and `multi.rs`
-- ✅ **Added intermediate buffer zeroization** - Message buffers now wrapped with `Zeroizing<Vec<u8>>` to prevent secret residue in memory
-- ✅ **Release profile hardening** - Added `overflow-checks = true` to detect integer overflow in release builds
-- ✅ **Certificate pinning enforcement** - Created custom `PinnedRustlsConnector` using ureq's `Connector` trait to enforce certificate pinning for Fulcio and Rekor connections
-- ✅ **TARA compliance documentation** - Added comprehensive documentation for ISO/SAE 21434 and IEC 62443 compliance:
+- **Fixed timing attack vulnerability** - Replaced `==` with constant-time comparison (`ct_codecs::verify`) for all cryptographic material comparisons in `simple.rs` and `multi.rs`
+- **Added intermediate buffer zeroization** - Message buffers now wrapped with `Zeroizing<Vec<u8>>` to prevent secret residue in memory
+- **Release profile hardening** - Added `overflow-checks = true` to detect integer overflow in release builds
+- **Certificate pinning enforcement** ([[CR-7]], [[CD-4]]) - Created custom `PinnedRustlsConnector` using ureq's `Connector` trait to enforce certificate pinning for Fulcio and Rekor connections
+- **TARA compliance documentation** - Added comprehensive documentation for ISO/SAE 21434 and IEC 62443 compliance:
   - `docs/THREAT_MODEL.md` - STRIDE analysis
   - `docs/TARA_COMPLIANCE.md` - Standards mapping
   - `docs/KEY_LIFECYCLE.md` - Key management procedures
   - `docs/INCIDENT_RESPONSE.md` - Security incident runbook
 
 ### v0.2.7
-- ✅ Added ephemeral key zeroization (Issue #14)
-- ✅ Added OIDC token zeroization (Issue #11)
-- ✅ Implemented Rekor inclusion proof verification (Issue #15)
-- ✅ Sanitized error messages for information disclosure (Issue #9)
-- ✅ Added comprehensive zeroization tests (17 new tests)
-- ✅ Implemented certificate pinning infrastructure (Issue #12)
+- Added ephemeral key zeroization (Issue #14) -- implements [[CD-8]]
+- Added OIDC token zeroization (Issue #11) -- mitigates [[TS-001]]
+- Implemented Rekor inclusion proof verification (Issue #15) -- implements [[CV-4]]
+- Sanitized error messages for information disclosure (Issue #9) -- mitigates [[TS-009]]
+- Added comprehensive zeroization tests (17 new tests)
+- Implemented certificate pinning infrastructure (Issue #12) -- [[CR-7]]
   - Complete SHA256 fingerprint validation
   - Support for custom pins via environment variables
 
 ### Previous
-- ✅ Implemented Rekor checkpoint-based verification (Issue #1)
-- ✅ Full certificate chain verification (Issue #16)
+- Implemented Rekor checkpoint-based verification (Issue #1) -- [[CV-4]]
+- Full certificate chain verification (Issue #16) -- [[CV-1]]
 
 ---
 
@@ -667,5 +733,5 @@ Include:
 
 ---
 
-**Last Updated:** 2026-01-04
+**Last Updated:** 2026-03-15
 **Addresses:** Issues #2 (Security Model Documentation), #4 (Ephemeral Key Lifecycle), #12 (Certificate Pinning)
