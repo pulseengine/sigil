@@ -1,0 +1,250 @@
+artifacts:
+  # ── Requirements ──────────────────────────────────────────────────────
+
+  - id: REQ-1
+    type: requirement
+    title: Cryptographic signing of WASM modules using Ed25519
+    status: approved
+    description: >
+      sigil must sign WebAssembly modules using Ed25519 signatures and embed
+      the signature in a WASM custom section.
+    fields:
+      priority: must
+      category: functional
+
+  - id: REQ-2
+    type: requirement
+    title: Sigstore keyless signing via OIDC/Fulcio/Rekor
+    status: approved
+    description: >
+      sigil must support keyless signing using OIDC identity tokens, Fulcio
+      ephemeral certificates, and Rekor transparency logging.
+    fields:
+      priority: must
+      category: functional
+
+  - id: REQ-3
+    type: requirement
+    title: Air-gapped verification with trust bundles
+    status: approved
+    description: >
+      sigil must support offline signature verification using pre-provisioned
+      trust bundles for embedded and air-gapped devices.
+    fields:
+      priority: must
+      category: functional
+
+  - id: REQ-4
+    type: requirement
+    title: Supply chain provenance via SLSA/in-toto
+    status: approved
+    description: >
+      sigil must generate SLSA-compliant provenance attestations in in-toto
+      format.
+    fields:
+      priority: must
+      category: functional
+
+  - id: REQ-5
+    type: requirement
+    title: Memory safety and no unsafe code
+    status: approved
+    description: >
+      sigil must use forbid(unsafe_code) and rely solely on safe Rust for
+      memory safety guarantees.
+    fields:
+      priority: must
+      category: non-functional
+
+  - id: REQ-6
+    type: requirement
+    title: Reproducible builds for SLSA Level 3
+    status: draft
+    description: >
+      Build environment must be reproducible across machines and CI runners
+      for SLSA Level 3 compliance.
+    fields:
+      priority: should
+      category: non-functional
+
+  - id: REQ-7
+    type: requirement
+    title: Post-quantum signature readiness
+    status: draft
+    description: >
+      sigil should support post-quantum signature schemes (SLH-DSA / FIPS 205)
+      for long-lived embedded targets.
+    fields:
+      priority: could
+      category: functional
+
+  - id: REQ-8
+    type: requirement
+    title: Native artifact signing beyond WASM
+    status: draft
+    description: >
+      sigil should sign native artifacts (ELF, MCUboot) produced by synth's
+      WASM-to-native transcoding.
+    fields:
+      priority: should
+      category: functional
+
+  - id: REQ-9
+    type: requirement
+    title: Formal verification of cryptographic operations
+    status: draft
+    description: >
+      Critical cryptographic code paths should be formally verified using
+      Rocq/coq-of-rust.
+    fields:
+      priority: could
+      category: non-functional
+
+  - id: REQ-10
+    type: requirement
+    title: Build environment attestation
+    status: draft
+    description: >
+      Attestation chain should capture build environment metadata (Bazel
+      version, Nix hash, toolchain versions).
+    fields:
+      priority: should
+      category: non-functional
+
+  # ── Design Decisions ──────────────────────────────────────────────────
+
+  - id: DD-1
+    type: design-decision
+    title: Use ed25519-compact over ring for Ed25519
+    status: approved
+    description: >
+      ed25519-compact is a pure-Rust, constant-time implementation suitable
+      for no_std environments. ring requires assembly and doesn't support all
+      embedded targets.
+    fields:
+      rationale: >
+        ed25519-compact is a pure-Rust, constant-time implementation suitable
+        for no_std environments. ring requires assembly and doesn't support all
+        embedded targets.
+      alternatives: >
+        ring (better-known but requires assembly), dalek (good but larger
+        dependency surface)
+    links:
+      - type: satisfies
+        target: REQ-1
+      - type: satisfies
+        target: REQ-5
+
+  - id: DD-2
+    type: design-decision
+    title: Fail-closed on Rekor unavailability
+    status: approved
+    description: >
+      Silently skipping Rekor verification on network failure would allow
+      unverified signatures to pass. Fail-closed ensures security properties
+      are maintained at the cost of availability.
+    fields:
+      rationale: >
+        Silently skipping Rekor verification on network failure would allow
+        unverified signatures to pass. Fail-closed ensures security properties
+        are maintained at the cost of availability.
+      alternatives: >
+        Fail-open with warning (higher availability, lower security),
+        configurable per-invocation (complexity)
+    links:
+      - type: satisfies
+        target: REQ-2
+
+  - id: DD-3
+    type: design-decision
+    title: STPA-Sec for security analysis over TARA-only
+    status: approved
+    description: >
+      STPA-Sec catches interaction-level and emergent risks (stale caches,
+      race conditions, fail-open behaviors) that threat-catalog-based TARA
+      misses. TARA retained as compliance layer for ISO 21434.
+    fields:
+      rationale: >
+        STPA-Sec catches interaction-level and emergent risks (stale caches,
+        race conditions, fail-open behaviors) that threat-catalog-based TARA
+        misses. TARA retained as compliance layer for ISO 21434.
+      alternatives: >
+        TARA only (simpler, auditor-familiar), STPA-Sec only (misses
+        feasibility scoring)
+    links:
+      - type: satisfies
+        target: REQ-5
+
+  # ── Features (mapped from open GitHub issues) ─────────────────────────
+
+  - id: FEAT-1
+    type: feature
+    title: Post-quantum signature support (SLH-DSA / FIPS 205)
+    status: draft
+    description: >
+      Add SLH-DSA as signing/verification backend alongside Ed25519. Evaluate
+      parameter sets for signature size vs security tradeoffs. Maintain no_std
+      compatibility.
+    fields:
+      github-issue: 46
+      phase: future
+    links:
+      - type: satisfies
+        target: REQ-7
+
+  - id: FEAT-2
+    type: feature
+    title: Sign native artifacts from synth (ELF / MCUboot)
+    status: draft
+    description: >
+      Implement format-aware signing backends for MCUboot TLV (embedded
+      Cortex-M) and ELF .signature section (Linux targets). Carry attestation
+      chain across WASM-to-native boundary.
+    fields:
+      github-issue: 47
+      phase: phase-2
+    links:
+      - type: satisfies
+        target: REQ-8
+
+  - id: FEAT-3
+    type: feature
+    title: Add Nix flake for reproducible builds
+    status: draft
+    description: >
+      Add flake.nix providing development shell with pinned toolchain
+      versions. Integrate with Bazel build for hermetic CI.
+    fields:
+      github-issue: 48
+      phase: phase-2
+    links:
+      - type: satisfies
+        target: REQ-6
+
+  - id: FEAT-4
+    type: feature
+    title: Build environment attestation
+    status: draft
+    description: >
+      Capture build environment metadata (Bazel version, Nix hash, rustc
+      version) as part of SLSA provenance attestation.
+    fields:
+      github-issue: 49
+      phase: phase-2
+    links:
+      - type: satisfies
+        target: REQ-10
+
+  - id: FEAT-5
+    type: feature
+    title: Rocq formal verification
+    status: draft
+    description: >
+      Add Rocq proofs for cryptographic algorithm correctness and coq-of-rust
+      integration for Rust implementation verification via rules_rocq_rust.
+    fields:
+      github-issue: 32
+      phase: future
+    links:
+      - type: satisfies
+        target: REQ-9

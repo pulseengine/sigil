@@ -1,0 +1,316 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Controllers
+  # ──────────────────────────────────────────────
+
+  - id: CTRL-1
+    type: controller
+    title: CLI Controller
+    status: approved
+    description: >
+      Top-level command-line interface that accepts user and CI commands,
+      dispatches signing or verification workflows, and manages configuration
+      such as key paths and Sigstore endpoints.
+    fields:
+      controller-type: automated
+      source-file: src/cli/src/main.rs
+      process-model:
+        - "Current signing mode (key-based vs keyless)"
+        - "Available key files and their paths"
+        - "Sigstore endpoint availability"
+
+  - id: CTRL-2
+    type: controller
+    title: Signing Module
+    status: approved
+    description: >
+      Core cryptographic signing controller responsible for loading key
+      material, computing module hashes, producing Ed25519 signatures, and
+      embedding them into WASM modules.
+    fields:
+      controller-type: automated
+      source-file: src/lib/src/signature/
+      process-model:
+        - "Key material loaded and valid"
+        - "Module hash computed correctly"
+        - "Signature format matches expected structure"
+
+  - id: CTRL-3
+    type: controller
+    title: Keyless Signing Module
+    status: approved
+    description: >
+      Sigstore keyless signing controller that orchestrates the OIDC token
+      exchange, Fulcio certificate issuance, ephemeral key generation, and
+      Rekor transparency log submission.
+    fields:
+      controller-type: automated
+      source-file: src/lib/src/keyless/
+      process-model:
+        - "OIDC token obtained and valid"
+        - "Fulcio certificate issued"
+        - "Rekor entry submitted"
+        - "Ephemeral key generated"
+
+  - id: CTRL-4
+    type: controller
+    title: Verification Module
+    status: approved
+    description: >
+      Signature and certificate verification controller that checks module
+      integrity, validates public keys or trust bundles, and verifies
+      certificate chains in keyless mode.
+    fields:
+      controller-type: automated
+      source-file: src/lib/src/signature/
+      process-model:
+        - "Public key or trust bundle loaded"
+        - "Module integrity intact"
+        - "Certificate chain valid (keyless mode)"
+
+  - id: CTRL-5
+    type: controller
+    title: Trust Bundle Manager
+    status: approved
+    description: >
+      Manages offline trust bundles used for air-gapped verification,
+      including bundle integrity checks, key set validation, and expiration
+      enforcement.
+    fields:
+      controller-type: automated
+      source-file: src/lib/src/airgapped/
+      process-model:
+        - "Trust bundle integrity verified"
+        - "Bundle contains expected key set"
+        - "Bundle not expired"
+
+  - id: CTRL-6
+    type: controller
+    title: Certificate Validator
+    status: approved
+    description: >
+      Validates X.509 certificate chains from Fulcio, enforcing root CA
+      trust, expiration checks, and certificate pinning policies.
+    fields:
+      controller-type: automated
+      source-file: src/lib/src/keyless/
+      process-model:
+        - "Root CA trusted"
+        - "Certificate not expired"
+        - "Certificate pinning match"
+
+  - id: CTRL-7
+    type: controller
+    title: Developer/CI Pipeline
+    status: approved
+    description: >
+      Human operators and automated CI pipelines that invoke sigil to sign
+      and verify WASM modules, provision signing keys, and configure OIDC
+      providers.
+    fields:
+      controller-type: human-and-automated
+      process-model:
+        - "Build environment is trusted"
+        - "OIDC provider configured correctly"
+        - "Signing keys provisioned"
+
+  # ──────────────────────────────────────────────
+  # Controlled Processes
+  # ──────────────────────────────────────────────
+
+  - id: CP-1
+    type: controlled-process
+    title: WASM Module Processing
+    status: approved
+    description: >
+      Parsing, hashing, and embedding signatures in WASM modules.
+
+  - id: CP-2
+    type: controlled-process
+    title: Key Material Storage
+    status: approved
+    description: >
+      Generation, storage, loading, and zeroization of cryptographic keys.
+
+  - id: CP-3
+    type: controlled-process
+    title: Sigstore Infrastructure
+    status: approved
+    description: >
+      External Fulcio CA and Rekor transparency log services.
+
+  - id: CP-4
+    type: controlled-process
+    title: Trust Bundle Storage
+    status: approved
+    description: >
+      Offline trust bundle creation, distribution, and verification.
+
+  # ──────────────────────────────────────────────
+  # Control Actions
+  # ──────────────────────────────────────────────
+
+  - id: CA-1
+    type: control-action
+    title: Sign module with key
+    status: approved
+    description: >
+      The signing module computes a hash of the WASM module and produces an
+      Ed25519 signature that is embedded into the module.
+    fields:
+      action: Sign module with Ed25519 key
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: acts-on
+        target: CP-1
+
+  - id: CA-2
+    type: control-action
+    title: Generate ephemeral key pair
+    status: approved
+    description: >
+      The keyless signing module generates a short-lived Ed25519 key pair
+      used for a single Sigstore signing operation.
+    fields:
+      action: Generate ephemeral P-256 key pair
+    links:
+      - type: issued-by
+        target: CTRL-3
+      - type: acts-on
+        target: CP-2
+
+  - id: CA-3
+    type: control-action
+    title: Request Fulcio certificate
+    status: approved
+    description: >
+      The keyless signing module presents an OIDC token and ephemeral public
+      key to Fulcio to obtain a short-lived signing certificate.
+    fields:
+      action: Request signing certificate from Fulcio CA
+    links:
+      - type: issued-by
+        target: CTRL-3
+      - type: acts-on
+        target: CP-3
+
+  - id: CA-4
+    type: control-action
+    title: Submit Rekor entry
+    status: approved
+    description: >
+      The keyless signing module submits the signature and certificate to the
+      Rekor transparency log for tamper-evident recording.
+    fields:
+      action: Submit signed entry to Rekor transparency log
+    links:
+      - type: issued-by
+        target: CTRL-3
+      - type: acts-on
+        target: CP-3
+
+  - id: CA-5
+    type: control-action
+    title: Verify signature
+    status: approved
+    description: >
+      The verification module checks that the embedded signature in a WASM
+      module is valid against the expected public key or trust bundle.
+    fields:
+      action: Verify WASM module signature
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: acts-on
+        target: CP-1
+
+  - id: CA-6
+    type: control-action
+    title: Load trust bundle
+    status: approved
+    description: >
+      The trust bundle manager loads and validates an offline trust bundle
+      for use in air-gapped verification scenarios.
+    fields:
+      action: Load and validate offline trust bundle
+    links:
+      - type: issued-by
+        target: CTRL-5
+      - type: acts-on
+        target: CP-4
+
+  - id: CA-7
+    type: control-action
+    title: Validate certificate chain
+    status: approved
+    description: >
+      The certificate validator verifies the X.509 certificate chain from
+      Fulcio against trusted root CAs and pinning policies.
+    fields:
+      action: Validate X.509 certificate chain
+    links:
+      - type: issued-by
+        target: CTRL-6
+      - type: acts-on
+        target: CP-3
+
+  - id: CA-8
+    type: control-action
+    title: Invoke signing workflow
+    status: approved
+    description: >
+      A developer or CI pipeline triggers the end-to-end signing workflow
+      for a WASM module through the CLI.
+    fields:
+      action: Invoke end-to-end signing workflow
+    links:
+      - type: issued-by
+        target: CTRL-7
+      - type: acts-on
+        target: CP-1
+
+  - id: CA-9
+    type: control-action
+    title: Load key from storage
+    status: approved
+    description: >
+      The signing module reads private key material from storage for use in
+      signature generation.
+    fields:
+      action: Load private key from secure storage
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: acts-on
+        target: CP-2
+
+  - id: CA-10
+    type: control-action
+    title: Zeroize key material
+    status: approved
+    description: >
+      The signing module securely erases key material from memory after use
+      to prevent residual exposure.
+    fields:
+      action: Zeroize key material from memory
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: acts-on
+        target: CP-2
+
+  - id: CA-11
+    type: control-action
+    title: Verify Rekor inclusion proof
+    status: approved
+    description: >
+      The verification module checks the Rekor transparency log inclusion
+      proof to confirm a signature was publicly recorded.
+    fields:
+      action: Verify Rekor transparency log inclusion proof
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: acts-on
+        target: CP-3

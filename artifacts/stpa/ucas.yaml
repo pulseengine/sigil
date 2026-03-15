@@ -1,0 +1,505 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Threat Agents
+  # ──────────────────────────────────────────────
+
+  - id: TA-1
+    type: threat-agent
+    title: Script Kiddie
+    status: approved
+    description: >
+      Opportunistic external attacker with proficient technical capability,
+      motivated by disruption, operating remotely with unlimited time to
+      attempt attacks against publicly exposed signing and verification
+      interfaces.
+    fields:
+      agent-type: external-attacker
+      capability: proficient
+      motivation: disruption
+      access: remote
+      window-of-opportunity: unlimited
+
+  - id: TA-2
+    type: threat-agent
+    title: Malicious Insider
+    status: approved
+    description: >
+      Insider with expert-level capability and local access to signing
+      infrastructure, motivated by financial gain, with easy opportunity
+      to exploit trusted access to key material and signing pipelines.
+    fields:
+      agent-type: insider
+      capability: expert
+      motivation: financial
+      access: local
+      window-of-opportunity: easy
+
+  - id: TA-3
+    type: threat-agent
+    title: Supply Chain Attacker
+    status: approved
+    description: >
+      Expert-level attacker targeting the software supply chain, motivated
+      by espionage, with adjacent access to build systems, dependency
+      registries, or distribution channels and moderate opportunity windows.
+    fields:
+      agent-type: supply-chain
+      capability: expert
+      motivation: espionage
+      access: adjacent
+      window-of-opportunity: moderate
+
+  - id: TA-4
+    type: threat-agent
+    title: State-Level Actor
+    status: approved
+    description: >
+      State-sponsored threat group with multiple expert-level operatives,
+      motivated by espionage, operating remotely with unlimited resources
+      and time to compromise cryptographic signing infrastructure.
+    fields:
+      agent-type: state-level
+      capability: multiple-experts
+      motivation: espionage
+      access: remote
+      window-of-opportunity: unlimited
+
+  - id: TA-5
+    type: threat-agent
+    title: Compromised CI Runner
+    status: approved
+    description: >
+      Automated CI runner environment that has been compromised, operating
+      with proficient capability and local access to signing credentials
+      and OIDC tokens, with easy opportunity to exfiltrate secrets during
+      build execution.
+    fields:
+      agent-type: automated
+      capability: proficient
+      motivation: accidental
+      access: local
+      window-of-opportunity: easy
+
+  # ──────────────────────────────────────────────
+  # Unsecure Control Actions (UCAs)
+  # ──────────────────────────────────────────────
+
+  - id: UCA-1
+    type: uca
+    title: Verify signature NOT PROVIDED when module loaded
+    status: approved
+    description: >
+      Verification module does not verify signature before module is
+      accepted, allowing an unsigned or tampered module to pass through
+      the loading pipeline without any integrity check.
+    fields:
+      uca-type: not-providing
+      context: "Module loaded into runtime without signature check"
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-1
+
+  - id: UCA-2
+    type: uca
+    title: Verify signature PROVIDED with wrong public key
+    status: approved
+    description: >
+      Verification uses incorrect or outdated key from trust bundle,
+      causing the verifier to accept signatures from an untrusted key
+      or reject signatures from the correct key.
+    fields:
+      uca-type: providing
+      context: "Trust bundle updated but verifier uses cached old key"
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-1
+      - type: leads-to-hazard
+        target: H-8
+
+  - id: UCA-3
+    type: uca
+    title: Zeroize key NOT PROVIDED after signing
+    status: approved
+    description: >
+      Signing module does not clear key material from memory after
+      operation completes, leaving private key data accessible in
+      process memory for potential extraction.
+    fields:
+      uca-type: not-providing
+      context: "Key remains in process memory after signing completes"
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: leads-to-hazard
+        target: H-3
+
+  - id: UCA-4
+    type: uca
+    title: Zeroize key PROVIDED TOO LATE
+    status: approved
+    description: >
+      Key material persists in memory during window between signing
+      completion and zeroization, allowing extraction by a co-resident
+      attacker or through memory dump during the delay.
+    fields:
+      uca-type: too-early-too-late
+      context: "Delay between signing completion and memory wipe allows extraction"
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: leads-to-hazard
+        target: H-3
+      - type: leads-to-hazard
+        target: H-11
+
+  - id: UCA-5
+    type: uca
+    title: Verify Rekor proof NOT PROVIDED
+    status: approved
+    description: >
+      Keyless signature accepted without verifying Rekor inclusion proof,
+      eliminating the transparency guarantee and allowing signatures that
+      were never publicly logged to be treated as valid.
+    fields:
+      uca-type: not-providing
+      context: "Network failure causes Rekor check to be silently skipped"
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-6
+
+  - id: UCA-6
+    type: uca
+    title: Validate certificate chain NOT PROVIDED
+    status: approved
+    description: >
+      Certificate chain validation skipped or incomplete during keyless
+      verification, allowing signatures from certificates not rooted in
+      a trusted CA to be accepted.
+    fields:
+      uca-type: not-providing
+      context: "Intermediate CA validation omitted"
+    links:
+      - type: issued-by
+        target: CTRL-6
+      - type: leads-to-hazard
+        target: H-9
+
+  - id: UCA-7
+    type: uca
+    title: Load trust bundle PROVIDED with tampered bundle
+    status: approved
+    description: >
+      Trust bundle manager loads a modified bundle without integrity
+      verification, allowing an attacker to inject malicious root
+      certificates or remove legitimate ones.
+    fields:
+      uca-type: providing
+      context: "Bundle file modified on disk, loaded without hash check"
+    links:
+      - type: issued-by
+        target: CTRL-5
+      - type: leads-to-hazard
+        target: H-8
+
+  - id: UCA-8
+    type: uca
+    title: Request Fulcio certificate PROVIDED with stolen OIDC token
+    status: approved
+    description: >
+      Keyless module uses a replayed or stolen identity token to obtain
+      a signing certificate for an identity the attacker does not
+      control.
+    fields:
+      uca-type: providing
+      context: "CI runner environment compromised, token exfiltrated and reused"
+    links:
+      - type: issued-by
+        target: CTRL-3
+      - type: leads-to-hazard
+        target: H-5
+
+  - id: UCA-9
+    type: uca
+    title: Sign module PROVIDED when key file has wrong permissions
+    status: approved
+    description: >
+      Signing proceeds despite key file having world-readable permissions,
+      indicating the key may already be compromised and any signatures
+      produced cannot be trusted.
+    fields:
+      uca-type: providing
+      context: "Key file permissions not checked before loading"
+    links:
+      - type: issued-by
+        target: CTRL-2
+      - type: leads-to-hazard
+        target: H-4
+
+  - id: UCA-10
+    type: uca
+    title: Parse module input APPLIED TOO LONG
+    status: approved
+    description: >
+      Parser does not enforce resource bounds on malicious input, allowing
+      crafted WASM modules to trigger unbounded memory allocation or CPU
+      consumption.
+    fields:
+      uca-type: stopped-too-soon
+      context: "Oversized or deeply nested WASM module causes unbounded allocation"
+    links:
+      - type: issued-by
+        target: CTRL-1
+      - type: leads-to-hazard
+        target: H-10
+
+  - id: UCA-11
+    type: uca
+    title: Verify Rekor checkpoint PROVIDED with spoofed checkpoint
+    status: approved
+    description: >
+      Rekor verification uses unsigned or attacker-controlled checkpoint,
+      allowing fabricated transparency log entries to be accepted as
+      genuine.
+    fields:
+      uca-type: providing
+      context: "Checkpoint signature not verified against known Rekor public key"
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-7
+
+  - id: UCA-12
+    type: uca
+    title: Invoke signing workflow NOT PROVIDED with identity verification
+    status: approved
+    description: >
+      CI pipeline triggers signing without verifying its own OIDC provider
+      configuration, allowing tokens from unintended identity providers to
+      be used for signing operations.
+    fields:
+      uca-type: not-providing
+      context: "Pipeline configured with wrong OIDC issuer, accepts tokens from unintended provider"
+    links:
+      - type: issued-by
+        target: CTRL-7
+      - type: leads-to-hazard
+        target: H-5
+
+  # ──────────────────────────────────────────────
+  # Controller Constraints
+  # ──────────────────────────────────────────────
+
+  - id: CC-1
+    type: controller-constraint
+    title: Verification module MUST verify signature before accepting any module
+    status: approved
+    description: >
+      The verification module must always perform signature verification
+      before returning a positive verification result.
+    fields:
+      constraint: "The verification module must always perform signature verification before returning a positive verification result"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-1
+      - type: prevents
+        target: H-1
+
+  - id: CC-2
+    type: controller-constraint
+    title: Verification module MUST use current trust bundle keys, never cached copies
+    status: approved
+    description: >
+      The verification module must reload the trust bundle on each
+      verification, never use stale cached key material.
+    fields:
+      constraint: "The verification module must reload the trust bundle on each verification, never use stale cached key material"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-2
+      - type: prevents
+        target: H-1
+      - type: prevents
+        target: H-8
+
+  - id: CC-3
+    type: controller-constraint
+    title: Signing module MUST zeroize all key material immediately upon completion
+    status: approved
+    description: >
+      Key material must be zeroized via the zeroize crate Drop
+      implementation, ensuring cleanup even on panic.
+    fields:
+      constraint: "Key material must be zeroized via the zeroize crate Drop implementation, ensuring cleanup even on panic"
+    links:
+      - type: constrains-controller
+        target: CTRL-2
+      - type: inverts-uca
+        target: UCA-3
+      - type: prevents
+        target: H-3
+
+  - id: CC-4
+    type: controller-constraint
+    title: Signing module MUST minimize key material lifetime in memory
+    status: approved
+    description: >
+      Key material must be loaded just-in-time and zeroized immediately
+      after the signing operation, with no unnecessary copies.
+    fields:
+      constraint: "Key material must be loaded just-in-time and zeroized immediately after the signing operation, with no unnecessary copies"
+    links:
+      - type: constrains-controller
+        target: CTRL-2
+      - type: inverts-uca
+        target: UCA-4
+      - type: prevents
+        target: H-3
+      - type: prevents
+        target: H-11
+
+  - id: CC-5
+    type: controller-constraint
+    title: Verification module MUST fail-closed when Rekor is unreachable
+    status: approved
+    description: >
+      Keyless signature verification must reject signatures when Rekor
+      inclusion proof cannot be obtained, never silently skip the check.
+    fields:
+      constraint: "Keyless signature verification must reject signatures when Rekor inclusion proof cannot be obtained, never silently skip the check"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-5
+      - type: prevents
+        target: H-6
+
+  - id: CC-6
+    type: controller-constraint
+    title: Certificate validator MUST verify full chain including all intermediates
+    status: approved
+    description: >
+      Certificate chain validation must verify every certificate from
+      leaf to root, rejecting chains with missing or invalid intermediates.
+    fields:
+      constraint: "Certificate chain validation must verify every certificate from leaf to root, rejecting chains with missing or invalid intermediates"
+    links:
+      - type: constrains-controller
+        target: CTRL-6
+      - type: inverts-uca
+        target: UCA-6
+      - type: prevents
+        target: H-9
+
+  - id: CC-7
+    type: controller-constraint
+    title: Trust bundle manager MUST verify bundle integrity before loading
+    status: approved
+    description: >
+      Trust bundles must be integrity-checked (hash verification) before
+      their contents are used for signature verification.
+    fields:
+      constraint: "Trust bundles must be integrity-checked (hash verification) before their contents are used for signature verification"
+    links:
+      - type: constrains-controller
+        target: CTRL-5
+      - type: inverts-uca
+        target: UCA-7
+      - type: prevents
+        target: H-8
+
+  - id: CC-8
+    type: controller-constraint
+    title: Keyless module MUST validate OIDC token freshness and single-use
+    status: approved
+    description: >
+      OIDC tokens must be validated for expiry (<10 min lifetime),
+      audience, and issuer before use, and zeroized immediately after.
+    fields:
+      constraint: "OIDC tokens must be validated for expiry (<10 min lifetime), audience, and issuer before use, and zeroized immediately after"
+    links:
+      - type: constrains-controller
+        target: CTRL-3
+      - type: inverts-uca
+        target: UCA-8
+      - type: prevents
+        target: H-5
+
+  - id: CC-9
+    type: controller-constraint
+    title: Signing module MUST verify key file permissions before loading
+    status: approved
+    description: >
+      Secret key files must be checked for 0600 permissions before
+      loading; signing must abort if permissions are too permissive.
+    fields:
+      constraint: "Secret key files must be checked for 0600 permissions before loading; signing must abort if permissions are too permissive"
+    links:
+      - type: constrains-controller
+        target: CTRL-2
+      - type: inverts-uca
+        target: UCA-9
+      - type: prevents
+        target: H-4
+
+  - id: CC-10
+    type: controller-constraint
+    title: CLI MUST enforce resource bounds on all input parsing
+    status: approved
+    description: >
+      Parser must enforce 16MB maximum allocation, bounded iteration,
+      and maximum section counts for all WASM input.
+    fields:
+      constraint: "Parser must enforce 16MB maximum allocation, bounded iteration, and maximum section counts for all WASM input"
+    links:
+      - type: constrains-controller
+        target: CTRL-1
+      - type: inverts-uca
+        target: UCA-10
+      - type: prevents
+        target: H-10
+
+  - id: CC-11
+    type: controller-constraint
+    title: Verification module MUST verify Rekor checkpoint signatures
+    status: approved
+    description: >
+      Rekor signed tree heads must be verified against the known Rekor
+      public key before trusting any inclusion proof.
+    fields:
+      constraint: "Rekor signed tree heads must be verified against the known Rekor public key before trusting any inclusion proof"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-11
+      - type: prevents
+        target: H-7
+
+  - id: CC-12
+    type: controller-constraint
+    title: CI pipeline MUST verify OIDC provider configuration
+    status: approved
+    description: >
+      Pipeline signing workflows must validate OIDC issuer URL matches
+      expected provider before requesting identity tokens.
+    fields:
+      constraint: "Pipeline signing workflows must validate OIDC issuer URL matches expected provider before requesting identity tokens"
+    links:
+      - type: constrains-controller
+        target: CTRL-7
+      - type: inverts-uca
+        target: UCA-12
+      - type: prevents
+        target: H-5

@@ -1,0 +1,324 @@
+artifacts:
+  # ---------------------------------------------------------------------------
+  # Losses
+  # ---------------------------------------------------------------------------
+  - id: L-1
+    type: loss
+    title: Loss of module integrity
+    status: approved
+    description: >
+      A tampered or malicious WebAssembly module is accepted as legitimately
+      signed, allowing unauthorized code to execute in environments that rely
+      on signature verification for supply-chain security.
+
+  - id: L-2
+    type: loss
+    title: Loss of key confidentiality
+    status: approved
+    description: >
+      Private key material is exposed to unauthorized parties, enabling
+      forgery of signatures and complete compromise of the signing identity.
+
+  - id: L-3
+    type: loss
+    title: Loss of signer accountability
+    status: approved
+    description: >
+      Signing provenance is falsified or cannot be verified, resulting in a
+      non-repudiation failure that undermines auditability and trust in the
+      software supply chain.
+
+  - id: L-4
+    type: loss
+    title: Loss of verification availability
+    status: approved
+    description: >
+      Legitimate modules cannot be verified, blocking deployment pipelines
+      and denying service to systems that depend on successful signature
+      verification before loading WebAssembly modules.
+
+  - id: L-5
+    type: loss
+    title: Loss of trust chain integrity
+    status: approved
+    description: >
+      The trust bundle or certificate chain is compromised, undermining all
+      verification operations that depend on the chain of trust and
+      potentially allowing wholesale acceptance of malicious modules.
+
+  # ---------------------------------------------------------------------------
+  # Hazards
+  # ---------------------------------------------------------------------------
+  - id: H-1
+    type: hazard
+    title: Signature verification accepts invalid signature
+    status: approved
+    description: >
+      The signature verification logic incorrectly accepts a signature that
+      does not cryptographically match the module content and signing key,
+      allowing a tampered module to pass verification.
+    links:
+      - type: leads-to-loss
+        target: L-1
+
+  - id: H-2
+    type: hazard
+    title: Signature verification rejects valid signature
+    status: approved
+    description: >
+      The signature verification logic incorrectly rejects a signature that
+      is cryptographically valid, preventing legitimate modules from being
+      deployed.
+    links:
+      - type: leads-to-loss
+        target: L-4
+
+  - id: H-3
+    type: hazard
+    title: Key material exists in accessible memory after use
+    status: approved
+    description: >
+      Private key material remains in process memory after signing operations
+      complete, where it can be extracted through memory dumps, core files,
+      or co-resident process attacks.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-4
+    type: hazard
+    title: Key material stored with insufficient permissions
+    status: approved
+    description: >
+      Private key files are stored on disk with overly permissive file
+      permissions, allowing other users or processes on the system to read
+      the key material.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-5
+    type: hazard
+    title: OIDC token replayed or forged in keyless signing
+    status: approved
+    description: >
+      An OIDC identity token used during keyless signing is replayed or
+      forged, allowing an attacker to obtain a signing certificate for an
+      identity they do not control.
+    links:
+      - type: leads-to-loss
+        target: L-1
+      - type: leads-to-loss
+        target: L-3
+
+  - id: H-6
+    type: hazard
+    title: Rekor transparency log entry not verified
+    status: approved
+    description: >
+      A keyless signature is accepted without verifying the corresponding
+      Rekor transparency log inclusion proof, eliminating the accountability
+      guarantee that the transparency log provides.
+    links:
+      - type: leads-to-loss
+        target: L-3
+
+  - id: H-7
+    type: hazard
+    title: Rekor transparency log entry spoofed
+    status: approved
+    description: >
+      A forged Rekor transparency log entry is accepted as genuine, allowing
+      an attacker to fabricate signing provenance and bypass the
+      accountability controls of the transparency log.
+    links:
+      - type: leads-to-loss
+        target: L-1
+      - type: leads-to-loss
+        target: L-3
+
+  - id: H-8
+    type: hazard
+    title: Trust bundle modified after distribution
+    status: approved
+    description: >
+      A trust bundle is tampered with after initial distribution, allowing an
+      attacker to inject malicious root certificates or remove legitimate
+      ones, subverting all subsequent verification operations.
+    links:
+      - type: leads-to-loss
+        target: L-1
+      - type: leads-to-loss
+        target: L-5
+
+  - id: H-9
+    type: hazard
+    title: Certificate chain validation bypassed
+    status: approved
+    description: >
+      The certificate chain validation logic is bypassed or incomplete,
+      allowing signatures from certificates not rooted in a trusted CA to be
+      accepted as valid.
+    links:
+      - type: leads-to-loss
+        target: L-1
+      - type: leads-to-loss
+        target: L-5
+
+  - id: H-10
+    type: hazard
+    title: Resource exhaustion during parsing
+    status: approved
+    description: >
+      A crafted input triggers unbounded memory allocation or CPU consumption
+      during WebAssembly module parsing, causing denial of service and
+      preventing verification of legitimate modules.
+    links:
+      - type: leads-to-loss
+        target: L-4
+
+  - id: H-11
+    type: hazard
+    title: Timing side-channel leaks key material
+    status: approved
+    description: >
+      Non-constant-time cryptographic comparisons leak information about key
+      material or signature values through timing variations, enabling
+      gradual key recovery by a network or co-resident attacker.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  # ---------------------------------------------------------------------------
+  # System-Level Constraints
+  # ---------------------------------------------------------------------------
+  - id: SC-1
+    type: system-constraint
+    title: Reject all cryptographically invalid signatures
+    status: approved
+    description: >
+      Signature verification MUST reject all signatures that do not
+      cryptographically match the module content and the presented
+      public key.
+    links:
+      - type: prevents
+        target: H-1
+
+  - id: SC-2
+    type: system-constraint
+    title: Accept all valid signatures from trusted keys
+    status: approved
+    description: >
+      Signature verification MUST accept all valid signatures produced
+      by trusted keys, ensuring that legitimate modules are never
+      incorrectly rejected.
+    links:
+      - type: prevents
+        target: H-2
+
+  - id: SC-3
+    type: system-constraint
+    title: Zeroize key material from memory after use
+    status: approved
+    description: >
+      Key material MUST be zeroized from memory immediately after use,
+      ensuring that private keys do not persist in process memory beyond
+      the signing operation.
+    links:
+      - type: prevents
+        target: H-3
+
+  - id: SC-4
+    type: system-constraint
+    title: Enforce strict key file permissions
+    status: approved
+    description: >
+      Key files MUST be stored with 0600 permissions and the permissions
+      MUST be verified on every access, preventing unauthorized users or
+      processes from reading key material.
+    links:
+      - type: prevents
+        target: H-4
+
+  - id: SC-5
+    type: system-constraint
+    title: Enforce single-use short-lived OIDC tokens
+    status: approved
+    description: >
+      OIDC tokens MUST be single-use with a lifetime of less than 10
+      minutes and MUST be zeroized from memory after the signing
+      operation completes.
+    links:
+      - type: prevents
+        target: H-5
+
+  - id: SC-6
+    type: system-constraint
+    title: Verify Rekor inclusion proofs
+    status: approved
+    description: >
+      Rekor log entries MUST be verified via inclusion proof before
+      accepting keyless signatures, ensuring that every accepted
+      signature has a corresponding verifiable transparency log record.
+    links:
+      - type: prevents
+        target: H-6
+
+  - id: SC-7
+    type: system-constraint
+    title: Validate Rekor entries against signed checkpoints
+    status: approved
+    description: >
+      Rekor entries MUST be validated against signed checkpoints to
+      prevent acceptance of forged transparency log entries.
+    links:
+      - type: prevents
+        target: H-7
+
+  - id: SC-8
+    type: system-constraint
+    title: Integrity-verify trust bundles before use
+    status: approved
+    description: >
+      Trust bundles MUST be integrity-verified before use in any
+      verification operation, ensuring that tampered bundles are
+      detected and rejected.
+    links:
+      - type: prevents
+        target: H-8
+
+  - id: SC-9
+    type: system-constraint
+    title: Validate full certificate chain including root CA
+    status: approved
+    description: >
+      The full certificate chain MUST be validated including root CA
+      verification, ensuring that only certificates rooted in a trusted
+      authority are accepted.
+    links:
+      - type: prevents
+        target: H-9
+
+  - id: SC-10
+    type: system-constraint
+    title: Enforce bounded resource consumption in parser
+    status: approved
+    description: >
+      The parser MUST enforce bounded resource consumption with a
+      maximum input size of 16 MB and bounded iteration counts,
+      preventing resource exhaustion from crafted inputs.
+    links:
+      - type: prevents
+        target: H-10
+
+  - id: SC-11
+    type: system-constraint
+    title: Use constant-time cryptographic comparisons
+    status: approved
+    description: >
+      All cryptographic comparisons MUST use constant-time operations,
+      preventing timing side-channel attacks that could leak key material
+      or signature values.
+    links:
+      - type: prevents
+        target: H-11

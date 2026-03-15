@@ -1,0 +1,305 @@
+artifacts:
+  # ──────────────────────────────────────────────
+  # Attack Scenarios
+  # ──────────────────────────────────────────────
+
+  - id: AS-1
+    type: attack-scenario
+    title: Key Theft via File System Access
+    status: approved
+    description: >
+      Attacker with local access reads secret key file from
+      ~/.wsc/keys/*.sec due to insufficient permission checks.
+    fields:
+      attack-type: credential-theft
+      attack-feasibility: low
+      elapsed-time: 4
+      specialist-expertise: 3
+      knowledge-of-item: 3
+      window-of-opportunity: 4
+      equipment: 0
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: moderate
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-9
+      - type: exploits
+        target: DF-1
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-4
+
+  - id: AS-2
+    type: attack-scenario
+    title: OIDC Token Exfiltration from CI
+    status: approved
+    description: >
+      Compromised CI runner exfiltrates OIDC identity token and replays
+      it to sign malicious modules.
+    fields:
+      attack-type: credential-theft
+      attack-feasibility: very-low
+      elapsed-time: 7
+      specialist-expertise: 6
+      knowledge-of-item: 7
+      window-of-opportunity: 4
+      equipment: 0
+      impact-safety: negligible
+      impact-financial: moderate
+      impact-operational: moderate
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-8
+      - type: exploits
+        target: DF-2
+      - type: executed-by
+        target: TA-5
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-5
+
+  - id: AS-3
+    type: attack-scenario
+    title: Trust Bundle Replacement
+    status: approved
+    description: >
+      Attacker replaces air-gapped trust bundle with one containing rogue
+      public keys, causing device to accept malicious modules.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: very-low
+      elapsed-time: 11
+      specialist-expertise: 6
+      knowledge-of-item: 7
+      window-of-opportunity: 7
+      equipment: 4
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-7
+      - type: exploits
+        target: DF-6
+      - type: executed-by
+        target: TA-3
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-8
+
+  - id: AS-4
+    type: attack-scenario
+    title: Timing Side-Channel Key Recovery
+    status: approved
+    description: >
+      Attacker measures cryptographic operation timing to recover key
+      material through non-constant-time comparison.
+    fields:
+      attack-type: side-channel
+      attack-feasibility: very-low
+      elapsed-time: 17
+      specialist-expertise: 8
+      knowledge-of-item: 11
+      window-of-opportunity: 4
+      equipment: 4
+      impact-safety: moderate
+      impact-financial: severe
+      impact-operational: major
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-4
+      - type: exploits
+        target: DF-1
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-11
+
+  - id: AS-5
+    type: attack-scenario
+    title: Rekor Checkpoint Spoofing
+    status: approved
+    description: >
+      Attacker intercepts Rekor responses and provides fake
+      checkpoint/inclusion proofs to make forged entries appear valid.
+    fields:
+      attack-type: man-in-the-middle
+      attack-feasibility: very-low
+      elapsed-time: 14
+      specialist-expertise: 6
+      knowledge-of-item: 7
+      window-of-opportunity: 10
+      equipment: 4
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-11
+      - type: exploits
+        target: DF-4
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-7
+
+  - id: AS-6
+    type: attack-scenario
+    title: Silent Rekor Skip on Network Failure
+    status: approved
+    description: >
+      Attacker causes network failure during keyless verification; if
+      verification module fails-open instead of fail-closed, signatures
+      are accepted without Rekor proof.
+    fields:
+      attack-type: denial-of-service
+      attack-feasibility: medium
+      elapsed-time: 0
+      specialist-expertise: 3
+      knowledge-of-item: 3
+      window-of-opportunity: 0
+      equipment: 0
+      impact-safety: moderate
+      impact-financial: moderate
+      impact-operational: moderate
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-5
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-6
+
+  - id: AS-7
+    type: attack-scenario
+    title: Malicious WASM Module Resource Exhaustion
+    status: approved
+    description: >
+      Attacker submits crafted WASM module with excessive sections or
+      oversized data to trigger OOM or hang during parsing.
+    fields:
+      attack-type: denial-of-service
+      attack-feasibility: medium
+      elapsed-time: 0
+      specialist-expertise: 3
+      knowledge-of-item: 0
+      window-of-opportunity: 0
+      equipment: 0
+      impact-safety: none
+      impact-financial: negligible
+      impact-operational: moderate
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-10
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-10
+
+  - id: AS-8
+    type: attack-scenario
+    title: Certificate Chain Validation Bypass
+    status: approved
+    description: >
+      Attacker crafts a certificate chain that passes partial
+      validation -- e.g., valid leaf cert but from rogue intermediate CA
+      that isn't validated.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: very-low
+      elapsed-time: 11
+      specialist-expertise: 6
+      knowledge-of-item: 7
+      window-of-opportunity: 7
+      equipment: 0
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-6
+      - type: exploits
+        target: DF-3
+      - type: executed-by
+        target: TA-3
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-9
+
+  - id: AS-9
+    type: attack-scenario
+    title: Stale Trust Bundle Cache Attack
+    status: approved
+    description: >
+      Verification module caches trust bundle in memory; after bundle is
+      updated (e.g., key revocation), verifier continues using stale
+      cached copy, accepting signatures from revoked keys.
+    fields:
+      attack-type: replay-attack
+      attack-feasibility: low
+      elapsed-time: 4
+      specialist-expertise: 3
+      knowledge-of-item: 7
+      window-of-opportunity: 0
+      equipment: 0
+      impact-safety: moderate
+      impact-financial: moderate
+      impact-operational: moderate
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-2
+      - type: exploits
+        target: DF-6
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-1
+      - type: leads-to-hazard
+        target: H-8
+
+  - id: AS-10
+    type: attack-scenario
+    title: Memory Dump Key Recovery
+    status: approved
+    description: >
+      Attacker dumps process memory during signing operation window to
+      recover key material before zeroization occurs.
+    fields:
+      attack-type: data-exfiltration
+      attack-feasibility: low
+      elapsed-time: 4
+      specialist-expertise: 6
+      knowledge-of-item: 7
+      window-of-opportunity: 10
+      equipment: 0
+      impact-safety: moderate
+      impact-financial: severe
+      impact-operational: major
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-3
+      - type: exploits
+        target: UCA-4
+      - type: exploits
+        target: DF-1
+      - type: exploits
+        target: DF-7
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-3
