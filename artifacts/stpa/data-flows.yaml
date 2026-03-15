@@ -327,3 +327,33 @@ artifacts:
     links:
       - type: property-of
         target: DF-2
+
+  - id: SP-9
+    type: security-property
+    title: Module hash integrity
+    status: approved
+    description: >
+      The SHA-256 hash of the WASM module must maintain integrity throughout
+      the signing and verification pipeline, ensuring any modification to
+      the module content is detected.
+    fields:
+      property-type: integrity
+      required-level: critical
+    links:
+      - type: property-of
+        target: DF-8
+
+  - id: SP-10
+    type: security-property
+    title: Certificate pin integrity
+    status: approved
+    description: >
+      Certificate pin fingerprints must maintain integrity to prevent
+      pin substitution attacks that could redirect TLS connections to
+      attacker-controlled endpoints.
+    fields:
+      property-type: integrity
+      required-level: high
+    links:
+      - type: property-of
+        target: DF-10

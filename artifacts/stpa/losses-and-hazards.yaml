@@ -203,6 +203,8 @@ artifacts:
     links:
       - type: prevents
         target: H-1
+      - type: protects
+        target: SP-2
 
   - id: SC-2
     type: system-constraint
@@ -215,6 +217,8 @@ artifacts:
     links:
       - type: prevents
         target: H-2
+      - type: protects
+        target: SP-6
 
   - id: SC-3
     type: system-constraint
@@ -227,6 +231,8 @@ artifacts:
     links:
       - type: prevents
         target: H-3
+      - type: protects
+        target: SP-1
 
   - id: SC-4
     type: system-constraint
@@ -239,6 +245,8 @@ artifacts:
     links:
       - type: prevents
         target: H-4
+      - type: protects
+        target: SP-1
 
   - id: SC-5
     type: system-constraint
@@ -251,6 +259,8 @@ artifacts:
     links:
       - type: prevents
         target: H-5
+      - type: protects
+        target: SP-8
 
   - id: SC-6
     type: system-constraint
@@ -263,6 +273,8 @@ artifacts:
     links:
       - type: prevents
         target: H-6
+      - type: protects
+        target: SP-4
 
   - id: SC-7
     type: system-constraint
@@ -274,6 +286,8 @@ artifacts:
     links:
       - type: prevents
         target: H-7
+      - type: protects
+        target: SP-4
 
   - id: SC-8
     type: system-constraint
@@ -286,6 +300,8 @@ artifacts:
     links:
       - type: prevents
         target: H-8
+      - type: protects
+        target: SP-5
 
   - id: SC-9
     type: system-constraint
@@ -298,6 +314,8 @@ artifacts:
     links:
       - type: prevents
         target: H-9
+      - type: protects
+        target: SP-3
 
   - id: SC-10
     type: system-constraint
@@ -310,6 +328,8 @@ artifacts:
     links:
       - type: prevents
         target: H-10
+      - type: protects
+        target: SP-6
 
   - id: SC-11
     type: system-constraint
@@ -322,3 +342,5 @@ artifacts:
     links:
       - type: prevents
         target: H-11
+      - type: protects
+        target: SP-1

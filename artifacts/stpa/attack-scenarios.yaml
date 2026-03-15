@@ -303,3 +303,54 @@ artifacts:
         target: TA-2
       - type: leads-to-hazard
         target: H-3
+
+  - id: AS-11
+    type: attack-scenario
+    title: Unverified Module Loading
+    status: approved
+    description: >
+      Runtime loads WASM module without invoking signature verification,
+      bypassing all integrity controls. Could occur when verification is
+      optional or when a code path skips the verification step.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: medium
+      impact-safety: severe
+      impact-financial: major
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-1
+      - type: executed-by
+        target: TA-1
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-1
+
+  - id: AS-12
+    type: attack-scenario
+    title: OIDC Provider Misconfiguration in CI
+    status: approved
+    description: >
+      CI pipeline configured with wrong OIDC issuer URL, causing signing
+      workflow to obtain certificates from an unintended identity provider.
+      Attacker registers matching identity on the wrong provider to sign
+      modules under a false identity.
+    fields:
+      attack-type: social-engineering
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-12
+      - type: executed-by
+        target: TA-2
+      - type: executed-by
+        target: TA-5
+      - type: leads-to-hazard
+        target: H-5
