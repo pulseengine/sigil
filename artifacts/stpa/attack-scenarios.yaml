@@ -354,3 +354,240 @@ artifacts:
         target: TA-5
       - type: leads-to-hazard
         target: H-5
+
+  # ──────────────────────────────────────────────────
+  # Round 2: New Attack Scenarios
+  # ──────────────────────────────────────────────────
+
+  - id: AS-13
+    type: attack-scenario
+    title: Environment variable injection bypasses OIDC issuer check
+    status: approved
+    description: >
+      Attacker with control over CI runner environment variables sets
+      WSC_EXPECTED_OIDC_ISSUER to match a malicious OIDC provider, or
+      clears it to disable issuer validation entirely. The env var is
+      only checked when expected_issuer is not set programmatically.
+    fields:
+      attack-type: privilege-escalation
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-12
+      - type: executed-by
+        target: TA-5
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-5
+
+  - id: AS-14
+    type: attack-scenario
+    title: ELF section injection via crafted binary
+    status: draft
+    description: >
+      Supply chain attacker provides a crafted ELF binary where section
+      headers declare overlapping regions. The signing module hashes the
+      section-header view, but the program-header view (what actually
+      executes) contains malicious code. Signature is valid over sections
+      but program headers load different bytes.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: very-low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-13
+      - type: executed-by
+        target: TA-3
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-13
+
+  - id: AS-15
+    type: attack-scenario
+    title: MCUboot header size manipulation for partial-image signature
+    status: draft
+    description: >
+      Attacker modifies MCUboot image header ih_img_size to a value
+      smaller than actual payload before signing. Signing module trusts
+      the header and signs only the declared prefix. Malicious code
+      appended after the signed region executes on the target device.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-14
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-14
+
+  - id: AS-16
+    type: attack-scenario
+    title: Attestation chain substitution at WASM-to-native boundary
+    status: draft
+    description: >
+      During synth transcoding, an attacker with pipeline access swaps
+      the source WASM module reference in the attestation chain. The
+      native binary is transcoded from a malicious WASM module but the
+      attestation claims it originated from a trusted one.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: very-low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-15
+      - type: executed-by
+        target: TA-3
+      - type: executed-by
+        target: TA-5
+      - type: leads-to-hazard
+        target: H-15
+
+  - id: AS-17
+    type: attack-scenario
+    title: Polyglot file format confusion attack
+    status: draft
+    description: >
+      Attacker constructs a file valid as both WASM and ELF, or uses
+      misleading extension. CLI dispatches to WASM backend which embeds
+      a signature the ELF loader ignores entirely. The "signed" ELF
+      passes WASM verification but executes as unverified native code.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: major
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-16
+      - type: executed-by
+        target: TA-1
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-16
+
+  - id: AS-18
+    type: attack-scenario
+    title: Container tag mutation bypasses signature verification
+    status: draft
+    description: >
+      Attacker with registry write access repoints a signed image tag to
+      a different unsigned digest. Admission controllers resolving by tag
+      either find no signature for the new digest or incorrectly associate
+      the old signature with new content.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: severe
+      impact-privacy: moderate
+    links:
+      - type: exploits
+        target: UCA-18
+      - type: exploits
+        target: UCA-21
+      - type: executed-by
+        target: TA-2
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-17
+
+  - id: AS-19
+    type: attack-scenario
+    title: Registry garbage collection deletes signature artifacts
+    status: draft
+    description: >
+      OCI registry GC reclaims storage by deleting untagged manifests.
+      Signature artifacts stored as OCI referrers may be GC'd if the
+      registry does not understand their relationship to signed images.
+      After GC the image appears unsigned.
+    fields:
+      attack-type: denial-of-service
+      attack-feasibility: medium
+      impact-safety: none
+      impact-financial: moderate
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-19
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-18
+
+  - id: AS-20
+    type: attack-scenario
+    title: Cosign binary supply chain compromise
+    status: draft
+    description: >
+      Supply chain attacker compromises cosign distribution and distributes
+      a modified binary that exfiltrates signing keys, produces backdoored
+      signatures, or signs unauthorized images. If sigil delegates without
+      verifying cosign integrity, all container signing is compromised.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: very-low
+      impact-safety: moderate
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: moderate
+    links:
+      - type: exploits
+        target: UCA-20
+      - type: executed-by
+        target: TA-3
+      - type: executed-by
+        target: TA-4
+      - type: leads-to-hazard
+        target: H-19
+
+  - id: AS-21
+    type: attack-scenario
+    title: Cross-image signature reuse (portability attack)
+    status: draft
+    description: >
+      Attacker copies OCI signature artifact from a legitimately signed
+      image and attaches it to a malicious image in the same registry.
+      If verification checks only signature existence without digest
+      binding, the malicious image passes verification.
+    fields:
+      attack-type: replay-attack
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-21
+      - type: executed-by
+        target: TA-2
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-17

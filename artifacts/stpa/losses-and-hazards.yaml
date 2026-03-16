@@ -344,3 +344,310 @@ artifacts:
         target: H-11
       - type: protects
         target: SP-1
+
+  # ---------------------------------------------------------------------------
+  # Round 2: New Losses
+  # ---------------------------------------------------------------------------
+  - id: L-6
+    type: loss
+    title: Loss of firmware integrity
+    status: approved
+    description: >
+      A tampered or malicious firmware image (ELF binary or MCUboot image)
+      is accepted as legitimately signed, allowing unauthorized code to
+      execute on safety-critical embedded hardware (automotive ECUs,
+      industrial controllers, medical devices). Unlike WASM module
+      compromise where the runtime provides sandboxing, native binary
+      compromise results in direct hardware access with no isolation.
+    fields:
+      stakeholders:
+        - device-manufacturers
+        - automotive-oems
+        - end-users
+
+  - id: L-7
+    type: loss
+    title: Loss of attestation chain continuity across WASM-to-native boundary
+    status: approved
+    description: >
+      The attestation chain binding a WASM module to its original author,
+      build environment, and signing identity is broken during synth's
+      WASM-to-native transcoding. The native artifact's signature cannot
+      be traced back to the original WASM module's provenance, creating a
+      gap in the supply chain audit trail.
+    fields:
+      stakeholders:
+        - security-auditors
+        - compliance-officers
+
+  - id: L-8
+    type: loss
+    title: Loss of container image integrity
+    status: approved
+    description: >
+      A tampered or malicious container image is accepted as legitimately
+      signed, allowing unauthorized code to execute in container
+      orchestration environments (Kubernetes, Docker). Container compromise
+      is particularly impactful because containers often run with elevated
+      privileges and access secrets.
+    fields:
+      stakeholders:
+        - platform-operators
+        - devops-engineers
+
+  - id: L-9
+    type: loss
+    title: Loss of signature persistence in OCI registry
+    status: approved
+    description: >
+      Legitimate container image signatures are deleted, garbage-collected,
+      or made inaccessible in the OCI registry, causing verification
+      failures for previously-signed images. Unlike embedded signatures,
+      registry-stored signatures can be lost independently of the artifact.
+    fields:
+      stakeholders:
+        - platform-operators
+        - security-auditors
+
+  # ---------------------------------------------------------------------------
+  # Round 2: New Hazards
+  # ---------------------------------------------------------------------------
+  - id: H-12
+    type: hazard
+    title: Rekor unavailability blocks all keyless verification
+    status: approved
+    description: >
+      The fail-closed policy (DD-2) means any Rekor service disruption
+      blocks all keyless signature verification system-wide. For pipelines
+      depending exclusively on keyless signing, this is a complete denial
+      of service with no graceful degradation path.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-4
+
+  - id: H-13
+    type: hazard
+    title: ELF parser processes malformed section headers
+    status: draft
+    description: >
+      A malformed ELF binary with inconsistent section counts, overlapping
+      sections, or circular string table references could cause the signing
+      module to compute a hash over incorrect content, embed the signature
+      in the wrong location, or overwrite existing sections.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-6
+
+  - id: H-14
+    type: hazard
+    title: MCUboot TLV manipulation causes partial-image signature
+    status: draft
+    description: >
+      MCUboot images use a TLV trailer for signatures. The boundary between
+      signed content and TLV is determined by header fields. If an attacker
+      modifies the header to declare a smaller image size, the signature
+      covers only a prefix and malicious code appended after the signed
+      region executes undetected.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-6
+
+  - id: H-15
+    type: hazard
+    title: Transcoded native binary lacks valid signature
+    status: draft
+    description: >
+      When synth transcodes a signed WASM module to native, the original
+      WASM signature becomes invalid. If the pipeline does not re-sign the
+      native artifact with attestation chain continuity, the binary is
+      either unsigned or its provenance is disconnected from the source.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-7
+      - type: leads-to-loss
+        target: L-6
+
+  - id: H-16
+    type: hazard
+    title: Format confusion between signing backends
+    status: draft
+    description: >
+      If sigil auto-detects artifact format by magic bytes or file
+      extension, a crafted polyglot file could be misidentified. Applying
+      the WASM signing backend to an ELF binary embeds a custom section
+      the ELF loader ignores, producing a "signed" binary that is never
+      actually verified.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-1
+      - type: leads-to-loss
+        target: L-6
+
+  - id: H-17
+    type: hazard
+    title: Container tag mutation causes signature bypass
+    status: draft
+    description: >
+      An image tag is repointed to a different digest after signing.
+      Admission controllers verifying by tag may accept the old signature
+      for the new content, or find no signature for the new digest.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-8
+
+  - id: H-18
+    type: hazard
+    title: Registry-side signature deletion
+    status: draft
+    description: >
+      Signature artifacts stored in OCI registries can be deleted by
+      attackers with write access or misconfigured garbage collection
+      policies, causing previously-signed images to appear unsigned.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-9
+      - type: leads-to-loss
+        target: L-8
+
+  - id: H-19
+    type: hazard
+    title: Cosign dependency compromise
+    status: draft
+    description: >
+      If sigil delegates container signing to cosign, a compromised cosign
+      binary could produce forged signatures. Sigil's policy engine would
+      trust cosign's output without independent verification.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-8
+      - type: leads-to-loss
+        target: L-5
+
+  - id: H-20
+    type: hazard
+    title: Admission controller signature format mismatch
+    status: draft
+    description: >
+      If sigil implements container signing natively instead of using
+      cosign, the signature format may differ from what Kubernetes
+      admission controllers expect, causing verification failures or
+      bypass for unrecognized formats.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-4
+      - type: leads-to-loss
+        target: L-8
+
+  # ---------------------------------------------------------------------------
+  # Round 2: New System Constraints
+  # ---------------------------------------------------------------------------
+  - id: SC-12
+    type: system-constraint
+    title: Verify ELF section header consistency before signing
+    status: draft
+    description: >
+      ELF signing MUST validate that section headers do not overlap, that
+      program headers and section headers are consistent, and that the
+      .signature section placement does not overwrite existing content.
+    links:
+      - type: prevents
+        target: H-13
+
+  - id: SC-13
+    type: system-constraint
+    title: Independently verify MCUboot image size before signing
+    status: draft
+    description: >
+      MCUboot signing MUST independently compute image size from file
+      length and reject if it disagrees with the header's ih_img_size
+      field to prevent partial-image signature attacks.
+    links:
+      - type: prevents
+        target: H-14
+
+  - id: SC-14
+    type: system-constraint
+    title: Maintain attestation chain across format boundaries
+    status: draft
+    description: >
+      When re-signing a transcoded artifact, the new signature MUST embed
+      or reference the source artifact's hash, signature, and provenance
+      attestation to maintain supply chain continuity.
+    links:
+      - type: prevents
+        target: H-15
+
+  - id: SC-15
+    type: system-constraint
+    title: Require explicit format specification for signing
+    status: draft
+    description: >
+      Signing operations MUST require explicit format specification via
+      CLI flag (--format wasm|elf|mcuboot|oci) and MUST NOT rely solely
+      on auto-detection for security-critical operations.
+    links:
+      - type: prevents
+        target: H-16
+
+  - id: SC-16
+    type: system-constraint
+    title: Always resolve container tags to digests before signing
+    status: draft
+    description: >
+      Container signing MUST resolve image tags to immutable digests
+      before signing and bind the signature to the digest, not the tag.
+    links:
+      - type: prevents
+        target: H-17
+
+  - id: SC-17
+    type: system-constraint
+    title: Use OCI 1.1 referrers API for signature storage
+    status: draft
+    description: >
+      Container signatures MUST be stored using the OCI 1.1 referrers
+      API rather than tag-based schemes to reduce garbage collection risk.
+    links:
+      - type: prevents
+        target: H-18
+
+  - id: SC-18
+    type: system-constraint
+    title: Verify cosign binary integrity before delegation
+    status: draft
+    description: >
+      When delegating to cosign, sigil MUST verify the cosign binary's
+      integrity via checksum or signature before invoking it.
+    links:
+      - type: prevents
+        target: H-19
+
+  - id: SC-19
+    type: system-constraint
+    title: Verify signature-to-digest binding during container verification
+    status: draft
+    description: >
+      Container signature verification MUST validate that the signature's
+      internal digest claim matches the actual image digest being verified,
+      preventing cross-image signature reuse attacks.
+    links:
+      - type: prevents
+        target: H-17
