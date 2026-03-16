@@ -162,6 +162,13 @@ fn start() -> Result<(), WSError> {
                         .help("Use keyless signing (ephemeral keys + Fulcio + Rekor)"),
                 )
                 .arg(
+                    Arg::new("expected_issuer")
+                        .value_name("issuer_url")
+                        .long("expected-issuer")
+                        .requires("keyless")
+                        .help("Expected OIDC issuer URL (e.g., https://token.actions.githubusercontent.com)"),
+                )
+                .arg(
                     Arg::new("secret_key")
                         .value_name("secret_key_file")
                         .long("secret-key")
@@ -673,7 +680,13 @@ fn start() -> Result<(), WSError> {
             use wsc::keyless::{KeylessConfig, KeylessSigner};
 
             println!("Using keyless signing...");
-            let config = KeylessConfig::default();
+            let expected_issuer = matches
+                .get_one::<String>("expected_issuer")
+                .cloned();
+            let config = KeylessConfig {
+                expected_issuer,
+                ..Default::default()
+            };
             let signer = KeylessSigner::with_config(config)?;
 
             let module = Module::deserialize_from_file(input_file)?;
