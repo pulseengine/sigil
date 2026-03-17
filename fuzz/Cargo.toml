@@ -73,3 +73,24 @@ path = "fuzz_targets/fuzz_rekor_entry.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_elf_parsing"
+path = "fuzz_targets/fuzz_elf_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mcuboot_parsing"
+path = "fuzz_targets/fuzz_mcuboot_parsing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_format_detection"
+path = "fuzz_targets/fuzz_format_detection.rs"
+test = false
+doc = false
+bench = false
