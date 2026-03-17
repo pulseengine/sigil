@@ -40,3 +40,6 @@ profiles/
 # Old binary name
 wasmsign2
 .env
+
+# Rivet external project cache
+.rivet/

@@ -78,6 +78,13 @@ pub mod audit;
 /// Supports per-rule enforcement modes (strict vs report).
 pub mod policy;
 
+/// Format-agnostic artifact signing and verification
+///
+/// Provides a trait-based abstraction for signing different artifact formats
+/// (WASM, ELF, MCUboot) with the same Ed25519 signing core. Includes format
+/// detection, consistency validation, and per-format signature embedding.
+pub mod format;
+
 /// DSSE (Dead Simple Signing Envelope) implementation
 ///
 /// Provides the standard DSSE envelope format for signing attestations.

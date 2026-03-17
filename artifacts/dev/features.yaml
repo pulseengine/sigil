@@ -33,6 +33,9 @@ artifacts:
     fields:
       priority: must
       category: functional
+    links:
+      - type: satisfies
+        target: FEAT-2
 
   - id: REQ-4
     type: requirement
@@ -44,6 +47,9 @@ artifacts:
     fields:
       priority: must
       category: functional
+    links:
+      - type: satisfies
+        target: FEAT-2
 
   - id: REQ-5
     type: requirement
@@ -195,7 +201,7 @@ artifacts:
   - id: FEAT-2
     type: feature
     title: Sign native artifacts from synth (ELF / MCUboot)
-    status: draft
+    status: in-progress
     description: >
       Implement format-aware signing backends for MCUboot TLV (embedded
       Cortex-M) and ELF .signature section (Linux targets). Carry attestation
@@ -248,3 +254,15 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-9
+
+  - id: REQ-11
+    type: requirement
+    title: ELF and MCUboot signing end-to-end test
+    status: draft
+    fields:
+      category: functional
+      priority: should
+      verification-criteria: End-to-end test signs an ELF binary and MCUboot image, then verifies signatures match expected hashes
+    links:
+      - type: satisfies
+        target: FEAT-2

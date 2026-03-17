@@ -155,6 +155,15 @@ fn start() -> Result<(), WSError> {
                         .help("Output file"),
                 )
                 .arg(
+                    Arg::new("format")
+                        .value_name("format")
+                        .long("format")
+                        .short('f')
+                        .help("Artifact format: wasm (default), elf, mcuboot. \
+                               Required for non-WASM formats. Auto-detection is \
+                               validated against this flag when provided (SC-15)."),
+                )
+                .arg(
                     Arg::new("keyless")
                         .long("keyless")
                         .action(ArgAction::SetTrue)
@@ -194,6 +203,13 @@ fn start() -> Result<(), WSError> {
         .subcommand(
             Command::new("verify")
                 .about("Verify a module's signature")
+                .arg(
+                    Arg::new("format")
+                        .value_name("format")
+                        .long("format")
+                        .short('f')
+                        .help("Artifact format: wasm (default), elf, mcuboot"),
+                )
                 .arg(
                     Arg::new("in")
                         .value_name("input_file")
@@ -674,6 +690,89 @@ fn start() -> Result<(), WSError> {
         let output_file = matches.get_one::<String>("out").map(|s| s.as_str());
         let input_file = input_file.ok_or(WSError::UsageError("Missing input file"))?;
         let output_file = output_file.ok_or(WSError::UsageError("Missing output file"))?;
+
+        // Determine artifact format (SC-15: prefer explicit flag over auto-detect)
+        let format_type = if let Some(fmt) = matches.get_one::<String>("format") {
+            let ft = wsc::format::FormatType::from_str(fmt)?;
+            // Validate consistency with file magic if possible
+            if let Ok(header) = std::fs::read(input_file) {
+                if header.len() >= 4 {
+                    wsc::format::validate_format_consistency(ft, &header)?;
+                }
+            }
+            ft
+        } else {
+            // Default to WASM for backwards compatibility
+            wsc::format::FormatType::Wasm
+        };
+
+        // Non-WASM format signing (ELF, MCUboot)
+        if format_type != wsc::format::FormatType::Wasm {
+            use wsc::format::SignableArtifact;
+
+            if matches.get_flag("keyless") {
+                return Err(WSError::UsageError(
+                    "Keyless signing is currently supported only for WASM format. \
+                     Use key-based signing for ELF and MCUboot artifacts.",
+                ).into());
+            }
+
+            let sk_file = matches
+                .get_one::<String>("secret_key")
+                .map(|s| s.as_str())
+                .ok_or(WSError::UsageError("Missing secret key file"))?;
+            let sk = SecretKey::from_file(sk_file)?;
+
+            /// Sign a hash with domain separation using the raw Ed25519 key.
+            fn sign_hash(sk: &SecretKey, hash: &[u8; 32], ft: wsc::format::FormatType) -> Vec<u8> {
+                let mut msg = Vec::new();
+                msg.extend_from_slice(ft.signature_domain().as_bytes());
+                msg.extend_from_slice(&[0x01, ft.content_type_id(), 0x01]);
+                msg.extend_from_slice(hash);
+                sk.sk.sign(msg, None).to_vec()
+            }
+
+            /// Format a hash as hex string (avoids hex crate dependency).
+            fn hex_hash(hash: &[u8; 32]) -> String {
+                hash.iter().map(|b| format!("{:02x}", b)).collect()
+            }
+
+            match format_type {
+                wsc::format::FormatType::Elf => {
+                    let artifact = wsc::format::elf::ElfArtifact::from_file(input_file)?;
+                    let hash = artifact.compute_hash()?;
+                    println!("Signing ELF binary...");
+                    println!("  Hash: sha256:{}", hex_hash(&hash));
+
+                    let signature = sign_hash(&sk, &hash, format_type);
+
+                    // Write signature to detached file (ELF section embedding is future work)
+                    let sig_path = format!("{}.sig", output_file);
+                    std::fs::write(&sig_path, &signature)?;
+                    artifact.serialize_to_file(output_file)?;
+
+                    println!("\n✓ ELF binary signed");
+                    println!("  Output: {}", output_file);
+                    println!("  Signature: {}", sig_path);
+                }
+                wsc::format::FormatType::Mcuboot => {
+                    let mut artifact = wsc::format::mcuboot::McubootArtifact::from_file(input_file)?;
+                    let hash = artifact.compute_hash()?;
+                    println!("Signing MCUboot firmware image...");
+                    println!("  Hash: sha256:{}", hex_hash(&hash));
+
+                    let signature = sign_hash(&sk, &hash, format_type);
+                    artifact.attach_signature(&signature)?;
+                    artifact.serialize_to_file(output_file)?;
+
+                    println!("\n✓ MCUboot firmware image signed");
+                    println!("  Output: {}", output_file);
+                }
+                wsc::format::FormatType::Wasm => unreachable!(),
+            }
+
+            return Ok(());
+        }
 
         if matches.get_flag("keyless") {
             // Keyless signing path
