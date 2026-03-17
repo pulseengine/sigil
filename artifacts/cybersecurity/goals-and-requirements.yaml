@@ -1128,7 +1128,7 @@ artifacts:
   - id: CV-15
     type: cybersecurity-verification
     title: ELF and MCUboot fuzz testing
-    status: draft
+    status: approved
     description: >
       Fuzz targets for ELF and MCUboot parsers to discover edge cases
       in header parsing, section validation, and resource bounds
