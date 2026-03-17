@@ -503,3 +503,199 @@ artifacts:
         target: UCA-12
       - type: prevents
         target: H-5
+
+  # ──────────────────────────────────────────────────
+  # Round 2: New UCAs
+  # ──────────────────────────────────────────────────
+
+  - id: UCA-13
+    type: uca
+    title: Sign ELF binary WITHOUT section overlap validation
+    status: draft
+    description: >
+      ELF Signing Module signs a binary without verifying that the
+      .signature section does not overlap with existing sections (.text,
+      .data, .rodata). Could overwrite executable code or read-only data.
+    fields:
+      uca-type: not-providing
+      context: >
+        ELF binary with densely packed sections near end of file
+      rationale: >
+        Section overlap could corrupt the signed binary, producing
+        incorrect execution or crashes on safety-critical hardware.
+    links:
+      - type: issued-by
+        target: CTRL-8
+      - type: leads-to-hazard
+        target: H-13
+
+  - id: UCA-14
+    type: uca
+    title: Sign MCUboot image WITHOUT verifying image size header
+    status: draft
+    description: >
+      MCUboot Signing Module signs using the declared ih_img_size without
+      independently verifying it matches actual file content. An attacker
+      can declare a smaller size so the signature covers only a prefix.
+    fields:
+      uca-type: providing
+      context: >
+        MCUboot header declares image_size smaller than actual file
+      rationale: >
+        Partial-image signature allows malicious code appended after
+        the signed region to execute without detection.
+    links:
+      - type: issued-by
+        target: CTRL-9
+      - type: leads-to-hazard
+        target: H-14
+
+  - id: UCA-15
+    type: uca
+    title: Re-sign transcoded artifact WITHOUT source attestation link
+    status: draft
+    description: >
+      After synth transcodes WASM to native, the signing module signs the
+      native artifact without embedding or referencing the original WASM
+      module's signature, hash, or provenance attestation.
+    fields:
+      uca-type: not-providing
+      context: >
+        synth transcodes WASM to ELF, new signature has no reference to
+        original WASM hash
+      rationale: >
+        The native artifact's signature is an orphan with no link to its
+        source, breaking the supply chain audit trail.
+    links:
+      - type: issued-by
+        target: CTRL-8
+      - type: leads-to-hazard
+        target: H-15
+
+  - id: UCA-16
+    type: uca
+    title: Format detection PROVIDED incorrectly for polyglot files
+    status: draft
+    description: >
+      CLI Controller auto-detects artifact format and dispatches to the
+      wrong signing backend. A polyglot file or misleading extension
+      causes the wrong module to be invoked.
+    fields:
+      uca-type: providing
+      context: >
+        File with .wasm extension is actually an ELF binary, or vice versa
+      rationale: >
+        Wrong backend produces a signature the target format's loader
+        ignores, creating a falsely "signed" but unverified artifact.
+    links:
+      - type: issued-by
+        target: CTRL-1
+      - type: leads-to-hazard
+        target: H-16
+
+  - id: UCA-17
+    type: uca
+    title: Parse ELF/MCUboot input without resource bounds
+    status: draft
+    description: >
+      ELF or MCUboot signing module processes input without enforcing
+      size limits, section count limits, or string table bounds, unlike
+      WASM which has SC-10's 16MB limit.
+    fields:
+      uca-type: stopped-too-soon
+      context: >
+        ELF with 65535 section headers triggers excessive memory allocation
+      rationale: >
+        Native binary formats can be much larger than WASM modules and
+        have more complex structures for resource exhaustion attacks.
+    links:
+      - type: issued-by
+        target: CTRL-8
+      - type: leads-to-hazard
+        target: H-13
+
+  - id: UCA-18
+    type: uca
+    title: Sign container image with tag reference instead of digest
+    status: draft
+    description: >
+      Container Signing Module signs an image referenced by mutable tag
+      rather than immutable digest. The signature binds to whatever digest
+      the tag points to at signing time, creating a TOCTOU vulnerability.
+    fields:
+      uca-type: providing
+      context: >
+        User runs sigil sign --container myapp:latest instead of
+        myapp@sha256:abc
+      rationale: >
+        Tag can be repointed after signing, causing the signed digest
+        and deployed digest to diverge.
+    links:
+      - type: issued-by
+        target: CTRL-10
+      - type: leads-to-hazard
+        target: H-17
+
+  - id: UCA-19
+    type: uca
+    title: Container verification NOT PROVIDED when signature missing
+    status: draft
+    description: >
+      Verification module queries OCI registry for signature artifact,
+      receives 404, and treats it as "unsigned" rather than "verification
+      failed." If deployment policy allows unsigned images, the image
+      is deployed without verification.
+    fields:
+      uca-type: not-providing
+      context: >
+        Signature artifact garbage-collected or deleted from registry
+      rationale: >
+        Missing signature should be treated as verification failure,
+        not as absence of requirement.
+    links:
+      - type: issued-by
+        target: CTRL-10
+      - type: leads-to-hazard
+        target: H-18
+
+  - id: UCA-20
+    type: uca
+    title: Delegate to cosign WITHOUT integrity verification
+    status: draft
+    description: >
+      Container Signing Module invokes cosign as subprocess without
+      verifying cosign binary authenticity. An attacker who replaces
+      the cosign binary intercepts all signing operations.
+    fields:
+      uca-type: not-providing
+      context: >
+        cosign binary in PATH replaced with trojanized version
+      rationale: >
+        Delegating to an unverified external tool undermines the
+        entire signing infrastructure.
+    links:
+      - type: issued-by
+        target: CTRL-10
+      - type: leads-to-hazard
+        target: H-19
+
+  - id: UCA-21
+    type: uca
+    title: Verify container signature WITHOUT checking digest binding
+    status: draft
+    description: >
+      Verification module checks signature validity but not that the
+      signature's embedded digest matches the actual image digest.
+      An attacker could attach a valid signature from a different image.
+    fields:
+      uca-type: providing
+      context: >
+        Signature from image A copied and attached to image B in registry
+      rationale: >
+        Valid signature existence check without digest binding allows
+        cross-image signature reuse attacks.
+    links:
+      - type: issued-by
+        target: CTRL-10
+      - type: leads-to-hazard
+        target: H-17

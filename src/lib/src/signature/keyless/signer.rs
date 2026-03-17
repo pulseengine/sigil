@@ -50,6 +50,16 @@ pub struct KeylessConfig {
     ///
     /// Can also be set via WSC_REQUIRE_CERT_PINNING=1 environment variable.
     pub require_cert_pinning: bool,
+    /// Expected OIDC issuer URL for signing operations
+    ///
+    /// When set, the OIDC token's issuer is validated against this value before
+    /// sending it to Fulcio. This provides defense-in-depth against CI pipeline
+    /// misconfiguration where the wrong identity provider is used.
+    ///
+    /// Can also be set via WSC_EXPECTED_OIDC_ISSUER environment variable.
+    ///
+    /// Example: `https://token.actions.githubusercontent.com` for GitHub Actions.
+    pub expected_issuer: Option<String>,
 }
 
 
@@ -230,6 +240,21 @@ impl KeylessSigner {
         log::debug!("Obtaining OIDC token from {}", self.oidc.name());
         let oidc_token = self.oidc.get_token()?;
         log::info!("OIDC token obtained for identity: {}", oidc_token.identity);
+
+        // Step 2b: Validate OIDC issuer if expected issuer is configured (UCA-12 defense)
+        let expected_issuer = self.config.expected_issuer.clone().or_else(|| {
+            std::env::var("WSC_EXPECTED_OIDC_ISSUER").ok().filter(|s| !s.is_empty())
+        });
+        if let Some(ref expected) = expected_issuer {
+            if oidc_token.issuer != *expected {
+                return Err(WSError::OidcError(format!(
+                    "OIDC issuer mismatch: expected '{}', got '{}'. \
+                     Check your CI pipeline OIDC configuration.",
+                    expected, oidc_token.issuer
+                )));
+            }
+            log::info!("OIDC issuer validated: {}", oidc_token.issuer);
+        }
 
         // Step 3: Create proof of possession
         // Sign the 'sub' claim from the OIDC token
@@ -529,6 +554,7 @@ mod tests {
         assert!(config.fulcio_pins.is_empty());
         assert!(config.rekor_pins.is_empty());
         assert!(!config.require_cert_pinning);
+        assert!(config.expected_issuer.is_none());
     }
 
     #[test]
@@ -573,6 +599,24 @@ mod tests {
             ..Default::default()
         };
         assert!(config.require_cert_pinning);
+    }
+
+    #[test]
+    fn test_keyless_config_expected_issuer() {
+        let config = KeylessConfig {
+            expected_issuer: Some("https://token.actions.githubusercontent.com".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.expected_issuer.as_deref(),
+            Some("https://token.actions.githubusercontent.com")
+        );
+    }
+
+    #[test]
+    fn test_keyless_config_expected_issuer_default_is_none() {
+        let config = KeylessConfig::default();
+        assert!(config.expected_issuer.is_none());
     }
 
     #[test]

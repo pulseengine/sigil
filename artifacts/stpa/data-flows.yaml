@@ -357,3 +357,108 @@ artifacts:
     links:
       - type: property-of
         target: DF-10
+
+  # ──────────────────────────────────────────────────
+  # Round 2: New Data Flows
+  # ──────────────────────────────────────────────────
+
+  - id: DF-11
+    type: data-flow
+    title: ELF Binary Signing Flow
+    status: draft
+    description: >
+      ELF binary content flows from build system through signing module
+      to produce a signed ELF with embedded .signature section.
+    fields:
+      data-type: module-binary
+      sensitivity: critical
+      protection:
+        - file-permissions
+        - hash-verification
+      persistence: persistent
+    links:
+      - type: flows-from
+        target: CP-5
+      - type: flows-to
+        target: CTRL-8
+
+  - id: DF-12
+    type: data-flow
+    title: MCUboot Firmware Signing Flow
+    status: draft
+    description: >
+      MCUboot firmware image flows through signing module to produce a
+      signed image with TLV signature metadata.
+    fields:
+      data-type: module-binary
+      sensitivity: critical
+      protection:
+        - hash-verification
+        - tlv-integrity
+      persistence: persistent
+    links:
+      - type: flows-from
+        target: CP-6
+      - type: flows-to
+        target: CTRL-9
+
+  - id: DF-13
+    type: data-flow
+    title: Attestation Chain Across WASM-to-Native Boundary
+    status: draft
+    description: >
+      Attestation metadata flows from WASM module signature through
+      synth's transcoding to the native binary's signature, maintaining
+      supply chain provenance continuity.
+    fields:
+      data-type: attestation
+      sensitivity: high
+      protection:
+        - cryptographic-binding
+        - hash-chain
+      persistence: persistent
+    links:
+      - type: flows-from
+        target: CTRL-2
+      - type: flows-to
+        target: CTRL-8
+
+  - id: DF-14
+    type: data-flow
+    title: Container Image Digest to Signing Module
+    status: draft
+    description: >
+      Container image digest flows from OCI registry through signing
+      module to produce a signature stored as an OCI artifact.
+    fields:
+      data-type: signature
+      sensitivity: high
+      protection:
+        - tls
+        - digest-binding
+      persistence: persistent
+    links:
+      - type: flows-from
+        target: CP-7
+      - type: flows-to
+        target: CTRL-10
+
+  - id: DF-15
+    type: data-flow
+    title: Container Signature Verification Flow
+    status: draft
+    description: >
+      Container signature flows from OCI registry through verification
+      module to admission controller for deployment decision.
+    fields:
+      data-type: signature
+      sensitivity: high
+      protection:
+        - tls
+        - digest-binding
+      persistence: transient
+    links:
+      - type: flows-from
+        target: CTRL-10
+      - type: flows-to
+        target: CTRL-4

@@ -314,3 +314,75 @@ artifacts:
         target: CTRL-4
       - type: acts-on
         target: CP-3
+
+  # ──────────────────────────────────────────────────
+  # Round 2: New Controllers
+  # ──────────────────────────────────────────────────
+
+  - id: CTRL-8
+    type: controller
+    title: ELF Signing Module
+    status: draft
+    description: >
+      Signs ELF binaries with Ed25519, embedding the signature in a
+      .signature section. Must validate ELF structure before signing.
+    fields:
+      controller-type: automated
+      process-model:
+        - "ELF headers are structurally valid"
+        - "Section placement does not overlap"
+        - "Signature section is correctly positioned"
+
+  - id: CTRL-9
+    type: controller
+    title: MCUboot Signing Module
+    status: draft
+    description: >
+      Signs firmware images in MCUboot TLV format for embedded bootloaders.
+      Must independently verify image size and TLV boundaries.
+    fields:
+      controller-type: automated
+      process-model:
+        - "Image size matches file content"
+        - "TLV boundary is correct"
+        - "Signature covers full image payload"
+
+  - id: CTRL-10
+    type: controller
+    title: Container Signing Module
+    status: draft
+    description: >
+      Signs OCI container images, delegating to cosign for registry
+      interaction while providing sigil's policy engine and attestation
+      chain integration.
+    fields:
+      controller-type: automated
+      process-model:
+        - "Image referenced by digest, not tag"
+        - "Cosign binary integrity verified"
+        - "Signature stored via OCI 1.1 referrers API"
+
+  # ──────────────────────────────────────────────────
+  # Round 2: New Controlled Processes
+  # ──────────────────────────────────────────────────
+
+  - id: CP-5
+    type: controlled-process
+    title: ELF Binary Processing
+    status: draft
+    description: >
+      Parsing, hashing, and embedding signatures in ELF binaries.
+
+  - id: CP-6
+    type: controlled-process
+    title: MCUboot Image Processing
+    status: draft
+    description: >
+      Firmware image signing with MCUboot TLV metadata format.
+
+  - id: CP-7
+    type: controlled-process
+    title: OCI Registry Interaction
+    status: draft
+    description: >
+      Pushing, pulling, and managing signatures in OCI container registries.
