@@ -266,3 +266,27 @@ artifacts:
     links:
       - type: satisfies
         target: FEAT-2
+
+  - id: DD-4
+    type: design-decision
+    title: Three-layer formal verification pyramid (Kani, Verus, Rocq)
+    status: approved
+    description: >
+      Adopt synth's three-layer verification pyramid for sigil's
+      cryptographic and parsing code. Each layer targets different
+      property classes with the most appropriate tool.
+    fields:
+      rationale: >
+        Layer 1 (Kani) provides bounded model checking directly on Rust
+        source for no-panic guarantees and roundtrip correctness. Layer 2
+        (Verus via rules_verus) adds SMT-backed pre/post specs for
+        functional correctness on unbounded inputs. Layer 3 (Rocq via
+        rules_rocq_rust and coq-of-rust) provides mechanized proofs for
+        ISO 26262 certification evidence. Lean4 with Mathlib (rules_lean)
+        covers algebraic properties of Ed25519 curve operations.
+      alternatives: >
+        Single-tool approach (simpler but misses properties each tool
+        excels at), external audit only (no continuous verification)
+    links:
+      - type: satisfies
+        target: REQ-9

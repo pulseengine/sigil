@@ -455,3 +455,94 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// Kani proof harnesses for Merkle tree operations
+// ============================================================================
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Prove: largest_power_of_two_less_than never panics and returns correct values.
+    ///
+    /// For any n > 1, the result must be:
+    /// 1. A power of 2
+    /// 2. Less than n
+    /// 3. The LARGEST such power (i.e., result * 2 >= n)
+    #[kani::proof]
+    #[kani::unwind(65)]
+    fn proof_largest_power_of_two_properties() {
+        let n: u64 = kani::any();
+        kani::assume(n > 1);
+        kani::assume(n <= 1024); // Bound for tractability
+
+        let result = largest_power_of_two_less_than(n);
+
+        // Must be a power of 2
+        assert!(result.is_power_of_two(), "Result {} is not a power of 2", result);
+        // Must be less than n
+        assert!(result < n, "Result {} is not less than n={}", result, n);
+        // Must be the largest such power (next power would be >= n)
+        assert!(result * 2 >= n, "Result {} is not the largest power < n={}", result, n);
+    }
+
+    /// Prove: largest_power_of_two_less_than handles edge cases.
+    #[kani::proof]
+    fn proof_largest_power_of_two_edge_cases() {
+        // n=0 returns 0
+        assert_eq!(largest_power_of_two_less_than(0), 0);
+        // n=1 returns 1
+        assert_eq!(largest_power_of_two_less_than(1), 1);
+        // n=2 returns 1
+        assert_eq!(largest_power_of_two_less_than(2), 1);
+        // n=3 returns 2
+        assert_eq!(largest_power_of_two_less_than(3), 2);
+    }
+
+    /// Prove: compute_leaf_hash produces different output than compute_node_hash
+    /// for the same input data.
+    ///
+    /// This is the domain separation property: leaf hash uses 0x00 prefix,
+    /// node hash uses 0x01 prefix, so they cannot collide.
+    #[kani::proof]
+    fn proof_leaf_node_domain_separation() {
+        // For a 64-byte input that could be interpreted as either a leaf or
+        // two 32-byte children concatenated
+        let mut data = [0u8; 64];
+        data[0] = kani::any();
+        data[1] = kani::any();
+
+        let leaf_hash = compute_leaf_hash(&data);
+
+        let left: [u8; 32] = data[0..32].try_into().unwrap();
+        let right: [u8; 32] = data[32..64].try_into().unwrap();
+        let node_hash = compute_node_hash(&left, &right);
+
+        // Leaf hash and node hash must differ (domain separation)
+        assert_ne!(leaf_hash, node_hash,
+            "Leaf hash and node hash collided — domain separation broken");
+    }
+
+    /// Prove: compute_leaf_hash is deterministic.
+    #[kani::proof]
+    fn proof_leaf_hash_deterministic() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let data = [b0, b1];
+
+        let hash1 = compute_leaf_hash(&data);
+        let hash2 = compute_leaf_hash(&data);
+        assert_eq!(hash1, hash2);
+    }
+
+    /// Prove: compute_node_hash is deterministic.
+    #[kani::proof]
+    fn proof_node_hash_deterministic() {
+        let l: [u8; 32] = [kani::any(); 32];
+        let r: [u8; 32] = [kani::any(); 32];
+
+        let hash1 = compute_node_hash(&l, &r);
+        let hash2 = compute_node_hash(&l, &r);
+        assert_eq!(hash1, hash2);
+    }
+}

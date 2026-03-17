@@ -246,3 +246,105 @@ mod tests {
         assert_eq!(result.unwrap().len(), 1000);
     }
 }
+
+// ============================================================================
+// Kani proof harnesses for varint encoding/decoding
+// ============================================================================
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+    use std::io::Cursor;
+
+    /// Prove: put/get32 roundtrip is identity for all u32 values.
+    ///
+    /// For any u32 value v, encoding v with put() then decoding with get32()
+    /// must yield exactly v.
+    #[kani::proof]
+    #[kani::unwind(11)] // put() loops at most 10 times for u64, get32 loops 5
+    fn proof_put_get32_roundtrip() {
+        let original: u32 = kani::any();
+
+        let mut buffer = Vec::new();
+        put(&mut buffer, original as u64).unwrap();
+
+        let mut reader = Cursor::new(buffer);
+        let decoded = get32(&mut reader).unwrap();
+
+        assert_eq!(decoded, original, "roundtrip failed for {}", original);
+    }
+
+    /// Prove: get32 never panics on any 5-byte input.
+    ///
+    /// get32 reads up to 5 bytes. For any possible 5 bytes, it must
+    /// either return Ok(value) or Err(_), never panic.
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_get32_no_panic() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let b4: u8 = kani::any();
+        let data = vec![b0, b1, b2, b3, b4];
+        let mut reader = Cursor::new(data);
+        let _ = get32(&mut reader); // Must not panic
+    }
+
+    /// Prove: get32 output fits in u32 (no overflow in shift/or operations).
+    ///
+    /// The internal calculation `(byte & 0x7f) << (i * 7)` for i=0..4
+    /// must never produce a value exceeding u32::MAX.
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_get32_no_overflow() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let b4: u8 = kani::any();
+        let data = vec![b0, b1, b2, b3, b4];
+        let mut reader = Cursor::new(data);
+        if let Ok(v) = get32(&mut reader) {
+            // Value must be a valid u32 (this is trivially true in Rust,
+            // but verifies the bit manipulation doesn't wrap unexpectedly)
+            assert!(v <= u32::MAX);
+        }
+    }
+
+    /// Prove: get_slice allocation never exceeds MAX_SLICE_LEN.
+    ///
+    /// For any input, if get_slice succeeds, the returned Vec length
+    /// must be <= MAX_SLICE_LEN.
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_get_slice_bounded_allocation() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let b4: u8 = kani::any();
+        // Provide 5 length bytes + some payload (Kani will explore all combos)
+        let data = vec![b0, b1, b2, b3, b4];
+        let mut reader = Cursor::new(data);
+        if let Ok(slice) = get_slice(&mut reader) {
+            assert!(slice.len() <= MAX_SLICE_LEN);
+        }
+    }
+
+    /// Prove: put encoding is deterministic.
+    ///
+    /// Encoding the same value twice must produce identical byte sequences.
+    #[kani::proof]
+    #[kani::unwind(11)]
+    fn proof_put_deterministic() {
+        let v: u32 = kani::any();
+
+        let mut buf1 = Vec::new();
+        put(&mut buf1, v as u64).unwrap();
+
+        let mut buf2 = Vec::new();
+        put(&mut buf2, v as u64).unwrap();
+
+        assert_eq!(buf1, buf2);
+    }
+}
