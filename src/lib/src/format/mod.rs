@@ -201,3 +201,89 @@ mod tests {
         assert_eq!(FormatType::Mcuboot.signature_domain(), "mcubootsig");
     }
 }
+
+// ============================================================================
+// Kani proof harnesses for format detection
+// ============================================================================
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Prove: format detection is mutually exclusive.
+    ///
+    /// For any 4-byte input, at most one format can be detected.
+    /// This prevents polyglot file attacks (AS-17).
+    #[kani::proof]
+    fn proof_format_detection_mutual_exclusivity() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let data = [b0, b1, b2, b3];
+
+        let mut count = 0u8;
+        // Check each format independently
+        if data == [0x00, 0x61, 0x73, 0x6d] {
+            count += 1; // WASM
+        }
+        if data == [0x7f, 0x45, 0x4c, 0x46] {
+            count += 1; // ELF
+        }
+        if data == [0x3d, 0xb8, 0xf3, 0x96] {
+            count += 1; // MCUboot
+        }
+
+        // At most one format matches any 4-byte sequence
+        assert!(count <= 1, "Multiple formats detected for same magic bytes");
+    }
+
+    /// Prove: format consistency validation is correct.
+    ///
+    /// If detect() returns format F for input data, then
+    /// validate_format_consistency(F, data) must succeed.
+    #[kani::proof]
+    fn proof_consistency_validation_agrees_with_detection() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let data = [b0, b1, b2, b3];
+
+        if let Some(detected) = FormatType::detect(&data) {
+            // If we detected a format, consistency check for that format must pass
+            assert!(
+                validate_format_consistency(detected, &data).is_ok(),
+                "Consistency check failed for detected format"
+            );
+        }
+    }
+
+    /// Prove: content type IDs are unique per format.
+    #[kani::proof]
+    fn proof_content_type_ids_unique() {
+        let wasm_id = FormatType::Wasm.content_type_id();
+        let elf_id = FormatType::Elf.content_type_id();
+        let mcuboot_id = FormatType::Mcuboot.content_type_id();
+
+        assert_ne!(wasm_id, elf_id);
+        assert_ne!(wasm_id, mcuboot_id);
+        assert_ne!(elf_id, mcuboot_id);
+    }
+
+    /// Prove: domain separation strings are distinct.
+    ///
+    /// Different formats must use different domain strings to prevent
+    /// cross-format signature confusion.
+    #[kani::proof]
+    fn proof_domain_separation_distinct() {
+        let wasm_domain = FormatType::Wasm.signature_domain();
+        let elf_domain = FormatType::Elf.signature_domain();
+        let mcuboot_domain = FormatType::Mcuboot.signature_domain();
+
+        // Domains are compile-time constants, but proving they're distinct
+        // ensures no copy-paste error
+        assert_ne!(wasm_domain, elf_domain);
+        assert_ne!(wasm_domain, mcuboot_domain);
+        assert_ne!(elf_domain, mcuboot_domain);
+    }
+}

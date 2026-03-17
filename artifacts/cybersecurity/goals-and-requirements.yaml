@@ -1144,3 +1144,103 @@ artifacts:
         target: CD-14
       - type: verifies
         target: CD-15
+
+  - id: CV-16
+    type: cybersecurity-verification
+    title: Kani bounded model checking — varint
+    status: approved
+    fields:
+      method: formal-verification
+      steps: cargo kani --harness proof_put_get32_roundtrip proof_get32_no_panic proof_get32_no_overflow proof_get_slice_bounded_allocation proof_put_deterministic
+    links:
+      - type: verifies
+        target: CR-8
+
+  - id: CV-17
+    type: cybersecurity-verification
+    title: Kani bounded model checking — format detection
+    status: approved
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-14
+      - type: verifies
+        target: CR-16
+
+  - id: CV-18
+    type: cybersecurity-verification
+    title: Kani bounded model checking — Merkle tree
+    status: approved
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-3
+
+  - id: CV-19
+    type: cybersecurity-verification
+    title: Kani bounded model checking — DSSE PAE injectivity
+    status: approved
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-3
+
+  - id: CV-20
+    type: cybersecurity-verification
+    title: Verus SMT proof — Merkle proof soundness (unbounded)
+    status: draft
+    tags: [verus, rules_verus]
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-3
+
+  - id: CV-21
+    type: cybersecurity-verification
+    title: Verus SMT proof — air-gapped verifier anti-rollback invariant
+    status: draft
+    tags: [verus, rules_verus]
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-4
+
+  - id: CV-22
+    type: cybersecurity-verification
+    title: Rocq proof — signature verification protocol correctness
+    status: draft
+    tags: [rocq, coq-of-rust, rules_rocq_rust]
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-1
+      - type: verifies
+        target: CR-3
+
+  - id: CV-23
+    type: cybersecurity-verification
+    title: Rocq proof — ELF section overlap detection completeness
+    status: draft
+    tags: [rocq, coq-of-rust, rules_rocq_rust]
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-12
+
+  - id: CV-24
+    type: cybersecurity-verification
+    title: Lean4 proof — Ed25519 algebraic properties via Mathlib
+    status: draft
+    tags: [lean4, mathlib, rules_lean]
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-1
