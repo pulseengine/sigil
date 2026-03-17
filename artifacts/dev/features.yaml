@@ -195,7 +195,7 @@ artifacts:
   - id: FEAT-2
     type: feature
     title: Sign native artifacts from synth (ELF / MCUboot)
-    status: draft
+    status: in-progress
     description: >
       Implement format-aware signing backends for MCUboot TLV (embedded
       Cortex-M) and ELF .signature section (Linux targets). Carry attestation

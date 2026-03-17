@@ -852,3 +852,295 @@ artifacts:
         target: CR-11
       - type: verifies
         target: CD-12
+
+  # ──────────────────────────────────────────────────
+  # Phase 2: Binary Signing — Requirements → Design → Verification
+  # ──────────────────────────────────────────────────
+
+  # Requirements
+  - id: CR-12
+    type: cybersecurity-req
+    title: Validate ELF section header consistency before signing
+    status: approved
+    description: >
+      ELF signing must validate that section headers do not overlap, that
+      program headers and section headers are consistent, and that the
+      signature placement does not overwrite existing content (SC-12).
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        ELF parser rejects binaries with overlapping sections, out-of-bounds
+        section headers, or inconsistent section/program header tables.
+    links:
+      - type: derives-from
+        target: CG-13
+
+  - id: CR-13
+    type: cybersecurity-req
+    title: Independently verify MCUboot image size before signing
+    status: approved
+    description: >
+      MCUboot signing must independently compute image size from file
+      length and reject images where ih_img_size disagrees, preventing
+      partial-image signature attacks (SC-13).
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        MCUboot parser rejects images where header-declared size exceeds
+        actual file content.
+    links:
+      - type: derives-from
+        target: CG-13
+
+  - id: CR-14
+    type: cybersecurity-req
+    title: Require explicit format specification for signing
+    status: approved
+    description: >
+      Signing operations must require explicit format specification via
+      --format flag and validate consistency with file magic bytes to
+      prevent polyglot file attacks (SC-15).
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        CLI rejects signing when declared format disagrees with detected
+        magic bytes. Default format is WASM for backwards compatibility.
+    links:
+      - type: derives-from
+        target: CG-9
+
+  - id: CR-15
+    type: cybersecurity-req
+    title: Enforce resource bounds on ELF and MCUboot parsing
+    status: approved
+    description: >
+      ELF parser must enforce 256MB max file size and 4096 max sections.
+      MCUboot parser must enforce 16MB max image size. Prevents resource
+      exhaustion attacks (UCA-17).
+    fields:
+      req-type: availability
+      priority: must
+      verification-criteria: >
+        Parsers reject inputs exceeding size limits with appropriate errors.
+    links:
+      - type: derives-from
+        target: CG-12
+
+  - id: CR-16
+    type: cybersecurity-req
+    title: Use domain-separated signing for each artifact format
+    status: approved
+    description: >
+      Each artifact format must use a distinct domain separation string
+      in the signing message (wasmsig, elfsig, mcubootsig) to prevent
+      cross-format signature confusion.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Signatures produced for one format do not verify as another format.
+    links:
+      - type: derives-from
+        target: CG-9
+
+  # Design
+  - id: CD-13
+    type: cybersecurity-design
+    title: SignableArtifact trait — format-agnostic signing interface
+    status: approved
+    description: >
+      Trait-based abstraction with compute_hash, attach_signature,
+      detach_signature, serialize, and content_bytes methods. Enables
+      the same Ed25519 signing core to operate on WASM, ELF, and MCUboot
+      formats through format-specific implementations.
+    fields:
+      mechanism: trait-abstraction
+    links:
+      - type: satisfies
+        target: CR-16
+
+  - id: CD-14
+    type: cybersecurity-design
+    title: ELF signing module with section validation
+    status: approved
+    description: >
+      ElfArtifact implements SignableArtifact with full-file SHA-256
+      hashing (AS-14 defense), section header overlap detection (SC-12),
+      and resource bounds enforcement (256MB, 4096 sections). Signatures
+      are detached (.sig file) in initial implementation.
+    fields:
+      mechanism: format-handler
+      algorithm: Ed25519-SHA256
+    links:
+      - type: satisfies
+        target: CR-12
+      - type: satisfies
+        target: CR-15
+
+  - id: CD-15
+    type: cybersecurity-design
+    title: MCUboot signing module with TLV trailer
+    status: approved
+    description: >
+      McubootArtifact implements SignableArtifact with independent image
+      size verification (SC-13), payload hashing up to verified boundary,
+      and Ed25519 signature embedding in MCUboot TLV trailer format.
+    fields:
+      mechanism: format-handler
+      algorithm: Ed25519-SHA256
+    links:
+      - type: satisfies
+        target: CR-13
+      - type: satisfies
+        target: CR-15
+
+  - id: CD-16
+    type: cybersecurity-design
+    title: Format detection with polyglot validation
+    status: approved
+    description: >
+      FormatType enum with magic byte detection and consistency validation
+      between declared (--format flag) and detected formats. Prevents
+      polyglot file attacks (AS-17) where wrong signing backend is applied.
+    fields:
+      mechanism: format-validation
+    links:
+      - type: satisfies
+        target: CR-14
+
+  # Implementation
+  - id: CI-1
+    type: cybersecurity-implementation
+    title: format/mod.rs — FormatType and SignableArtifact trait
+    status: approved
+    description: >
+      Core format abstraction with FormatType enum, SignableArtifact trait,
+      format detection, and polyglot validation.
+    fields:
+      unit: src/lib/src/format/mod.rs
+      implementation-type: code
+    links:
+      - type: implements
+        target: CD-13
+      - type: implements
+        target: CD-16
+
+  - id: CI-2
+    type: cybersecurity-implementation
+    title: format/elf.rs — ELF signing with section validation
+    status: approved
+    description: >
+      ElfArtifact struct implementing SignableArtifact with ELF header
+      parsing, section overlap detection, resource bounds, and full-file
+      hashing.
+    fields:
+      unit: src/lib/src/format/elf.rs
+      implementation-type: code
+    links:
+      - type: implements
+        target: CD-14
+
+  - id: CI-3
+    type: cybersecurity-implementation
+    title: format/mcuboot.rs — MCUboot signing with size verification
+    status: approved
+    description: >
+      McubootArtifact struct implementing SignableArtifact with MCUboot
+      header validation, independent size verification, and TLV trailer
+      signature embedding.
+    fields:
+      unit: src/lib/src/format/mcuboot.rs
+      implementation-type: code
+    links:
+      - type: implements
+        target: CD-15
+
+  # Verification
+  - id: CV-12
+    type: cybersecurity-verification
+    title: ELF parser unit tests
+    status: approved
+    description: >
+      7 unit tests covering ELF magic validation, 32/64-bit parsing,
+      section overlap detection, resource bounds (too large, too many
+      sections), and hash determinism.
+    fields:
+      method: automated-test
+      steps: "cargo test --lib format::elf"
+    links:
+      - type: verifies
+        target: CR-12
+      - type: verifies
+        target: CR-15
+      - type: verifies
+        target: CD-14
+      - type: verifies
+        target: CI-2
+
+  - id: CV-13
+    type: cybersecurity-verification
+    title: MCUboot parser unit tests
+    status: approved
+    description: >
+      8 unit tests covering MCUboot magic validation, image size
+      verification (header vs file mismatch), resource bounds,
+      payload extraction, and hash determinism.
+    fields:
+      method: automated-test
+      steps: "cargo test --lib format::mcuboot"
+    links:
+      - type: verifies
+        target: CR-13
+      - type: verifies
+        target: CR-15
+      - type: verifies
+        target: CD-15
+      - type: verifies
+        target: CI-3
+
+  - id: CV-14
+    type: cybersecurity-verification
+    title: Format detection and polyglot validation tests
+    status: approved
+    description: >
+      11 unit tests covering WASM/ELF/MCUboot magic detection, unknown
+      format handling, format string parsing, content type IDs, domain
+      separation strings, and format consistency validation (mismatch
+      detection).
+    fields:
+      method: automated-test
+      steps: "cargo test --lib format::tests"
+    links:
+      - type: verifies
+        target: CR-14
+      - type: verifies
+        target: CR-16
+      - type: verifies
+        target: CD-13
+      - type: verifies
+        target: CD-16
+      - type: verifies
+        target: CI-1
+
+  - id: CV-15
+    type: cybersecurity-verification
+    title: ELF and MCUboot fuzz testing
+    status: draft
+    description: >
+      Fuzz targets for ELF and MCUboot parsers to discover edge cases
+      in header parsing, section validation, and resource bounds
+      enforcement. Minimum 3 new fuzz targets.
+    fields:
+      method: fuzz-test
+    links:
+      - type: verifies
+        target: CR-12
+      - type: verifies
+        target: CR-13
+      - type: verifies
+        target: CD-14
+      - type: verifies
+        target: CD-15
