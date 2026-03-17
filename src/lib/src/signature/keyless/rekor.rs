@@ -38,6 +38,17 @@ use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Sentinel UUID value indicating Rekor upload was skipped.
+///
+/// Modules signed with this sentinel **cannot pass keyless verification** (DD-2).
+/// Used only for testing or development; production signing must always upload to Rekor.
+pub const REKOR_SKIPPED_UUID: &str = "skipped";
+
+/// Returns true if a Rekor entry represents a skipped upload (not a real log entry).
+pub fn is_rekor_skipped(entry: &RekorEntry) -> bool {
+    entry.uuid.is_empty() || entry.uuid == REKOR_SKIPPED_UUID
+}
+
 /// Rekor log entry returned from the transparency log
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RekorEntry {
