@@ -9,7 +9,7 @@
 
 use super::{
     FulcioClient, KeylessSignature, OidcProvider, RekorClient, RekorEntry, RekorKeyring,
-    detect_oidc_provider,
+    detect_oidc_provider, rekor,
 };
 use crate::{Module, WSError, SectionLike, audit};
 use ecdsa::SigningKey;
@@ -23,7 +23,14 @@ pub struct KeylessConfig {
     pub fulcio_url: Option<String>,
     /// Rekor server URL (uses default if None)
     pub rekor_url: Option<String>,
-    /// Skip Rekor upload (not recommended for production)
+    /// Skip Rekor upload (testing only — NOT for production)
+    ///
+    /// **WARNING:** Modules signed with `skip_rekor=true` CANNOT pass keyless
+    /// verification. The verifier enforces fail-closed (DD-2) and rejects any
+    /// signature without a valid Rekor transparency log entry.
+    ///
+    /// Use only for local development and testing. For production CI/CD
+    /// pipelines, always upload to Rekor.
     pub skip_rekor: bool,
     /// Use Sigstore staging environment instead of production
     ///
@@ -246,7 +253,10 @@ impl KeylessSigner {
             std::env::var("WSC_EXPECTED_OIDC_ISSUER").ok().filter(|s| !s.is_empty())
         });
         if let Some(ref expected) = expected_issuer {
-            if oidc_token.issuer != *expected {
+            // Normalize trailing slashes for comparison (AS-13 defense)
+            let expected_normalized = expected.trim_end_matches('/');
+            let actual_normalized = oidc_token.issuer.trim_end_matches('/');
+            if actual_normalized != expected_normalized {
                 return Err(WSError::OidcError(format!(
                     "OIDC issuer mismatch: expected '{}', got '{}'. \
                      Check your CI pipeline OIDC configuration.",
@@ -254,6 +264,13 @@ impl KeylessSigner {
                 )));
             }
             log::info!("OIDC issuer validated: {}", oidc_token.issuer);
+        } else {
+            log::warn!(
+                "No OIDC issuer validation configured. Set --expected-issuer or \
+                 WSC_EXPECTED_OIDC_ISSUER for defense-in-depth. \
+                 Token issuer: {}",
+                oidc_token.issuer
+            );
         }
 
         // Step 3: Create proof of possession
@@ -304,10 +321,16 @@ impl KeylessSigner {
 
         // Step 7: Upload to Rekor (if not skipped)
         let rekor_entry = if self.config.skip_rekor {
-            log::warn!("Skipping Rekor upload (not recommended for production)");
+            log::error!(
+                "WARNING: Rekor upload skipped. The produced module CANNOT pass keyless \
+                 verification (DD-2 fail-closed policy). Use only for testing."
+            );
+            eprintln!(
+                "\n⚠ WARNING: Rekor upload skipped — this module cannot pass keyless verification.\n"
+            );
             // Create a dummy entry for testing
             RekorEntry {
-                uuid: "skipped".to_string(),
+                uuid: rekor::REKOR_SKIPPED_UUID.to_string(),
                 log_index: 0,
                 body: String::new(),
                 log_id: String::new(),
@@ -466,7 +489,7 @@ impl KeylessVerifier {
         // Fail-closed: Rekor verification is MANDATORY for keyless signatures (DD-2).
         // A missing or skipped Rekor entry means the signature lacks transparency
         // proof and MUST be rejected.
-        if keyless_sig.rekor_entry.uuid.is_empty() || keyless_sig.rekor_entry.uuid == "skipped" {
+        if rekor::is_rekor_skipped(&keyless_sig.rekor_entry) {
             return Err(WSError::RekorError(
                 "Rekor transparency log entry is required for keyless verification".into(),
             ));
