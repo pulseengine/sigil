@@ -379,6 +379,11 @@ artifacts:
       stakeholders:
         - security-auditors
         - compliance-officers
+    links:
+      - type: traces-to
+        target: synth:L-6
+      - type: traces-to
+        target: synth:ARCH-003
 
   - id: L-8
     type: loss
@@ -474,6 +479,10 @@ artifacts:
         target: L-7
       - type: leads-to-loss
         target: L-6
+      - type: traces-to
+        target: synth:ARCH-003
+      - type: traces-to
+        target: synth:NFR-002
 
   - id: H-16
     type: hazard
@@ -562,7 +571,7 @@ artifacts:
   - id: SC-12
     type: system-constraint
     title: Verify ELF section header consistency before signing
-    status: draft
+    status: approved
     description: >
       ELF signing MUST validate that section headers do not overlap, that
       program headers and section headers are consistent, and that the
@@ -570,6 +579,8 @@ artifacts:
     links:
       - type: prevents
         target: H-13
+      - type: traces-to
+        target: synth:ARCH-003
 
   - id: SC-13
     type: system-constraint
@@ -594,6 +605,10 @@ artifacts:
     links:
       - type: prevents
         target: H-15
+      - type: traces-to
+        target: synth:FR-002
+      - type: traces-to
+        target: synth:VER-001
 
   - id: SC-15
     type: system-constraint

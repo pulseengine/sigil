@@ -422,6 +422,10 @@ artifacts:
         target: CTRL-2
       - type: flows-to
         target: CTRL-8
+      - type: traces-to
+        target: synth:ARCH-003
+      - type: traces-to
+        target: synth:NFR-002
 
   - id: DF-14
     type: data-flow
