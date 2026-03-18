@@ -305,6 +305,9 @@ pub mod predicate_types {
 
     /// CycloneDX SBOM
     pub const CYCLONEDX: &str = "https://cyclonedx.org/bom";
+
+    /// WSC Transcoding attestation (WASM→native)
+    pub const WSC_TRANSCODING_V1: &str = "https://wsc.dev/transcoding/v1";
 }
 
 #[cfg(test)]

@@ -368,6 +368,9 @@ pub mod build_types {
 
     /// Generic transformation
     pub const TRANSFORMATION: &str = "https://wsc.dev/Transformation/v1";
+
+    /// WASM-to-native transcoding
+    pub const WASM_NATIVE_TRANSCODE: &str = "https://wsc.dev/WasmNativeTranscode/v1";
 }
 
 #[cfg(test)]
