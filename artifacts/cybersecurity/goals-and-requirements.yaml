@@ -1244,3 +1244,77 @@ artifacts:
     links:
       - type: verifies
         target: CR-1
+
+  - id: CR-17
+    type: cybersecurity-req
+    title: Transcoding attestation chain integrity
+    status: draft
+    description: >
+      When a WASM component is compiled to native code, the transcoding
+      process must produce an in-toto attestation cryptographically binding
+      the source WASM digest to the native output digest, recording compiler
+      identity and verification status.
+    fields:
+      cal-level: CAL-2
+    links:
+      - type: derives-from
+        target: CG-1
+      - type: derives-from
+        target: CG-3
+
+  - id: CD-17
+    type: cybersecurity-design
+    title: TranscodingPredicate with in-toto Statement envelope
+    status: draft
+    description: >
+      Implement wsc.dev/transcoding/v1 predicate type recording source
+      WASM digest, signature verification status, compiler identity and
+      version, target architecture, and compilation parameters. Wrapped
+      in DSSE envelope for tamper evidence.
+    links:
+      - type: refines
+        target: CR-17
+      - type: refines
+        target: CD-7
+
+  - id: CD-18
+    type: cybersecurity-design
+    title: Nix-pinned reproducible build environment
+    status: draft
+    description: >
+      Nix flake pinning Rust 1.90.0, Bazel 8.5.1, and all build tools
+      to exact versions via flake.lock. Deterministic development shell
+      ensures identical toolchains across contributors and CI runners.
+    links:
+      - type: refines
+        target: CR-4
+
+  - id: CV-25
+    type: cybersecurity-verification
+    title: Transcoding attestation roundtrip test
+    status: draft
+    description: >
+      Test that TranscodingPredicate serializes to valid in-toto Statement
+      JSON, deserializes back identically, and that the builder pattern
+      produces correct attestations for all field combinations.
+    fields:
+      method: test
+      tool: cargo-test
+    links:
+      - type: verifies
+        target: CD-17
+
+  - id: CV-26
+    type: cybersecurity-verification
+    title: Nix flake reproducibility verification
+    status: draft
+    description: >
+      Verify that nix develop produces identical toolchain versions across
+      runs and that cargo build produces deterministic output within the
+      Nix environment.
+    fields:
+      method: test
+      tool: nix
+    links:
+      - type: verifies
+        target: CD-18

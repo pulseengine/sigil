@@ -290,3 +290,61 @@ artifacts:
     links:
       - type: satisfies
         target: REQ-9
+
+  - id: FEAT-6
+    type: feature
+    title: WASM-to-native transcoding attestation protocol
+    status: in-progress
+    description: >
+      Define and implement the attestation protocol for carrying cryptographic
+      provenance across the WASM-to-native compilation boundary. Enables synth
+      to produce signed native binaries with full chain-of-custody from source
+      WASM through AOT compilation to ELF/MCUboot output.
+    fields:
+      github-issue: 47
+      phase: phase-2
+    links:
+      - type: satisfies
+        target: REQ-4
+      - type: satisfies
+        target: REQ-8
+
+  - id: DD-5
+    type: design-decision
+    title: In-toto predicate format for transcoding attestation
+    status: approved
+    description: >
+      Use in-toto Statement v1 with a custom wsc.dev/transcoding/v1 predicate
+      type for recording WASM-to-native compilation provenance. The predicate
+      captures source WASM digest and signature status, compiler identity,
+      target architecture, and compilation parameters.
+    fields:
+      rationale: >
+        In-toto provides the standardized envelope and statement framework
+        already used by sigil for WASM attestations. Extending with a
+        transcoding-specific predicate maintains consistency with SLSA
+        provenance while adding compiler-specific fields for the
+        WASM-to-native boundary.
+      alternatives: >
+        Custom JSON format (not standardized), SLSA provenance only
+        (lacks compiler fields), embedded ELF notes only (not portable)
+    links:
+      - type: satisfies
+        target: REQ-4
+      - type: satisfies
+        target: REQ-8
+
+  - id: REQ-12
+    type: requirement
+    title: Nix flake for reproducible development and CI builds
+    status: approved
+    description: >
+      Project must provide a Nix flake that pins all build tool versions
+      (Rust 1.90.0, Bazel 8.5.1, wasm-tools) for reproducible development
+      environments and CI builds. Prerequisite for SLSA Level 3 compliance.
+    fields:
+      priority: must
+      category: non-functional
+    links:
+      - type: satisfies
+        target: FEAT-3

@@ -43,3 +43,7 @@ wasmsign2
 
 # Rivet external project cache
 .rivet/
+
+# Nix / direnv
+.direnv/
+result

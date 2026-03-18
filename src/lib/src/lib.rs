@@ -107,6 +107,14 @@ pub mod intoto;
 /// See: https://slsa.dev/spec/v1.0/provenance
 pub mod slsa;
 
+/// Transcoding attestation protocol for WASM-to-native compilation
+///
+/// Provides the attestation format for recording provenance when compiling
+/// WASM modules to native code (ARM ELF, MCUboot). Uses in-toto Statement
+/// with a custom predicate to capture source verification, compiler identity,
+/// target platform, and compilation parameters.
+pub mod transcoding;
+
 /// HTTP client abstraction for sync/async support
 ///
 /// Provides a unified HTTP client interface using `maybe_async` for compile-time

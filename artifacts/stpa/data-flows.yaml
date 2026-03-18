@@ -466,3 +466,25 @@ artifacts:
         target: CTRL-10
       - type: flows-to
         target: CTRL-4
+
+  - id: DF-16
+    type: data-flow
+    title: Transcoding attestation flow
+    description: >
+      Attestation data flow from source WASM signature verification
+      through AOT compilation to native binary attestation embedding.
+      Carries source digest, compiler identity, and verification status
+      across the compilation boundary.
+    status: implemented
+    tags: [attestation, transcoding, chain-of-custody]
+    fields:
+      source: CTRL-3
+      destination: CP-5
+      data-classification: integrity-critical
+    links:
+      - type: flows-from
+        target: DF-5
+      - type: carries
+        target: SP-2
+      - type: carries
+        target: SP-6
