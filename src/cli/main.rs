@@ -598,6 +598,22 @@ fn start() -> Result<(), WSError> {
                         .help("Type of transformation"),
                 ),
         )
+        .subcommand(
+            Command::new("build-env")
+                .about("Capture and display build environment attestation")
+                .arg(
+                    Arg::new("json")
+                        .long("json")
+                        .action(ArgAction::SetTrue)
+                        .help("Output as JSON (for embedding in SLSA provenance)"),
+                )
+                .arg(
+                    Arg::new("from-env")
+                        .long("from-env")
+                        .action(ArgAction::SetTrue)
+                        .help("Read versions from WSC_* environment variables"),
+                ),
+        )
         .get_matches();
 
     let verbose = matches.get_flag("verbose");
@@ -997,6 +1013,55 @@ fn start() -> Result<(), WSError> {
         handle_verify_chain_command(matches)?;
     } else if let Some(matches) = matches.subcommand_matches("attest") {
         handle_attest_command(matches)?;
+    } else if let Some(matches) = matches.subcommand_matches("build-env") {
+        let json_output = matches.get_flag("json");
+        let from_env = matches.get_flag("from-env");
+
+        let env = if from_env {
+            wsc::build_env::BuildEnvironment::from_env_vars()
+        } else {
+            wsc::build_env::BuildEnvironment::capture()
+        };
+
+        if json_output {
+            let json = serde_json::to_string_pretty(&env)
+                .map_err(|e| WSError::InternalError(format!("JSON serialization failed: {}", e)))?;
+            println!("{}", json);
+        } else {
+            println!("Build Environment Attestation");
+            println!("=============================");
+            if let Some(ref v) = env.rustc_version {
+                println!("  rustc:       {}", v);
+            }
+            if let Some(ref v) = env.cargo_version {
+                println!("  cargo:       {}", v);
+            }
+            if let Some(ref v) = env.bazel_version {
+                println!("  bazel:       {}", v);
+            }
+            if let Some(ref v) = env.wasm_tools_version {
+                println!("  wasm-tools:  {}", v);
+            }
+            if let Some(ref v) = env.nix_flake_lock_hash {
+                println!("  nix lock:    {}", v);
+            }
+            if let Some(nix) = env.nix_build {
+                println!("  nix shell:   {}", nix);
+            }
+            if let Some(ref v) = env.host_platform {
+                println!("  platform:    {}", v);
+            }
+            if let Some(ref v) = env.os_version {
+                println!("  os:          {}", v);
+            }
+            for (tool, version) in &env.additional_tools {
+                let pad = " ".repeat(11usize.saturating_sub(tool.len()));
+                println!("  {}:{}{}", tool, pad, version);
+            }
+            if env.is_reproducible() {
+                println!("\n  [reproducible: nix flake lock pinned]");
+            }
+        }
     } else {
         return Err(WSError::UsageError("No subcommand specified"));
     }

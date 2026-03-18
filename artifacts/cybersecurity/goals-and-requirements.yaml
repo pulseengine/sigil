@@ -1318,3 +1318,31 @@ artifacts:
     links:
       - type: verifies
         target: CD-18
+
+  - id: CD-19
+    type: cybersecurity-design
+    title: BuildEnvironment capture and SLSA embedding
+    status: draft
+    description: >
+      BuildEnvironment struct auto-detecting rustc, cargo, Bazel, wasm-tools
+      versions, Nix flake lock hash, and host platform. Embeds as SLSA
+      provenance internalParameters. Supports both auto-detection and
+      CI environment variable configuration via WSC_* prefix.
+    links:
+      - type: refines
+        target: CR-4
+
+  - id: CV-27
+    type: cybersecurity-verification
+    title: Build environment capture and serialization tests
+    status: draft
+    description: >
+      Test that BuildEnvironment::capture() detects available tools,
+      from_env_vars() reads WSC_* variables, to_slsa_internal_params()
+      produces valid JSON, and serialization roundtrips correctly.
+    fields:
+      method: test
+      tool: cargo-test
+    links:
+      - type: verifies
+        target: CD-19

@@ -115,6 +115,14 @@ pub mod slsa;
 /// target platform, and compilation parameters.
 pub mod transcoding;
 
+/// Build environment attestation for SLSA provenance
+///
+/// Captures build environment metadata (Rust, Bazel, Nix versions, platform)
+/// for embedding in SLSA provenance as internal parameters. Supports both
+/// automatic detection and CI environment variable configuration via WSC_*
+/// prefix. Addresses Ferrocene RUSTC_CSTR_0030 for tool version verification.
+pub mod build_env;
+
 /// HTTP client abstraction for sync/async support
 ///
 /// Provides a unified HTTP client interface using `maybe_async` for compile-time

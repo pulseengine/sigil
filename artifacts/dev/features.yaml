@@ -348,3 +348,19 @@ artifacts:
     links:
       - type: satisfies
         target: FEAT-3
+
+  - id: REQ-13
+    type: requirement
+    title: Build environment metadata in SLSA provenance
+    status: approved
+    description: >
+      Attestation chain must capture build environment metadata including
+      Rust compiler version, Bazel version, Nix flake lock hash, and
+      host platform as SLSA provenance internal parameters. Addresses
+      Ferrocene RUSTC_CSTR_0030 for tool version verification.
+    fields:
+      priority: must
+      category: non-functional
+    links:
+      - type: satisfies
+        target: FEAT-4
