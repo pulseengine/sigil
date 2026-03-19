@@ -17,6 +17,7 @@ mod format;
 pub mod fulcio;
 pub mod merkle;
 pub mod oidc;
+pub mod proof_cache;
 pub mod rekor;
 pub mod rekor_verifier;
 pub mod signer;

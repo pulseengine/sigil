@@ -1346,3 +1346,72 @@ artifacts:
     links:
       - type: verifies
         target: CD-19
+
+  - id: CD-20
+    type: cybersecurity-design
+    title: Cosign binary integrity verification before delegation
+    status: draft
+    description: >
+      CosignDelegator verifies cosign binary SHA-256 hash against
+      expected value before subprocess invocation. Version check ensures
+      expected cosign release. Prevents AS-20 cosign supply chain attack.
+    links:
+      - type: refines
+        target: CR-4
+
+  - id: CD-21
+    type: cybersecurity-design
+    title: Tag-to-digest resolution for container signing
+    status: draft
+    description: >
+      ImageReference type enforces digest-bound signing by resolving
+      mutable tags to immutable digests via crane/skopeo before cosign
+      invocation. Prevents AS-18 tag mutation attacks.
+    links:
+      - type: refines
+        target: CR-4
+
+  - id: CD-22
+    type: cybersecurity-design
+    title: Rekor proof cache with TTL expiry
+    status: draft
+    description: >
+      MemoryProofCache stores verified Rekor inclusion proofs keyed
+      by artifact hash + Rekor UUID with configurable TTL. Thread-safe
+      via Mutex. Pluggable backend via ProofCacheBackend trait.
+      Cache is optimization-only per DD-2 fail-closed guarantee.
+    links:
+      - type: refines
+        target: CR-5
+
+  - id: CV-28
+    type: cybersecurity-verification
+    title: Container signing delegation tests
+    status: draft
+    description: >
+      20 tests covering image reference parsing, tag/digest handling,
+      cosign config serialization, binary integrity checks, and
+      signing/verification result types.
+    fields:
+      method: test
+      tool: cargo-test
+    links:
+      - type: verifies
+        target: CD-20
+      - type: verifies
+        target: CD-21
+
+  - id: CV-29
+    type: cybersecurity-verification
+    title: Rekor proof cache tests
+    status: draft
+    description: >
+      13 tests covering cache insert/get, TTL expiry, eviction,
+      invalidation, multiple entries, key serialization, and
+      thread safety properties.
+    fields:
+      method: test
+      tool: cargo-test
+    links:
+      - type: verifies
+        target: CD-22

@@ -115,6 +115,13 @@ pub mod slsa;
 /// target platform, and compilation parameters.
 pub mod transcoding;
 
+/// Container image signing via cosign delegation
+///
+/// Provides safe cosign subprocess delegation with binary integrity
+/// verification, tag-to-digest resolution, and digest-bound signatures.
+/// Addresses UCA-18 through UCA-21 from STPA-Sec analysis.
+pub mod container;
+
 /// Build environment attestation for SLSA provenance
 ///
 /// Captures build environment metadata (Rust, Bazel, Nix versions, platform)
