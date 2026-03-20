@@ -67,6 +67,9 @@ pub struct KeylessConfig {
     ///
     /// Example: `https://token.actions.githubusercontent.com` for GitHub Actions.
     pub expected_issuer: Option<String>,
+    /// Optional proof cache for Rekor inclusion proofs (Phase 4.1).
+    /// When set, verified proofs are cached for availability resilience.
+    pub proof_cache: Option<std::sync::Arc<dyn super::proof_cache::ProofCacheBackend>>,
 }
 
 
@@ -395,7 +398,9 @@ impl KeylessSigner {
 }
 
 /// Keyless signature verification
-pub struct KeylessVerifier;
+pub struct KeylessVerifier {
+    config: KeylessConfig,
+}
 
 /// Result of keyless signature verification
 #[derive(Debug, Clone)]
@@ -411,6 +416,18 @@ pub struct KeylessVerificationResult {
 }
 
 impl KeylessVerifier {
+    /// Create a keyless verifier with default config (no proof cache).
+    pub fn new() -> Self {
+        Self {
+            config: KeylessConfig::default(),
+        }
+    }
+
+    /// Create a keyless verifier with custom config (e.g., with proof cache).
+    pub fn with_config(config: KeylessConfig) -> Self {
+        Self { config }
+    }
+
     /// Extract keyless signature from a module's signature section
     pub fn extract_signature(module: &Module) -> Result<KeylessSignature, WSError> {
         // Find the signature section
@@ -436,6 +453,11 @@ impl KeylessVerifier {
     /// 3. Verifies the Rekor SET (Signed Entry Timestamp)
     /// 4. Optionally validates identity and issuer claims
     ///
+    /// When a proof cache is configured, verified Rekor proofs are cached
+    /// so that subsequent verifications can succeed during transient Rekor
+    /// outages. On cache miss AND Rekor unavailable, verification still
+    /// fails (DD-2 fail-closed).
+    ///
     /// # Arguments
     /// * `module` - The signed WASM module
     /// * `expected_identity` - Optional identity to verify (e.g., "user@example.com")
@@ -449,7 +471,8 @@ impl KeylessVerifier {
     /// use wsc::{Module, keyless::KeylessVerifier};
     ///
     /// let module = Module::deserialize_from_file("signed.wasm")?;
-    /// let result = KeylessVerifier::verify(
+    /// let verifier = KeylessVerifier::new();
+    /// let result = verifier.verify(
     ///     &module,
     ///     Some("user@example.com"),
     ///     Some("https://github.com/login/oauth")
@@ -458,6 +481,7 @@ impl KeylessVerifier {
     /// # Ok::<(), wsc::WSError>(())
     /// ```
     pub fn verify(
+        &self,
         module: &Module,
         expected_identity: Option<&str>,
         expected_issuer: Option<&str>,
@@ -494,10 +518,38 @@ impl KeylessVerifier {
                 "Rekor transparency log entry is required for keyless verification".into(),
             ));
         }
-        log::debug!("Verifying Rekor SET");
-        let verifier = RekorKeyring::from_embedded_trust_root()?;
-        verifier.verify_set(&keyless_sig.rekor_entry)?;
-        log::info!("Rekor SET verified successfully");
+
+        // Check proof cache before network call
+        let cache_key = {
+            let hash_hex = hex::encode(&module_hash);
+            super::proof_cache::CacheKey::from_hash(&hash_hex, &keyless_sig.rekor_entry.uuid)
+        };
+        let mut cache_hit = false;
+        if let Some(ref cache) = self.config.proof_cache {
+            if let Some(_cached_proof) = cache.get(&cache_key) {
+                // Cache hit — proof was already validated when it was cached.
+                // The certificate chain verification above still runs on every
+                // call, so we only skip the Rekor network round-trip.
+                log::info!("Using cached Rekor proof for {}", keyless_sig.rekor_entry.uuid);
+                cache_hit = true;
+            }
+        }
+
+        if !cache_hit {
+            log::debug!("Verifying Rekor SET");
+            let verifier = RekorKeyring::from_embedded_trust_root()?;
+            verifier.verify_set(&keyless_sig.rekor_entry)?;
+            log::info!("Rekor SET verified successfully");
+
+            // After successful Rekor verification, cache the proof
+            if let Some(ref cache) = self.config.proof_cache {
+                let cached = super::proof_cache::cache_verified_proof(
+                    &keyless_sig.rekor_entry,
+                    std::time::Duration::from_secs(86400),
+                );
+                cache.insert(cache_key, cached);
+            }
+        }
 
         // Step 4: Extract identity and issuer from certificate
         let identity = keyless_sig.get_identity()?;
@@ -578,6 +630,7 @@ mod tests {
         assert!(config.rekor_pins.is_empty());
         assert!(!config.require_cert_pinning);
         assert!(config.expected_issuer.is_none());
+        assert!(config.proof_cache.is_none());
     }
 
     #[test]
@@ -661,7 +714,8 @@ mod tests {
     fn test_keyless_verifier_no_signature() {
         // Create an empty module (no signature)
         let module = Module::default();
-        let result = KeylessVerifier::verify(&module, None, None);
+        let verifier = KeylessVerifier::new();
+        let result = verifier.verify(&module, None, None);
         // Should fail with NoSignatures error
         assert!(result.is_err());
         assert!(matches!(result, Err(WSError::NoSignatures)));

@@ -43,6 +43,7 @@ fn test_keyless_config_custom() {
         rekor_pins: vec![],
         require_cert_pinning: false,
         expected_issuer: None,
+        proof_cache: None,
     };
     assert_eq!(config.fulcio_url.unwrap(), "https://custom.fulcio.dev");
     assert_eq!(config.rekor_url.unwrap(), "https://custom.rekor.dev");
@@ -154,6 +155,7 @@ fn test_keyless_signing_with_skip_rekor() {
         rekor_pins: vec![],
         require_cert_pinning: false,
         expected_issuer: None,
+        proof_cache: None,
     };
 
     let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");
@@ -180,6 +182,7 @@ fn test_keyless_signing_with_custom_servers() {
         rekor_pins: vec![],
         require_cert_pinning: false,
         expected_issuer: None,
+        proof_cache: None,
     };
 
     let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");

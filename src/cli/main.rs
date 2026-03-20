@@ -860,7 +860,8 @@ fn start() -> Result<(), WSError> {
 
             println!("Verifying keyless signature...");
             let module = Module::deserialize_from_file(input_file)?;
-            let result = KeylessVerifier::verify(&module, cert_identity, cert_oidc_issuer)?;
+            let verifier = KeylessVerifier::new();
+            let result = verifier.verify(&module, cert_identity, cert_oidc_issuer)?;
 
             println!("\n✓ Keyless signature is valid");
             println!("  Identity: {}", result.identity);
