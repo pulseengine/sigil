@@ -415,3 +415,42 @@ artifacts:
       alternatives: >
         sigstore-rs native (full control, no subprocess, but heavy deps),
         notation (Microsoft alternative, less ecosystem adoption)
+
+  - id: DD-7
+    type: design-decision
+    title: Verus-first formal verification with coq-of-rust pipeline
+    status: approved
+    description: >
+      Use Verus (rules_verus + Bazel) as the primary verification tool.
+      Verus specs are the source code — pre/post conditions and proofs
+      live inline. For Rocq evidence, strip Verus annotations and feed
+      through coq-of-rust (rules_rocq_rust). Lean4 (rules_lean) handles
+      hard algebraic math (Ed25519 curve properties via Mathlib).
+    fields:
+      rationale: >
+        Verus proofs are Rust code — they compile with the standard
+        toolchain when verus macros expand away, and verify via Z3 SMT
+        when built with rules_verus. This eliminates spec drift. The
+        coq-of-rust pipeline reuses the same Rust source for ISO 26262
+        mechanized proofs. Lean4+Mathlib provides the best tooling for
+        algebraic properties (group law, cofactor clearing) that are
+        hard to express in SMT.
+      alternatives: >
+        Separate spec files (spec drift risk), Rocq-only (no SMT
+        automation), Lean-only (poor Rust integration)
+
+  - id: REQ-14
+    type: requirement
+    title: Verus formal proofs for Merkle and DSSE
+    status: in-progress
+    description: >
+      Merkle tree inclusion proof soundness (CV-20), anti-rollback
+      invariant (CV-21), DSSE PAE injectivity and domain separation
+      (CV-22) must be formally proven using Verus SMT verification
+      via rules_verus and Bazel.
+    fields:
+      priority: should
+      category: non-functional
+    links:
+      - type: satisfies
+        target: FEAT-5
