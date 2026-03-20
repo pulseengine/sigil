@@ -1,0 +1,14 @@
+# Lean4 Ed25519 algebraic proofs (CV-24)
+# Build with: bazel build //lean:ed25519_proofs
+# Requires rules_lean from pulseengine
+
+# Placeholder target — rules_lean integration pending
+filegroup(
+    name = "ed25519_proofs",
+    srcs = [
+        "Ed25519.lean",
+        "lakefile.lean",
+        "lean-toolchain",
+    ],
+    visibility = ["//visibility:public"],
+)

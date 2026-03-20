@@ -454,3 +454,27 @@ artifacts:
     links:
       - type: satisfies
         target: FEAT-5
+
+  - id: FEAT-9
+    type: feature
+    title: OCI 1.1 referrers API and Sigstore bundle format
+    status: in-progress
+    description: >
+      Store container signatures using OCI 1.1 referrers API instead
+      of tag-based storage to reduce GC risk (AS-19). Support Sigstore
+      bundle format for interoperability with cosign verification.
+    fields:
+      phase: phase-3
+    links:
+      - type: satisfies
+        target: REQ-2
+
+  - id: FEAT-10
+    type: feature
+    title: Formal verification CI workflow
+    status: in-progress
+    description: >
+      GitHub Actions workflow running Verus SMT verification and
+      Kani bounded model checking on every PR touching proof files.
+    fields:
+      phase: phase-2

@@ -23,8 +23,12 @@
 //! delegator.sign(&resolved)?;
 //! ```
 
+pub mod bundle;
 pub mod cosign;
 pub mod digest;
+pub mod referrer;
 
+pub use bundle::SigstoreBundle;
 pub use cosign::{CosignConfig, CosignDelegator};
 pub use digest::ImageReference;
+pub use referrer::{ReferrerConfig, SignatureReference};

@@ -1,0 +1,52 @@
+name: Formal Verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/lib/src/verus_proofs/**'
+      - 'lean/**'
+      - 'MODULE.bazel'
+  pull_request:
+    paths:
+      - 'src/lib/src/verus_proofs/**'
+      - 'lean/**'
+      - 'MODULE.bazel'
+  workflow_dispatch:
+
+jobs:
+  verus-proofs:
+    name: Verus SMT Verification
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup Bazel
+      uses: bazel-contrib/setup-bazel@0.14.0
+      with:
+        bazelisk-cache: true
+        disk-cache: ${{ github.workflow }}
+        repository-cache: true
+
+    - name: Verify Merkle proofs (CV-20, CV-21)
+      run: bazel build //src/lib/src/verus_proofs:wsc_merkle_proofs
+      continue-on-error: true
+
+    - name: Run Verus tests
+      run: bazel test //src/lib/src/verus_proofs:wsc_merkle_verify
+      continue-on-error: true
+
+  kani-proofs:
+    name: Kani Bounded Model Checking
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Kani
+      run: |
+        cargo install --locked kani-verifier
+        cargo kani setup
+
+    - name: Run Kani proofs
+      run: cargo kani --tests
+      continue-on-error: true
