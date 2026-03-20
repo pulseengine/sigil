@@ -122,6 +122,13 @@ pub mod transcoding;
 /// Addresses UCA-18 through UCA-21 from STPA-Sec analysis.
 pub mod container;
 
+/// Post-quantum cryptography support (SLH-DSA / FIPS 205)
+///
+/// Trait-based abstraction for post-quantum signature schemes alongside
+/// classical Ed25519. Defines SLH-DSA parameter sets and hybrid signing
+/// for the PQC transition period.
+pub mod pqc;
+
 /// Build environment attestation for SLSA provenance
 ///
 /// Captures build environment metadata (Rust, Bazel, Nix versions, platform)

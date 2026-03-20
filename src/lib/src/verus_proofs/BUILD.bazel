@@ -1,0 +1,25 @@
+load("@rules_verus//verus:defs.bzl", "verus_library", "verus_test")
+
+# Merkle tree inclusion proof soundness (CV-20) and anti-rollback (CV-21)
+verus_library(
+    name = "wsc_merkle_proofs",
+    srcs = [
+        "mod.rs",
+        "merkle_proofs.rs",
+        "dsse_proofs.rs",
+    ],
+    crate_root = "mod.rs",
+    crate_name = "wsc_verus_proofs",
+    visibility = ["//visibility:public"],
+)
+
+verus_test(
+    name = "wsc_merkle_verify",
+    srcs = [
+        "mod.rs",
+        "merkle_proofs.rs",
+        "dsse_proofs.rs",
+    ],
+    crate_root = "mod.rs",
+    crate_name = "wsc_verus_proofs",
+)
