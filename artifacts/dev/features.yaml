@@ -364,3 +364,54 @@ artifacts:
     links:
       - type: satisfies
         target: FEAT-4
+
+  - id: FEAT-7
+    type: feature
+    title: Cosign delegation with binary integrity verification
+    status: in-progress
+    description: >
+      Safe cosign subprocess delegation for container image signing with
+      binary integrity verification (AS-20), tag-to-digest resolution
+      (AS-18), digest-bound signatures (AS-21), and OCI image reference
+      parsing. Phase 3.1 of the STPA-Sec roadmap.
+    fields:
+      phase: phase-3
+    links:
+      - type: satisfies
+        target: REQ-2
+
+  - id: FEAT-8
+    type: feature
+    title: Rekor inclusion proof caching
+    status: in-progress
+    description: >
+      TTL-based cache for verified Rekor inclusion proofs to provide
+      availability resilience during transient Rekor outages. Cache is
+      optimization-only and never weakens fail-closed guarantees (DD-2).
+      Phase 4.1 of the STPA-Sec roadmap.
+    fields:
+      phase: phase-4
+    links:
+      - type: satisfies
+        target: REQ-2
+
+  - id: DD-6
+    type: design-decision
+    title: Cosign subprocess delegation over native sigstore-rs
+    status: approved
+    description: >
+      Delegate container signing to the cosign binary rather than
+      implementing OCI signing natively. Reduces attack surface from
+      protobuf and registry client dependencies while leveraging
+      cosign's ecosystem maturity.
+    fields:
+      rationale: >
+        Cosign is the de facto standard for container signing with wide
+        ecosystem support. Native implementation via sigstore-rs would
+        add significant protobuf, OCI client, and registry dependencies
+        to the security-critical codebase. Binary delegation with
+        integrity verification (SHA-256 hash check) limits trust to the
+        verified cosign binary.
+      alternatives: >
+        sigstore-rs native (full control, no subprocess, but heavy deps),
+        notation (Microsoft alternative, less ecosystem adoption)
