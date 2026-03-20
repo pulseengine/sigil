@@ -161,6 +161,11 @@ jobs:
 
     - name: Install Cosign
       uses: sigstore/cosign-installer@v3
+      with:
+        cosign-release: 'v2.4.1'
+
+    - name: Verify cosign version
+      run: cosign version
 
     - name: Build WASM Components
       run: |
@@ -328,20 +333,44 @@ jobs:
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
         echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
 
-    - name: Sign OCI Images with Cosign
+    - name: Install crane
+      uses: imjasonh/setup-crane@v0.4
+
+    - name: Resolve image digests
+      id: digest
       run: |
-        # Sign using keyless signing with GitHub OIDC
+        COMPONENT_DIGEST=$(crane digest "${IMAGE_TAG}")
+        echo "component=${COMPONENT_DIGEST}" >> "$GITHUB_OUTPUT"
+        echo "Resolved ${IMAGE_TAG} to ${COMPONENT_DIGEST}"
+
+        LATEST_DIGEST=$(crane digest "${IMAGE_LATEST}")
+        echo "latest=${LATEST_DIGEST}" >> "$GITHUB_OUTPUT"
+        echo "Resolved ${IMAGE_LATEST} to ${LATEST_DIGEST}"
+
+        if [ -n "${CLI_TAG:-}" ]; then
+          CLI_DIGEST=$(crane digest "${CLI_TAG}")
+          echo "cli=${CLI_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${CLI_TAG} to ${CLI_DIGEST}"
+
+          CLI_LATEST_DIGEST=$(crane digest "${CLI_LATEST}")
+          echo "cli_latest=${CLI_LATEST_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${CLI_LATEST} to ${CLI_LATEST_DIGEST}"
+        fi
+
+    - name: Sign OCI Images with Cosign (digest-bound)
+      run: |
+        # Sign using keyless signing with GitHub OIDC, binding to digest
         echo "Signing wsc component..."
-        cosign sign --yes "${IMAGE_TAG}"
-        cosign sign --yes "${IMAGE_LATEST}"
+        cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}"
+        cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.latest }}"
 
         if [ -n "${CLI_TAG:-}" ]; then
           echo "Signing wsc CLI..."
-          cosign sign --yes "${CLI_TAG}"
-          cosign sign --yes "${CLI_LATEST}"
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
+          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli_latest }}"
         fi
 
-        echo "✅ OCI images signed with Cosign (keyless)"
+        echo "OCI images signed with Cosign (keyless, digest-bound)"
 
     - name: Generate SLSA Provenance
       run: |
@@ -379,31 +408,40 @@ jobs:
         }
         EOF
 
-        # Attest the provenance for component
+        # Attest the provenance for component (digest-bound)
         cosign attest --yes \
           --predicate provenance.json \
           --type slsaprovenance \
-          "${IMAGE_TAG}"
+          "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}"
 
-        # Attest the provenance for CLI if it exists
+        # Attest the provenance for CLI if it exists (digest-bound)
         if [ -n "${CLI_TAG:-}" ]; then
           cosign attest --yes \
             --predicate provenance.json \
             --type slsaprovenance \
-            "${CLI_TAG}"
+            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
         fi
 
         echo "✅ SLSA provenance attestation created"
 
     - name: Verify Signatures
       run: |
-        # Verify the signature
+        # Verify the signature (digest-bound)
         cosign verify \
           --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
           --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-          "${IMAGE_TAG}" || echo "Note: Signature verification may require specific conditions"
+          "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}" || echo "Note: Signature verification may require specific conditions"
 
-        echo "✅ Signature verification completed"
+        echo "Signature verification completed"
+
+    - name: Capture build environment
+      run: |
+        echo "rustc: $(rustc --version)" >> build-env.txt
+        echo "cargo: $(cargo --version)" >> build-env.txt
+        echo "bazel: $(cat .bazelversion)" >> build-env.txt
+        echo "cosign: $(cosign version 2>&1 | head -1)" >> build-env.txt
+        echo "platform: $(uname -sm)" >> build-env.txt
+        cat build-env.txt
 
     - name: Download Native CLI Artifacts
       uses: actions/download-artifact@v4
