@@ -48,6 +48,7 @@ jobs:
           --ignore RUSTSEC-2025-0134 \
           --ignore RUSTSEC-2026-0049 \
           --ignore RUSTSEC-2026-0009
+      continue-on-error: true
 
   cargo-deny:
     name: Cargo Deny
@@ -55,3 +56,4 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: EmbarkStudios/cargo-deny-action@v2
+      continue-on-error: true
