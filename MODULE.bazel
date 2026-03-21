@@ -124,6 +124,7 @@ use_repo(verus, "verus_toolchains")
 register_toolchains("@verus_toolchains//:all")
 
 # Lean4 formal verification (CV-24)
+# rules_lean configures its own toolchain and Mathlib internally
 bazel_dep(name = "rules_lean", version = "0.1.0")
 
 git_override(
@@ -131,12 +132,3 @@ git_override(
     commit = "b83f3d1fd1ac9b955dbf8f36ee22769bf281d64e",
     remote = "https://github.com/pulseengine/rules_lean.git",
 )
-
-# Configure Lean toolchain with Mathlib
-lean = use_extension("@rules_lean//lean:extensions.bzl", "lean")
-lean.toolchain(version = "4.27.0")
-lean.mathlib(rev = "v4.27.0")
-
-use_repo(lean, "lean_toolchains", "mathlib")
-
-register_toolchains("@lean_toolchains//:all")
