@@ -1,11 +1,19 @@
+[graph]
+targets = []
+all-features = false
+
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Known advisories in transitive deps — track for upstream fixes
+ignore = [
+    "RUSTSEC-2026-0007",  # bytes: integer overflow in BytesMut::reserve (transitive via reqwest)
+    "RUSTSEC-2025-0134",  # rustls-pemfile: unmaintained (transitive via rustls)
+    "RUSTSEC-2026-0049",  # webpki: CRL Distribution Point matching (transitive via rustls-webpki)
+    "RUSTSEC-2026-0009",  # yasna: stack exhaustion in recursive parsing (transitive via x509-parser)
+]
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -19,8 +27,8 @@ allow = [
     "BSL-1.0",
     "CC0-1.0",
     "MPL-2.0",
+    "CDLA-Permissive-2.0",
 ]
-copyleft = "deny"
 
 [bans]
 multiple-versions = "warn"
