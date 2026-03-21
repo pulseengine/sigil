@@ -500,6 +500,7 @@ mod proofs {
     /// This prevents type confusion attacks where a signed envelope
     /// could be reinterpreted with a different payload type.
     #[kani::proof]
+    #[kani::unwind(48)]
     fn proof_pae_injective_different_types() {
         // Two different type strings with the same payload must produce different PAE
         let payload = [0u8; 4];
@@ -510,6 +511,7 @@ mod proofs {
 
     /// Prove: PAE is injective — same type with different payloads.
     #[kani::proof]
+    #[kani::unwind(24)]
     fn proof_pae_injective_different_payloads() {
         let b0: u8 = kani::any();
         let b1: u8 = kani::any();
@@ -522,6 +524,7 @@ mod proofs {
 
     /// Prove: PAE is deterministic.
     #[kani::proof]
+    #[kani::unwind(24)]
     fn proof_pae_deterministic() {
         let b: u8 = kani::any();
         let pae1 = compute_pae("test-type", &[b]);
@@ -531,6 +534,7 @@ mod proofs {
 
     /// Prove: PAE output always starts with "DSSEv1 " prefix.
     #[kani::proof]
+    #[kani::unwind(20)]
     fn proof_pae_has_dsse_prefix() {
         let b: u8 = kani::any();
         let pae = compute_pae("t", &[b]);
@@ -542,6 +546,7 @@ mod proofs {
     /// A type "ab" with payload "cd" must produce different PAE than
     /// type "a" with payload "bcd" (the length prefix disambiguates).
     #[kani::proof]
+    #[kani::unwind(24)]
     fn proof_pae_length_prefix_prevents_ambiguity() {
         let pae_a = compute_pae("ab", b"cd");
         let pae_b = compute_pae("a", b"bcd");

@@ -61,4 +61,3 @@ jobs:
     - name: Run Kani proofs (19 harnesses)
       run: cargo kani -p wsc --default-unwind 4 --output-format terse
       timeout-minutes: 60
-      continue-on-error: true
