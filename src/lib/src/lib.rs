@@ -129,6 +129,13 @@ pub mod container;
 /// for the PQC transition period.
 pub mod pqc;
 
+/// Signed Certificate Timestamp (SCT) monitoring (Phase 4.2)
+///
+/// Monitors Certificate Transparency logs for certificate mis-issuance.
+/// SCTs prove a certificate was submitted to a CT log before issuance,
+/// enabling detection of rogue CA certificates.
+pub mod sct;
+
 /// Build environment attestation for SLSA provenance
 ///
 /// Captures build environment metadata (Rust, Bazel, Nix versions, platform)

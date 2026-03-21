@@ -1272,7 +1272,7 @@ artifacts:
       version, target architecture, and compilation parameters. Wrapped
       in DSSE envelope for tamper evidence.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-17
       - type: refines
         target: CD-7
@@ -1286,7 +1286,7 @@ artifacts:
       to exact versions via flake.lock. Deterministic development shell
       ensures identical toolchains across contributors and CI runners.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-4
 
   - id: CV-25
@@ -1329,7 +1329,7 @@ artifacts:
       provenance internalParameters. Supports both auto-detection and
       CI environment variable configuration via WSC_* prefix.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-4
 
   - id: CV-27
@@ -1356,7 +1356,7 @@ artifacts:
       expected value before subprocess invocation. Version check ensures
       expected cosign release. Prevents AS-20 cosign supply chain attack.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-4
 
   - id: CD-21
@@ -1368,7 +1368,7 @@ artifacts:
       mutable tags to immutable digests via crane/skopeo before cosign
       invocation. Prevents AS-18 tag mutation attacks.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-4
 
   - id: CD-22
@@ -1381,7 +1381,7 @@ artifacts:
       via Mutex. Pluggable backend via ProofCacheBackend trait.
       Cache is optimization-only per DD-2 fail-closed guarantee.
     links:
-      - type: refines
+      - type: satisfies
         target: CR-5
 
   - id: CV-28

@@ -5,6 +5,8 @@
 /// are only available on native targets (not wasm32).
 pub mod cert_pinning;
 pub mod cert_verifier;
+/// Rekor checkpoint (Signed Tree Head) consistency verification (Phase 4.3)
+pub mod checkpoint;
 /// Rate limiting for Sigstore API endpoints (Issue #6)
 pub mod rate_limit;
 /// Keyless signing support for wsc
