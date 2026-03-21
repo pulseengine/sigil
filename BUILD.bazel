@@ -67,4 +67,6 @@ filegroup(
 exports_files([
     "Cargo.toml",
     "Cargo.lock",
+    "SECURITY.md",
+    "AGENTS.md",
 ])

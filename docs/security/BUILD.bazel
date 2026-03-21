@@ -1,0 +1,4 @@
+exports_files([
+    "INTEGRATION_GUIDANCE.md",
+    "RISK_ASSESSMENT.md",
+])

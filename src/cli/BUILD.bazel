@@ -20,6 +20,14 @@ VERSION = "0.2.7"
 rust_binary(
     name = "wasmsign_cli",
     srcs = ["main.rs", "docs.rs"],
+    compile_data = [
+        "//:SECURITY.md",
+        "//:AGENTS.md",
+        "//docs:THREAT_MODEL.md",
+        "//docs:slsa-compliance.md",
+        "//docs/security:INTEGRATION_GUIDANCE.md",
+        "//docs/security:RISK_ASSESSMENT.md",
+    ],
     crate_name = "wsc_cli",
     edition = "2024",
     rustc_env = {

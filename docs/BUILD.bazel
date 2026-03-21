@@ -1,0 +1,4 @@
+exports_files([
+    "THREAT_MODEL.md",
+    "slsa-compliance.md",
+])
