@@ -415,6 +415,9 @@ artifacts:
       alternatives: >
         sigstore-rs native (full control, no subprocess, but heavy deps),
         notation (Microsoft alternative, less ecosystem adoption)
+    links:
+      - type: satisfies
+        target: REQ-2
 
   - id: DD-7
     type: design-decision
@@ -438,6 +441,9 @@ artifacts:
       alternatives: >
         Separate spec files (spec drift risk), Rocq-only (no SMT
         automation), Lean-only (poor Rust integration)
+    links:
+      - type: satisfies
+        target: REQ-9
 
   - id: REQ-14
     type: requirement

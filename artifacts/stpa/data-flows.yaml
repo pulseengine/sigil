@@ -480,10 +480,13 @@ artifacts:
     fields:
       source: CTRL-3
       destination: CP-5
-      data-classification: integrity-critical
+      data-type: attestation-chain
+      sensitivity: integrity-critical
     links:
       - type: flows-from
-        target: DF-5
+        target: CTRL-3
+      - type: flows-to
+        target: CP-5
       - type: carries
         target: SP-2
       - type: carries
