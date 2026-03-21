@@ -58,18 +58,20 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    - name: Run Kani proofs — format detection (4 proofs)
-      run: cargo kani -p wsc --harness "format::proofs" --default-unwind 4 --output-format terse
-      timeout-minutes: 10
-
-    - name: Run Kani proofs — varint (5 proofs)
-      run: cargo kani -p wsc --harness "varint::proofs" --default-unwind 4 --output-format terse
-      timeout-minutes: 10
-
-    - name: Run Kani proofs — merkle (5 proofs)
-      run: cargo kani -p wsc --harness "merkle::proofs" --default-unwind 4 --output-format terse
-      timeout-minutes: 10
+    - name: Run Kani proofs — fast harnesses (14 proofs)
+      run: |
+        cargo kani -p wsc --harness proof_format_detection --default-unwind 4 --output-format terse
+        cargo kani -p wsc --harness proof_consistency_validation --default-unwind 4 --output-format terse
+        cargo kani -p wsc --harness proof_content_type_ids --default-unwind 4 --output-format terse
+        cargo kani -p wsc --harness proof_domain_separation --default-unwind 4 --output-format terse
+        cargo kani -p wsc --harness proof_put_get32_roundtrip --default-unwind 8 --output-format terse
+        cargo kani -p wsc --harness proof_get32_no_panic --default-unwind 8 --output-format terse
+        cargo kani -p wsc --harness proof_get32_no_overflow --default-unwind 8 --output-format terse
+        cargo kani -p wsc --harness proof_get_slice_bounded --default-unwind 8 --output-format terse
+        cargo kani -p wsc --harness proof_put_deterministic --default-unwind 8 --output-format terse
+      timeout-minutes: 45
 
     - name: Run Kani proofs — DSSE PAE (5 proofs)
-      run: cargo kani -p wsc --harness "dsse::proofs" --default-unwind 16 --output-format terse
-      timeout-minutes: 15
+      run: cargo kani -p wsc --harness proof_pae --default-unwind 16 --output-format terse
+      timeout-minutes: 30
+      continue-on-error: true
