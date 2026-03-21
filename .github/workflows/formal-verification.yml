@@ -4,14 +4,20 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/lib/src/verus_proofs/**'
+      - 'src/lib/src/**'
+      - 'src/lib/tests/**'
       - 'lean/**'
       - 'MODULE.bazel'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   pull_request:
     paths:
-      - 'src/lib/src/verus_proofs/**'
+      - 'src/lib/src/**'
+      - 'src/lib/tests/**'
       - 'lean/**'
       - 'MODULE.bazel'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
   workflow_dispatch:
 
 jobs:
@@ -42,6 +48,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+
     - name: Install Kani
       run: |
         cargo install --locked kani-verifier
@@ -49,4 +60,3 @@ jobs:
 
     - name: Run Kani proofs
       run: cargo kani --tests
-      continue-on-error: true
