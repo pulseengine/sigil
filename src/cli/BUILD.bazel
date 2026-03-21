@@ -19,7 +19,7 @@ VERSION = "0.2.7"
 
 rust_binary(
     name = "wasmsign_cli",
-    srcs = ["main.rs"],
+    srcs = ["main.rs", "docs.rs"],
     crate_name = "wsc_cli",
     edition = "2024",
     rustc_env = {
