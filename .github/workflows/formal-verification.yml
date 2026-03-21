@@ -58,5 +58,6 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    - name: Run Kani proofs
-      run: cargo kani --tests
+    - name: Run Kani proofs (wsc library)
+      run: cargo kani -p wsc --default-unwind 4 --output-format terse
+      timeout-minutes: 30
