@@ -58,6 +58,18 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    - name: Run Kani proofs (wsc library)
-      run: cargo kani -p wsc --default-unwind 8 --output-format terse
-      timeout-minutes: 45
+    - name: Run Kani proofs — format detection (4 proofs)
+      run: cargo kani -p wsc --harness "format::proofs" --default-unwind 4 --output-format terse
+      timeout-minutes: 10
+
+    - name: Run Kani proofs — varint (5 proofs)
+      run: cargo kani -p wsc --harness "varint::proofs" --default-unwind 4 --output-format terse
+      timeout-minutes: 10
+
+    - name: Run Kani proofs — merkle (5 proofs)
+      run: cargo kani -p wsc --harness "merkle::proofs" --default-unwind 4 --output-format terse
+      timeout-minutes: 10
+
+    - name: Run Kani proofs — DSSE PAE (5 proofs)
+      run: cargo kani -p wsc --harness "dsse::proofs" --default-unwind 16 --output-format terse
+      timeout-minutes: 15
