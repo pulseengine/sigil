@@ -22,6 +22,8 @@ use std::fs::File;
 use std::io::{BufReader, prelude::*};
 use std::path::Path;
 
+mod docs;
+
 /// Helper function to create a file with parent directories
 fn create_file_with_dirs(path: impl AsRef<Path>) -> Result<File, WSError> {
     let path = path.as_ref();
@@ -614,6 +616,28 @@ fn start() -> Result<(), WSError> {
                         .help("Read versions from WSC_* environment variables"),
                 ),
         )
+        .subcommand(
+            Command::new("docs")
+                .about("Browse embedded documentation")
+                .arg(
+                    Arg::new("topic")
+                        .value_name("TOPIC")
+                        .help("Documentation topic to display"),
+                )
+                .arg(
+                    Arg::new("search")
+                        .long("search")
+                        .short('s')
+                        .value_name("QUERY")
+                        .help("Search across all documentation"),
+                )
+                .arg(
+                    Arg::new("list")
+                        .long("list")
+                        .action(ArgAction::SetTrue)
+                        .help("List available topics"),
+                ),
+        )
         .get_matches();
 
     let verbose = matches.get_flag("verbose");
@@ -1061,6 +1085,17 @@ fn start() -> Result<(), WSError> {
             }
             if env.is_reproducible() {
                 println!("\n  [reproducible: nix flake lock pinned]");
+            }
+        }
+    } else if let Some(matches) = matches.subcommand_matches("docs") {
+        if matches.get_flag("list") || (matches.get_one::<String>("topic").is_none() && matches.get_one::<String>("search").is_none()) {
+            docs::list_topics();
+        } else if let Some(query) = matches.get_one::<String>("search") {
+            docs::search_topics(query);
+        } else if let Some(topic) = matches.get_one::<String>("topic") {
+            if !docs::show_topic(topic) {
+                eprintln!("Unknown topic: '{}'. Use 'wsc docs --list' to see available topics.", topic);
+                return Err(WSError::UsageError("Unknown documentation topic"));
             }
         }
     } else {

@@ -15,6 +15,10 @@ categories = ["cryptography", "wasm"]
 name = "wsc"
 path = "main.rs"
 
+[[bin]]
+name = "sigil"
+path = "main.rs"
+
 [dependencies]
 clap = { version = "4.5.50", default-features = false, features = [
     "std",
