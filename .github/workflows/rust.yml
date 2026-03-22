@@ -246,3 +246,33 @@ jobs:
         name: rekor-fresh-data
         path: rekor-data.txt
         retention-days: 7
+
+  coverage:
+    name: Code Coverage
+    needs: [build-matrix]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@nightly
+    - uses: Swatinem/rust-cache@v2
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-llvm-cov
+    - name: Generate coverage (LCOV + HTML)
+      run: |
+        cargo llvm-cov -p wsc --lcov --output-path lcov.info
+        cargo llvm-cov -p wsc --html --output-dir coverage-html
+    - name: Upload LCOV to Codecov
+      if: env.CODECOV_TOKEN != ''
+      uses: codecov/codecov-action@v4
+      with:
+        files: lcov.info
+        fail_ci_if_error: false
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    - name: Upload HTML coverage report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-html
+        path: coverage-html/

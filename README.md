@@ -7,6 +7,7 @@
 &nbsp;
 
 [![CI](https://github.com/pulseengine/sigil/actions/workflows/rust.yml/badge.svg)](https://github.com/pulseengine/sigil/actions/workflows/rust.yml)
+[![codecov](https://codecov.io/gh/pulseengine/sigil/graph/badge.svg)](https://codecov.io/gh/pulseengine/sigil)
 ![Rust](https://img.shields.io/badge/Rust-CE422B?style=flat-square&logo=rust&logoColor=white&labelColor=1a1b27)
 ![Sigstore](https://img.shields.io/badge/Sigstore-keyless_signing-654FF0?style=flat-square&labelColor=1a1b27)
 ![SLSA](https://img.shields.io/badge/SLSA-L4_provenance-00C853?style=flat-square&labelColor=1a1b27)
