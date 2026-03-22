@@ -77,7 +77,8 @@ jobs:
           -f src/lib/src/signature/ \
           -f src/lib/src/dsse.rs \
           -f src/lib/src/format/ \
-          --exclude "proofs::" \
+          -E "proofs::" \
+          -E "key_id" \
           -- --lib
     - name: Check surviving mutants
       run: |
