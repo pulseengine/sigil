@@ -485,6 +485,58 @@ mod tests {
         assert!(payload_types::CYCLONEDX.contains("cyclonedx"));
         assert!(payload_types::SLSA_PROVENANCE.contains("slsa"));
     }
+
+    #[test]
+    fn test_key_id_propagation() {
+        let (sk, _pk) = generate_test_keypair();
+        let signer_with_id = Ed25519DsseSigner::new(sk.clone(), Some("my-key-id".to_string()));
+        assert_eq!(signer_with_id.key_id(), Some("my-key-id".to_string()));
+
+        let signer_no_id = Ed25519DsseSigner::new(sk, None);
+        assert_eq!(signer_no_id.key_id(), None);
+    }
+
+    #[test]
+    fn test_verify_all_returns_correct_payload() {
+        let (sk, pk) = generate_test_keypair();
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let payload = b"verify_all test payload";
+        let envelope = DsseEnvelope::sign(payload, "text/plain", &signer).unwrap();
+
+        let result = envelope.verify_all(&verifier).unwrap();
+        assert_eq!(result, payload);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_verify_all_rejects_empty_signatures() {
+        let (_sk, pk) = generate_test_keypair();
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let envelope = DsseEnvelope::unsigned(b"no sigs", "text/plain");
+        assert!(envelope.verify_all(&verifier).is_err());
+    }
+
+    #[test]
+    fn test_to_json_pretty_valid_output() {
+        let (sk, _pk) = generate_test_keypair();
+        let signer = Ed25519DsseSigner::new(sk, Some("pretty-key".to_string()));
+
+        let envelope = DsseEnvelope::sign(b"pretty test", "text/plain", &signer).unwrap();
+        let json = envelope.to_json_pretty().unwrap();
+
+        assert!(json.contains("payload"));
+        assert!(json.contains("payloadType"));
+        assert!(json.contains("signatures"));
+        assert!(json.contains('\n')); // Pretty-printed has newlines
+        assert!(!json.is_empty());
+
+        // Must roundtrip
+        let parsed = DsseEnvelope::from_json(&json).unwrap();
+        assert_eq!(parsed.payload, envelope.payload);
+    }
 }
 
 // ============================================================================
