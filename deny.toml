@@ -1,0 +1,49 @@
+[graph]
+targets = []
+all-features = false
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Transitive advisories we cannot fix directly — tracked for upstream resolution
+ignore = [
+    # wasmtime (optional 'runtime' feature — not in production CLI builds)
+    "RUSTSEC-2025-0046",  # wasmtime: fd_renumber host panic
+    "RUSTSEC-2025-0118",  # wasmtime: unsound shared memory API
+    "RUSTSEC-2026-0006",  # wasmtime: f64.copysign segfault on x86-64
+    "RUSTSEC-2026-0020",  # wasmtime: WASI resource exhaustion
+    "RUSTSEC-2026-0021",  # wasmtime: wasi:http fields panic
+    # Transitive unmaintained crates — no alternative available
+    "RUSTSEC-2025-0057",  # fxhash: unmaintained (transitive via wasmtime)
+    "RUSTSEC-2025-0134",  # rustls-pemfile: unmaintained (transitive via rustls)
+    "RUSTSEC-2024-0436",  # paste: unmaintained (transitive via wasmtime)
+]
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "OpenSSL",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT-0",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

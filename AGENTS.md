@@ -10,7 +10,7 @@ This project uses **Rivet** for SDLC artifact traceability.
 - Config: `rivet.yaml`
 - Schemas: common, dev, stpa, stpa-sec, cybersecurity
 - Artifacts: 340 across 23 types
-- Validation: `rivet validate` (current status: 31 errors)
+- Validation: `rivet validate` (current status: 9 errors)
 
 ## Available Commands
 
