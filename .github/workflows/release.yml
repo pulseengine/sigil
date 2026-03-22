@@ -21,6 +21,24 @@ env:
   RUST_VERSION: "1.90.0"
 
 jobs:
+  # Generate compliance report from rivet artifacts
+  build-compliance:
+    name: Build compliance report
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Generate compliance report
+      id: report
+      uses: pulseengine/rivet/.github/actions/compliance@main
+      with:
+        theme: dark
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: compliance-report
+        path: ${{ steps.report.outputs.archive-path }}
+
   # Build native CLI binaries for all platforms
   build-native-cli:
     name: Build CLI (${{ matrix.target }})
@@ -140,7 +158,7 @@ jobs:
       contents: write
       packages: write
       id-token: write  # For Cosign keyless signing
-    needs: [publish-crates, build-native-cli]
+    needs: [publish-crates, build-native-cli, build-compliance]
 
     steps:
     - name: Checkout code
@@ -476,10 +494,19 @@ jobs:
         pattern: wsc-*
         merge-multiple: true
 
+    - name: Download Compliance Report
+      uses: actions/download-artifact@v4
+      with:
+        name: compliance-report
+        path: compliance/
+      continue-on-error: true
+
     - name: List downloaded artifacts
       run: |
         echo "Downloaded native CLI artifacts:"
         ls -la native-cli/ || echo "No native-cli directory"
+        echo "Compliance report:"
+        ls -la compliance/ || echo "No compliance directory"
         find . -name "wsc-*" -type f | head -20
 
     - name: Upload Release Assets
@@ -503,6 +530,7 @@ jobs:
           native-cli/wsc-macos-aarch64.sha256
           native-cli/wsc-windows-x86_64.exe
           native-cli/wsc-windows-x86_64.exe.sha256
+          compliance/*
         body: |
           ## 🎉 wsc v${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }} Release
 
