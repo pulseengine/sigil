@@ -59,3 +59,42 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: EmbarkStudios/cargo-deny-action@v2
+
+  mutants:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@nightly
+    - uses: Swatinem/rust-cache@v2
+    - name: Install cargo-mutants
+      uses: taiki-e/install-action@v2
+      with:
+        tool: cargo-mutants
+    - name: Run mutation testing on security-critical modules
+      run: |
+        cargo mutants -p wsc --timeout 120 --jobs 4 --output mutants-out \
+          -f src/lib/src/signature/ \
+          -f src/lib/src/dsse.rs \
+          -f src/lib/src/format/ \
+          -- --lib
+    - name: Check surviving mutants
+      run: |
+        if [ -f mutants-out/missed.txt ]; then
+          MISSED=$(wc -l < mutants-out/missed.txt | tr -d ' ')
+        else
+          MISSED=0
+        fi
+        echo "Surviving mutants: $MISSED"
+        if [ "$MISSED" -gt 0 ]; then
+          echo "::error::$MISSED mutant(s) survived — tests must catch all mutations in security-critical code"
+          cat mutants-out/missed.txt | head -30
+          exit 1
+        fi
+        echo "All mutants killed!"
+    - name: Upload mutants report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: mutants-report
+        path: mutants-out/
