@@ -33,6 +33,7 @@ jobs:
       uses: pulseengine/rivet/.github/actions/compliance@main
       with:
         theme: dark
+        rivet-version: v0.3.0
 
     - uses: actions/upload-artifact@v4
       with:
@@ -158,7 +159,7 @@ jobs:
       contents: write
       packages: write
       id-token: write  # For Cosign keyless signing
-    needs: [publish-crates, build-native-cli, build-compliance]
+    needs: [publish-crates, build-native-cli]
 
     steps:
     - name: Checkout code
