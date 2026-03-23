@@ -132,7 +132,7 @@ jobs:
 
   publish-crates:
     # Only publish on tag pushes to prevent race condition with main branch
-    if: github.repository == 'pulseengine/wsc' && github.ref_type == 'tag'
+    if: github.repository == 'pulseengine/sigil' && github.ref_type == 'tag'
     name: Publish Rust Crates
     runs-on: ubuntu-latest
     permissions:
@@ -160,6 +160,7 @@ jobs:
       packages: write
       id-token: write  # For Cosign keyless signing
     needs: [publish-crates, build-native-cli]
+    if: always() && needs.build-native-cli.result == 'success'
 
     steps:
     - name: Checkout code
