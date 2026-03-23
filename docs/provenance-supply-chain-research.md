@@ -401,29 +401,14 @@ pub struct Dependency {
 
 **How Docker/OCI Does It**:
 
-```
-┌─────────────────────────────────────┐
-│ OCI Image Manifest                  │
-├─────────────────────────────────────┤
-│ config                              │
-│ layers: [layer1, layer2, ...]       │
-│ annotations: {                      │
-│   "sbom": "sha256:...",             │
-│   "provenance": "sha256:...",       │
-│   "signature": "sha256:..."         │
-│ }                                   │
-└─────────────────────────────────────┘
-     ↓
-┌─────────────────────────────────────┐
-│ OCI 1.1 Referrers API               │
-├─────────────────────────────────────┤
-│ Subject: {digest: "sha256:..."}     │
-│                                     │
-│ ├─ BuildAttestation                 │
-│ ├─ SBOM (Syft, Trivy)               │
-│ ├─ Signature (Sigstore)             │
-│ └─ Scan results                     │
-└─────────────────────────────────────┘
+```mermaid
+graph TD
+    MANIFEST["OCI Image Manifest<br/>config<br/>layers: [layer1, layer2, ...]<br/>annotations: sbom, provenance, signature"]
+    MANIFEST --> REFERRERS["OCI 1.1 Referrers API<br/>Subject: digest sha256:..."]
+    REFERRERS --> BA[BuildAttestation]
+    REFERRERS --> SBOM["SBOM (Syft, Trivy)"]
+    REFERRERS --> SIG["Signature (Sigstore)"]
+    REFERRERS --> SCAN[Scan results]
 ```
 
 **Lessons for WASM**:

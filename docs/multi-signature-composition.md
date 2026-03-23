@@ -14,35 +14,18 @@ This document describes how to sign WASM components with multiple signatures for
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ WASM Module Signature Structure                             │
-├─────────────────────────────────────────────────────────────┤
-│ Signature Header (custom section "wasmsig")                 │
-│   ├─ SignatureData                                          │
-│   │   ├─ SignedHashes[0]                                    │
-│   │   │   ├─ hashes: [hash1, hash2, ...]                    │
-│   │   │   └─ signatures: [                                  │
-│   │   │       ├─ Signature 1 (Owner)                        │
-│   │   │       │   ├─ key_id: None                           │
-│   │   │       │   ├─ signature: <Ed25519 64 bytes>          │
-│   │   │       │   └─ certificate_chain: [                   │
-│   │   │       │       ├─ owner_device_cert                  │
-│   │   │       │       ├─ owner_intermediate_ca              │
-│   │   │       │       └─ owner_root_ca                      │
-│   │   │       │     ]                                       │
-│   │   │       └─ Signature 2 (Integrator)                   │
-│   │   │           ├─ key_id: None                           │
-│   │   │           ├─ signature: <Ed25519 64 bytes>          │
-│   │   │           └─ certificate_chain: [                   │
-│   │   │               ├─ integrator_device_cert             │
-│   │   │               ├─ integrator_intermediate_ca         │
-│   │   │               └─ integrator_root_ca                 │
-│   │   │             ]                                       │
-│   │   │     ]                                               │
-│   │   └─ SignedHashes[1] (if sections added with delimiters)│
-│   └─ ...                                                    │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    HEADER["Signature Header<br/>(custom section 'wasmsig')"]
+    HEADER --> SD[SignatureData]
+    SD --> SH0["SignedHashes[0]"]
+    SH0 --> HASHES["hashes: [hash1, hash2, ...]"]
+    SH0 --> SIGS[signatures]
+    SIGS --> SIG1["Signature 1 (Owner)<br/>key_id: None<br/>signature: Ed25519 64 bytes"]
+    SIGS --> SIG2["Signature 2 (Integrator)<br/>key_id: None<br/>signature: Ed25519 64 bytes"]
+    SIG1 --> CHAIN1["certificate_chain:<br/>owner_device_cert<br/>owner_intermediate_ca<br/>owner_root_ca"]
+    SIG2 --> CHAIN2["certificate_chain:<br/>integrator_device_cert<br/>integrator_intermediate_ca<br/>integrator_root_ca"]
+    SD --> SH1["SignedHashes[1]<br/>(if sections added with delimiters)"]
 ```
 
 ## Workflow
