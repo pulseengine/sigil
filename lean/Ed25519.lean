@@ -12,10 +12,11 @@
 
   ## Status
 
-  - `verification_equation_sound`: proof sketch, needs Mathlib ZMod
-  - `verification_equation_complete`: needs prime-order argument
-  - `cofactored_verification_sound`: follows from above
-  - `basepoint_prime_order`: needs Mathlib OrderOf
+  - `scalarMul_mul_order`: proven (via scalarMul_zero_point axiom)
+  - `verification_equation_sound`: proven (full mechanized proof)
+  - `verification_equation_complete`: needs prime-order argument (sorry)
+  - `cofactored_verification_sound`: proven (follows from soundness)
+  - `basepoint_prime_order`: needs Mathlib OrderOf (sorry)
 -/
 
 import Mathlib.GroupTheory.OrderOfElement
@@ -51,7 +52,9 @@ axiom add_zero_curvepoint (P : CurvePoint) :
     (@instHAdd CurvePoint curveGroup.toAddGroup.toAddMonoid.toAdd)
     P (@Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero) = P
 
--- Scalar multiplication of the zero point is zero (needed for scalarMul_mul_order).
+-- Scalar multiplication of the zero point is zero.
+-- This is a consequence of the group action laws: [n]O = [n]([0]P) = [n*0]P = [0]P = O.
+-- We state it as an axiom to avoid threading an arbitrary witness P.
 axiom scalarMul_zero_point (n : ℤ) :
   [n] (@Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero) =
   @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero
@@ -71,12 +74,11 @@ lemma scalarMul_neg_one_add (P : CurvePoint) :
 /-- Scalar multiplication distributes over multiples of ℓ: [m*ℓ]B = [m]([ℓ]B) = [m]O = O. -/
 lemma scalarMul_mul_order (m : ℤ) :
     [m * (Curve25519.ℓ : ℤ)] B = @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero := by
-  -- Strategy: [m*ℓ]B = [m]([ℓ]B) = [m]O = O
-  -- Step 1: Factor using scalarMul_mul
+  -- Step 1: Factor [m*ℓ]B = [m]([ℓ]B) using scalarMul_mul
   rw [scalarMul_mul m (Curve25519.ℓ : ℤ) B]
   -- Step 2: Apply basepoint_order: [ℓ]B = O
   rw [basepoint_order]
-  -- Step 3: [m]O = O (scalar mul of identity is identity)
+  -- Step 3: [m]O = O by scalarMul_zero_point
   exact scalarMul_zero_point m
 
 /-- The order of B divides ℓ (prime order subgroup). -/
@@ -91,6 +93,13 @@ theorem basepoint_prime_order :
   -- Required Mathlib lemmas:
   --   AddGroup.addOrderOf_dvd_of_nsmul_eq_zero
   --   Fact.mk (Nat.Prime Curve25519.ℓ)
+  --
+  -- To fully mechanize this, we would need:
+  --   1. An AddGroup instance on CurvePoint connected to scalarMul
+  --      (our axiom-based scalarMul is separate from the nsmul in curveGroup)
+  --   2. A proof that addOrderOf B = Curve25519.ℓ, which requires showing
+  --      ℓ is the *minimal* positive n with [n]B = O (primality helps here)
+  --   3. Then: addOrderOf_dvd_of_nsmul_eq_zero gives the result
   sorry
 
 /-! ## Main verification theorems -/
@@ -105,42 +114,47 @@ theorem verification_equation_sound
     (hs : s ≡ r + k * a [ZMOD (Curve25519.ℓ : ℤ)]) :
     [s] B = @HAdd.hAdd CurvePoint CurvePoint CurvePoint
       (@instHAdd CurvePoint curveGroup.toAddGroup.toAddMonoid.toAdd) R ([k] A) := by
-  -- Proof strategy:
+  -- Overview:
   -- 1. From hs: ∃ m, s = r + k*a + m*ℓ
   -- 2. [s]B = [r + k*a + m*ℓ]B
-  -- 3.      = [r]B + [k*a]B + [m*ℓ]B   (by scalarMul_add)
-  -- 4.      = R + [k]([a]B) + [m]([ℓ]B) (by scalarMul_mul, hR)
-  -- 5.      = R + [k]A + [m]O            (by basepoint_order, hA)
-  -- 6.      = R + [k]A                   (by add_zero)
+  -- 3.      = [r + k*a]B + [m*ℓ]B       (by scalarMul_add)
+  -- 4.      = [r + k*a]B + O             (by scalarMul_mul_order)
+  -- 5.      = [r + k*a]B                 (by add_zero_curvepoint)
+  -- 6.      = [r]B + [k*a]B              (by scalarMul_add)
+  -- 7.      = [r]B + [k]([a]B)           (by scalarMul_mul)
+  -- 8.      = R + [k]A                   (by hR, hA)
   --
-  -- Detailed proof:
   -- Step 1: Extract the modular congruence witness.
-  -- Int.ModEq gives us: ∃ m, s - (r + k*a) = m * ℓ, i.e., s = r + k*a + m*ℓ.
-  obtain ⟨m, hm⟩ := (Int.modEq_iff_dvd.mp hs)
-  -- hm : ↑ℓ ∣ (s - (r + k * a)), so ∃ m, s - (r + k*a) = m * ℓ
-  -- which means s = (r + k*a) + m * ℓ
-  --
-  -- Step 2: Rewrite [s]B using the decomposition.
-  -- have hs_eq : s = (r + k * a) + m * (Curve25519.ℓ : ℤ) := by omega
-  -- rw [hs_eq]
-  --
-  -- Step 3: Distribute scalar multiplication.
-  -- rw [scalarMul_add (r + k * a) (m * ↑Curve25519.ℓ) B]
-  -- rw [scalarMul_add r (k * a) B]
-  --
-  -- Step 4: Factor [k*a]B = [k]([a]B) and [m*ℓ]B = [m]([ℓ]B).
-  -- rw [scalarMul_mul k a B]
-  -- rw [scalarMul_mul m (↑Curve25519.ℓ) B]
-  --
-  -- Step 5: Apply basepoint_order and hypotheses.
-  -- rw [basepoint_order]          -- [ℓ]B ↦ O
-  -- rw [scalarMul_zero_point m]   -- [m]O ↦ O (needs helper lemma)
-  -- rw [← hA]                     -- [a]B ↦ A
-  -- rw [← hR]                     -- [r]B ↦ R
-  --
-  -- Step 6: R + [k]A + O = R + [k]A by add_zero.
-  -- rw [add_zero_curvepoint (R + [k]A)]  -- ... + O ↦ ...
-  sorry
+  -- Int.ModEq is: s ≡ r + k*a [ZMOD ℓ] ↔ (ℓ : ℤ) ∣ (s - (r + k*a)).
+  -- Int.modEq_iff_dvd.mp gives: (↑ℓ) ∣ (s - (r + k * a)).
+  -- Destructuring the divisibility yields witness m with hm.
+  obtain ⟨m, hm⟩ := Int.modEq_iff_dvd.mp hs
+  -- hm : s - (r + k * a) = ↑ℓ * m
+  -- Derive: s = (r + k * a) + m * ℓ
+  have hs_eq : s = (r + k * a) + m * (Curve25519.ℓ : ℤ) := by omega
+  -- Step 2: Rewrite [s]B using the decomposition s = (r + k*a) + m*ℓ.
+  rw [hs_eq]
+  -- Goal: [r + k * a + m * ↑ℓ]B = R + [k]A
+  -- Step 3: Distribute scalar multiplication over the outer sum.
+  rw [scalarMul_add (r + k * a) (m * (Curve25519.ℓ : ℤ)) B]
+  -- Goal: [r + k*a]B + [m*ℓ]B = R + [k]A
+  -- Step 4: [m*ℓ]B = O via scalarMul_mul_order.
+  rw [scalarMul_mul_order m]
+  -- Goal: [r + k*a]B + O = R + [k]A
+  -- Step 5: Eliminate + O on the left via add_zero_curvepoint.
+  rw [add_zero_curvepoint ([r + k * a] B)]
+  -- Goal: [r + k*a]B = R + [k]A
+  -- Step 6: Distribute scalar multiplication over r + k*a.
+  rw [scalarMul_add r (k * a) B]
+  -- Goal: [r]B + [k*a]B = R + [k]A
+  -- Step 7: Factor [k*a]B = [k]([a]B) via scalarMul_mul.
+  rw [scalarMul_mul k a B]
+  -- Goal: [r]B + [k]([a]B) = R + [k]A
+  -- Step 8: Substitute hypotheses hA and hR.
+  rw [← hA]
+  -- Goal: [r]B + [k]A = R + [k]A
+  rw [← hR]
+  -- Goal: R + [k]A = R + [k]A  ∎
 
 /-- Verification equation completeness: if [s]B = R + [k]A then s ≡ r + k*a (mod ℓ).
     This is the converse direction — a valid verification implies the signer knew a. -/
@@ -156,7 +170,20 @@ theorem verification_equation_complete
   -- So [s - (r+k*a)]B = O. By basepoint_prime_order, ℓ ∣ (s - (r+k*a)),
   -- which is exactly the definition of s ≡ r+k*a (mod ℓ).
   --
-  -- This direction requires injectivity mod ℓ, i.e., basepoint_prime_order.
+  -- Proof sketch (requires basepoint_prime_order, which itself needs sorry):
+  --   rw [hR, hA] at hverify
+  --   -- hverify : [s]B = [r]B + [k]([a]B)
+  --   rw [← scalarMul_mul k a B] at hverify
+  --   -- hverify : [s]B = [r]B + [k*a]B
+  --   rw [← scalarMul_add r (k * a) B] at hverify
+  --   -- hverify : [s]B = [r + k*a]B
+  --   -- Need: [s]B = [r+k*a]B → [s - (r+k*a)]B = O
+  --   -- This requires an injectivity/cancellation axiom for scalarMul on B,
+  --   -- which follows from: [s]B - [r+k*a]B = [s - (r+k*a)]B = O
+  --   -- Then basepoint_prime_order gives ℓ ∣ (s - (r+k*a))
+  --   -- Then Int.modEq_iff_dvd.mpr closes the goal.
+  --
+  -- This direction requires basepoint_prime_order (which is sorry).
   sorry
 
 /-- Cofactored verification: [h*s]B = [h](R + [k]A).
