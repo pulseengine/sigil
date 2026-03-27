@@ -30,36 +30,30 @@ WSC is a WebAssembly module signing and verification toolkit that provides:
 
 The following diagram illustrates the three trust boundaries that structure our threat analysis. Each boundary crossing represents a data flow (see [[DF-1]] through [[DF-10]]) where threats are most likely to materialize.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Build Environment                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │ Source Code │───►│  WSC CLI    │───►│ Signed WASM Module  │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-│                            │                      │              │
-│                   Secret Key (TB1)        Signature Data         │
-└─────────────────────────────────────────────────────────────────┘
-                             │
-        ─────────────────────┼───────────────────────
-        TRUST BOUNDARY 1     │  (Key Material)
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Sigstore Infrastructure                      │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │   Fulcio    │    │   Rekor     │    │   OIDC Provider     │  │
-│  │  (Cert CA)  │    │(Trans. Log) │    │  (GitHub/Google)    │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-        ─────────────────────┼───────────────────────
-        TRUST BOUNDARY 2     │  (Network/TLS)
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Runtime Environment                         │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
-│  │WASM Runtime │◄───│ Verifier    │◄───│  Public Key Store   │  │
-│  │ (wasmtime)  │    │   (wsc)     │    │  (Trust Bundle)     │  │
-│  └─────────────┘    └─────────────┘    └─────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    subgraph Build["Build Environment"]
+        SC[Source Code] --> CLI[WSC CLI] --> SM[Signed WASM Module]
+        CLI -- "Secret Key (TB1)" --> TB1_OUT[ ]
+        SM -- "Signature Data" --> TB1_OUT2[ ]
+    end
+
+    TB1_OUT -.->|"TRUST BOUNDARY 1 — Key Material"| SI
+
+    subgraph Sigstore["Sigstore Infrastructure"]
+        SI[Fulcio<br/>Cert CA]
+        Rekor[Rekor<br/>Trans. Log]
+        OIDC[OIDC Provider<br/>GitHub/Google]
+    end
+
+    Sigstore -.->|"TRUST BOUNDARY 2 — Network/TLS"| Runtime
+
+    subgraph Runtime["Runtime Environment"]
+        PKS[Public Key Store<br/>Trust Bundle] --> Verifier[Verifier<br/>wsc] --> WASM[WASM Runtime<br/>wasmtime]
+    end
+
+    style TB1_OUT fill:none,stroke:none
+    style TB1_OUT2 fill:none,stroke:none
 ```
 
 Trust Boundary 1 separates the signing environment from external key infrastructure. Data flows crossing this boundary ([[DF-1]], [[DF-2]], [[DF-3]]) carry cryptographic material and must be protected by the security properties defined in [[SP-1]] and [[SP-2]]. Trust Boundary 2 separates the Sigstore infrastructure from the runtime verification environment, where data flows ([[DF-4]], [[DF-5]], [[DF-6]]) must satisfy the integrity and authenticity properties in [[SP-3]] and [[SP-4]].

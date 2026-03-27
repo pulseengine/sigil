@@ -38,35 +38,14 @@ This document focuses primarily on **keyless signing** security (addressing Issu
 
 ### Architecture Overview
 
-```
-┌─────────────┐     ┌──────────────┐     ┌───────────┐
-│   CI/CD     │────▶│  OIDC Token  │────▶│  Fulcio   │
-│ Environment │     │  (Identity)  │     │  (Certs)  │
-└─────────────┘     └──────────────┘     └─────┬─────┘
-                                               │
-                    ┌──────────────────────────┘
-                    │
-                    ▼
-            ┌───────────────┐
-            │  Ephemeral    │
-            │  ECDSA P-256  │◀───── Generated on-demand
-            │  Private Key  │       Zeroized after use
-            └───────┬───────┘
-                    │
-                    │ Signs
-                    ▼
-            ┌───────────────┐
-            │ WASM Module   │
-            │  + Signature  │
-            └───────┬───────┘
-                    │
-                    │ Upload
-                    ▼
-            ┌───────────────┐
-            │  Rekor Log    │◀───── Public transparency
-            │ (Timestamp +  │       Inclusion proof
-            │  Proof)       │       Checkpoint signature
-            └───────────────┘
+```mermaid
+graph TD
+    CICD[CI/CD Environment] --> OIDC[OIDC Token<br/>Identity] --> FULCIO[Fulcio<br/>Certs]
+    FULCIO --> EPH[Ephemeral ECDSA P-256<br/>Private Key]
+    GEN>"Generated on-demand<br/>Zeroized after use"] -.-> EPH
+    EPH -->|Signs| WASM[WASM Module<br/>+ Signature]
+    WASM -->|Upload| REKOR[Rekor Log<br/>Timestamp + Proof]
+    TRANS>"Public transparency<br/>Inclusion proof<br/>Checkpoint signature"] -.-> REKOR
 ```
 
 The architecture maps to the following data flows: the OIDC token acquisition is [[DF-2]], certificate issuance from Fulcio is [[DF-3]], transparency log submission is [[DF-4]], and the ephemeral key material itself is [[DF-7]]. The signing module as a controller is [[CTRL-3]].

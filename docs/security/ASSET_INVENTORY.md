@@ -124,21 +124,14 @@ For key-based signing, [[CP-1]] reads [[ASSET-001]] (secret key) from secure sto
 
 The signing process produces [[ASSET-005]] (signed module) containing [[ASSET-009]] (signature section). In keyless mode, it also produces [[ASSET-007]] (Rekor entry) via [[DF-4]], providing transparency and non-repudiation.
 
-```
-  [ASSET-013] ───────┬───────────────────────────────────► [ASSET-005]
-  Unsigned Module    │                                      Signed Module
-                     │
-                     ▼
-              ┌──────────────┐
-              │ CP-1 Signing │◄─── [ASSET-001] Secret Key
-              │   (CTRL-1)   │◄─── [ASSET-003] OIDC Token (keyless)
-              └──────────────┘
-                     │
-                     ├───────────────────────────────────► [ASSET-009]
-                     │                                      Signature Section
-                     │
-                     └───────────────────────────────────► [ASSET-007]
-                                                            Rekor Entry
+```mermaid
+graph LR
+    UNSIGNED["[ASSET-013]<br/>Unsigned Module"] --> CP1["CP-1 Signing<br/>(CTRL-1)"]
+    SK["[ASSET-001] Secret Key"] --> CP1
+    OIDC["[ASSET-003] OIDC Token<br/>(keyless)"] --> CP1
+    CP1 --> SIGNED["[ASSET-005]<br/>Signed Module"]
+    CP1 --> SIG["[ASSET-009]<br/>Signature Section"]
+    CP1 --> REKOR["[ASSET-007]<br/>Rekor Entry"]
 ```
 
 ### Verification Flow
@@ -149,15 +142,13 @@ For online verification, [[CP-2]] uses [[ASSET-002]] (public key) or [[ASSET-015
 
 The verification result (pass or fail) is reported back to [[CTRL-3]], which enforces the security policy: only verified modules proceed to execution. This is the critical safety constraint -- [[SC-1]] requires that no unverified module is ever loaded.
 
-```
-  [ASSET-005] ───────┬───────────────────────────────────► [Result]
-  Signed Module      │                                      Pass/Fail
-                     │
-                     ▼
-              ┌──────────────┐
-              │ CP-2 Verify  │◄─── [ASSET-002] Public Key
-              │   (CTRL-3)   │◄─── [ASSET-015] Key Set
-              └──────────────┘◄─── [ASSET-006] Trust Bundle (airgapped)
+```mermaid
+graph LR
+    SIGNED["[ASSET-005]<br/>Signed Module"] --> CP2["CP-2 Verify<br/>(CTRL-3)"]
+    PK["[ASSET-002] Public Key"] --> CP2
+    KS["[ASSET-015] Key Set"] --> CP2
+    TB["[ASSET-006] Trust Bundle<br/>(airgapped)"] --> CP2
+    CP2 --> RESULT["Result<br/>Pass/Fail"]
 ```
 
 ---

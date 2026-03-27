@@ -68,51 +68,37 @@ Per ISO/SAE 21434, your ITEM is the vehicle system or component being assessed.
 **Document in your TARA:**
 ```
 Item: [Your System Name]
-+-- Component: WSC (WebAssembly Signature Component)
-    +-- Function: Module signing and verification
-    +-- Assets: Reference [[ASSET-001]] through [[ASSET-022]]
-    +-- Controls: Reference [[CTRL-1]] through [[CTRL-7]]
+  Component: WSC (WebAssembly Signature Component)
+    Function: Module signing and verification
+    Assets: Reference [[ASSET-001]] through [[ASSET-022]]
+    Controls: Reference [[CTRL-1]] through [[CTRL-7]]
 ```
 
 ### Step 2: Map WSC to Your Architecture
 
 Identify where WSC sits in your trust boundaries. The diagram below shows the three primary zones and how data flows ([[DF-1]] through [[DF-10]]) traverse them:
 
-```
-+-------------------------------------------------------------+
-|                    YOUR SYSTEM ITEM                          |
-|  +----------------------------------------------------------+
-|  |                   Build/CI Pipeline                       |
-|  |  +-------------+    +-------------+                       |
-|  |  | Source Code |---->| WSC Sign    |----> Signed Module   |
-|  |  +-------------+    +-------------+                       |
-|  |                          |                                |
-|  |        [[DF-1]] Module ingestion                          |
-|  |        [[DF-2]] Signing request                           |
-|  |        [[DF-3]] Signed artifact output                    |
-|  +----------------------------------------------------------+
-|           --------------- Trust Boundary 1 ---------------   |
-|  +----------------------------------------------------------+
-|  |                   Distribution                            |
-|  |  +-------------+    +-------------+                       |
-|  |  | Module Repo |<---| CDN/Update  |                       |
-|  |  +-------------+    +-------------+                       |
-|  |                                                           |
-|  |        [[DF-4]] Artifact publication                      |
-|  |        [[DF-5]] Distribution channel                      |
-|  +----------------------------------------------------------+
-|           --------------- Trust Boundary 2 ---------------   |
-|  +----------------------------------------------------------+
-|  |                   Target Device                           |
-|  |  +-------------+    +-------------+    +-------------+    |
-|  |  | WSC Verify  |---->| WASM Runtime|---->| Application |   |
-|  |  +-------------+    +-------------+    +-------------+    |
-|  |                                                           |
-|  |        [[DF-6]] Verification request                      |
-|  |        [[DF-7]] Trust bundle lookup                       |
-|  |        [[DF-8]] Verification result                       |
-|  +----------------------------------------------------------+
-+-------------------------------------------------------------+
+```mermaid
+graph TD
+    subgraph System["YOUR SYSTEM ITEM"]
+        subgraph Build["Build/CI Pipeline"]
+            SRC[Source Code] -->|"[[DF-1]] Module ingestion"| WSC_SIGN[WSC Sign]
+            WSC_SIGN -->|"[[DF-3]] Signed artifact output"| SIGNED[Signed Module]
+        end
+
+        Build -.->|"Trust Boundary 1"| Distribution
+
+        subgraph Distribution
+            CDN[CDN/Update] -->|"[[DF-4]] Artifact publication"| REPO[Module Repo]
+        end
+
+        Distribution -.->|"Trust Boundary 2"| Device
+
+        subgraph Device["Target Device"]
+            WSC_VERIFY[WSC Verify] -->|"[[DF-6]] Verification request"| RUNTIME[WASM Runtime]
+            RUNTIME --> APP[Application]
+        end
+    end
 ```
 
 **Controller mappings for each zone:**
@@ -337,16 +323,10 @@ a trusted signature before execution.
 
 ### Pattern 1: Build-Time Signing
 
-```
-+------------+    +------------+    +------------+
-|   Build    |---->| WSC Sign   |---->|  Publish   |
-|   System   |    | (keyless)  |    |  Artifact  |
-+------------+    +------------+    +------------+
-                        |
-                        v
-                  +------------+
-                  |   Rekor    | (Transparency Log)
-                  +------------+
+```mermaid
+graph LR
+    BUILD[Build System] --> SIGN[WSC Sign<br/>keyless] --> PUB[Publish Artifact]
+    SIGN --> REKOR[Rekor<br/>Transparency Log]
 ```
 
 **Use Case**: CI/CD pipeline with GitHub Actions, GitLab CI
@@ -361,17 +341,10 @@ a trusted signature before execution.
 
 ### Pattern 2: Airgapped Device Verification
 
-```
-+------------+         +------------+         +------------+
-| Provision  |--------->| Trust      |--------->|  Device    |
-|  Station   |         | Bundle     |         | (offline)  |
-+------------+         +------------+         +------------+
-                                                    |
-                                              +-----+-----+
-                                              | WSC       |
-                                              | Airgapped |
-                                              | Verify    |
-                                              +-----------+
+```mermaid
+graph LR
+    PROV[Provision Station] --> BUNDLE[Trust Bundle] --> DEV[Device<br/>offline]
+    DEV --> VERIFY[WSC Airgapped Verify]
 ```
 
 **Use Case**: Automotive ECU, industrial PLC, embedded IoT
@@ -387,17 +360,12 @@ a trusted signature before execution.
 
 ### Pattern 3: Multi-Stage Supply Chain
 
-```
-+----------+    +----------+    +----------+    +----------+
-| Vendor A |---->| Vendor B |---->| OEM      |---->| Device   |
-|  Sign    |    |  Sign    |    |  Sign    |    | Verify   |
-+----------+    +----------+    +----------+    +----------+
-     |               |               |
-     v               v               v
-+------------------------------------------------------------+
-|                    Multi-Signature Chain                    |
-|           (All signatures verified at device)              |
-+------------------------------------------------------------+
+```mermaid
+graph LR
+    VA[Vendor A<br/>Sign] --> VB[Vendor B<br/>Sign] --> OEM[OEM<br/>Sign] --> DEV[Device<br/>Verify]
+    VA --> MSC[Multi-Signature Chain<br/>All signatures verified at device]
+    VB --> MSC
+    OEM --> MSC
 ```
 
 **Use Case**: Automotive supply chain, tiered manufacturing
