@@ -8,6 +8,16 @@ wsc (WebAssembly Signature Component) is a **security-critical** cryptographic s
 - Air-gapped verification for embedded devices
 - Trust bundle management
 
+## Formal Verification
+
+Follow the [PulseEngine Verification Guide](https://pulseengine.eu/guides/VERIFICATION-GUIDE.md) for all proof work. Key rules:
+
+1. Get the spec right before attempting proofs
+2. Try the simple thing first — let the solver attempt it
+3. Generate multiple candidates (3-5 strategies before concluding hard)
+4. Code must satisfy all verification tracks simultaneously (Rust + Verus + coq-of-rust + Kani)
+5. No `Vec` in Verus specs — use `Seq`; no trait objects in verified code
+
 ## Security-Critical Release Process
 
 **THIS IS A CRYPTOGRAPHIC SECURITY TOOL. RELEASES MUST FOLLOW THIS PROCESS:**
