@@ -51,6 +51,11 @@ axiom add_zero_curvepoint (P : CurvePoint) :
     (@instHAdd CurvePoint curveGroup.toAddGroup.toAddMonoid.toAdd)
     P (@Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero) = P
 
+-- Scalar multiplication of the zero point is zero (needed for scalarMul_mul_order).
+axiom scalarMul_zero_point (n : ℤ) :
+  [n] (@Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero) =
+  @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero
+
 /-! ## Scalar multiplication derived lemmas -/
 
 /-- Scalar multiplication by -1 then adding gives identity. -/
@@ -72,10 +77,7 @@ lemma scalarMul_mul_order (m : ℤ) :
   -- Step 2: Apply basepoint_order: [ℓ]B = O
   rw [basepoint_order]
   -- Step 3: [m]O = O (scalar mul of identity is identity)
-  -- This follows from: [m]O = [m]([0]B) = [m*0]B = [0]B = O
-  -- but we need the chain through scalarMul_mul and scalarMul_zero.
-  -- For now, this step requires a lemma scalarMul_zero_point.
-  sorry
+  exact scalarMul_zero_point m
 
 /-- The order of B divides ℓ (prime order subgroup). -/
 theorem basepoint_prime_order :

@@ -511,6 +511,36 @@ jobs:
         ls -la compliance/ || echo "No compliance directory"
         find . -name "wsc-*" -type f | head -20
 
+    - name: Self-sign release binaries with sigil
+      run: |
+        # Use the freshly-built Linux x86_64 binary to sign all ELF binaries
+        chmod +x native-cli/wsc-linux-x86_64
+        SIGIL="./native-cli/wsc-linux-x86_64"
+
+        echo "Self-signing release binaries with sigil (dogfooding)..."
+        for binary in native-cli/wsc-linux-x86_64 native-cli/wsc-linux-aarch64; do
+          if [ -f "$binary" ]; then
+            echo "Signing $binary..."
+            "$SIGIL" sign --format elf --keyless \
+              --input-file "$binary" \
+              --output-file "${binary}.signed" \
+              --signature-file "${binary}.sig" 2>&1 || echo "Warning: failed to sign $binary (keyless may not be available)"
+          fi
+        done
+
+        # Also sign the TPM2 variant if present
+        if [ -f "native-cli/wsc-linux-x86_64-tpm2" ]; then
+          echo "Signing native-cli/wsc-linux-x86_64-tpm2..."
+          "$SIGIL" sign --format elf --keyless \
+            --input-file "native-cli/wsc-linux-x86_64-tpm2" \
+            --output-file "native-cli/wsc-linux-x86_64-tpm2.signed" \
+            --signature-file "native-cli/wsc-linux-x86_64-tpm2.sig" 2>&1 || echo "Warning: failed to sign"
+        fi
+
+        echo "Self-signing complete. Detached signatures:"
+        ls -la native-cli/*.sig 2>/dev/null || echo "No .sig files generated"
+      continue-on-error: true
+
     - name: Upload Release Assets
       if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
       uses: softprops/action-gh-release@v2
@@ -526,6 +556,9 @@ jobs:
           native-cli/wsc-linux-x86_64-tpm2.sha256
           native-cli/wsc-linux-aarch64
           native-cli/wsc-linux-aarch64.sha256
+          native-cli/wsc-linux-x86_64.sig
+          native-cli/wsc-linux-x86_64-tpm2.sig
+          native-cli/wsc-linux-aarch64.sig
           native-cli/wsc-macos-x86_64
           native-cli/wsc-macos-x86_64.sha256
           native-cli/wsc-macos-aarch64
