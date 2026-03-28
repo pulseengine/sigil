@@ -141,6 +141,25 @@ pub struct HybridSignature {
     pub message_hash: Vec<u8>,
 }
 
+impl HybridSignature {
+    /// Check that both signature components are present and well-formed.
+    /// This is a structural precondition — actual cryptographic verification
+    /// must call the underlying Ed25519 and SLH-DSA verify functions.
+    pub fn is_complete(&self) -> bool {
+        !self.classical.is_empty()
+            && !self.post_quantum.is_empty()
+            && self.classical.len() == 64 // Ed25519 signature size
+            && self.post_quantum.len() <= self.pqc_algorithm.max_signature_size()
+            && !self.message_hash.is_empty()
+    }
+
+    /// Domain separator for hybrid signatures.
+    /// Applied to the message before signing with each algorithm independently.
+    pub fn domain_separator() -> &'static [u8] {
+        b"wsc-hybrid-v1"
+    }
+}
+
 /// Configuration for PQC signing operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -298,5 +317,66 @@ mod tests {
         deduped.sort();
         deduped.dedup();
         assert_eq!(ids.len(), deduped.len());
+    }
+
+    #[test]
+    fn test_hybrid_signature_is_complete() {
+        let complete = HybridSignature {
+            classical: vec![0u8; 64],
+            post_quantum: vec![0u8; 100],
+            pqc_algorithm: PqcAlgorithm::SlhDsaSha2_128s,
+            message_hash: vec![0u8; 32],
+        };
+        assert!(complete.is_complete());
+    }
+
+    #[test]
+    fn test_hybrid_signature_incomplete_missing_pqc() {
+        let missing_pqc = HybridSignature {
+            classical: vec![0u8; 64],
+            post_quantum: vec![],
+            pqc_algorithm: PqcAlgorithm::SlhDsaSha2_128s,
+            message_hash: vec![0u8; 32],
+        };
+        assert!(!missing_pqc.is_complete());
+    }
+
+    #[test]
+    fn test_hybrid_signature_incomplete_missing_classical() {
+        let missing_classical = HybridSignature {
+            classical: vec![],
+            post_quantum: vec![0u8; 100],
+            pqc_algorithm: PqcAlgorithm::SlhDsaSha2_128s,
+            message_hash: vec![0u8; 32],
+        };
+        assert!(!missing_classical.is_complete());
+    }
+
+    #[test]
+    fn test_hybrid_signature_incomplete_wrong_classical_size() {
+        let wrong_size = HybridSignature {
+            classical: vec![0u8; 32], // Wrong: Ed25519 sigs are 64 bytes
+            post_quantum: vec![0u8; 100],
+            pqc_algorithm: PqcAlgorithm::SlhDsaSha2_128s,
+            message_hash: vec![0u8; 32],
+        };
+        assert!(!wrong_size.is_complete());
+    }
+
+    #[test]
+    fn test_hybrid_signature_incomplete_empty_hash() {
+        let no_hash = HybridSignature {
+            classical: vec![0u8; 64],
+            post_quantum: vec![0u8; 100],
+            pqc_algorithm: PqcAlgorithm::SlhDsaSha2_128s,
+            message_hash: vec![],
+        };
+        assert!(!no_hash.is_complete());
+    }
+
+    #[test]
+    fn test_hybrid_domain_separator() {
+        assert_eq!(HybridSignature::domain_separator(), b"wsc-hybrid-v1");
+        assert!(!HybridSignature::domain_separator().is_empty());
     }
 }
