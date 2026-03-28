@@ -699,3 +699,573 @@ artifacts:
         target: CTRL-10
       - type: leads-to-hazard
         target: H-17
+
+  # ──────────────────────────────────────────────────
+  # Round 3: v0.6.x Feature Coverage — UCAs
+  # ──────────────────────────────────────────────────
+
+  - id: UCA-22
+    type: uca
+    title: Sign component WITHOUT traversing nested modules
+    status: draft
+    description: >
+      Component Model Parser signs a WASM component without recursively
+      traversing nested modules. The outer signature covers only top-level
+      sections, allowing an attacker to substitute inner modules without
+      invalidating the signature.
+    fields:
+      uca-type: providing
+      context: >
+        WASM component with nested modules signed using flat section hash
+      rationale: >
+        Nested module substitution bypasses signature integrity for
+        component model artifacts.
+    links:
+      - type: issued-by
+        target: CTRL-11
+      - type: leads-to-hazard
+        target: H-22
+
+  - id: UCA-23
+    type: uca
+    title: Verify component with core-module-only parser
+    status: draft
+    description: >
+      Component Model Parser uses a core-module-only parser to verify a
+      WASM component, ignoring component-specific sections such as type
+      imports, nested modules, and component-level metadata. Verification
+      succeeds on partial content.
+    fields:
+      uca-type: providing
+      context: >
+        WASM component verified using core module parser that ignores
+        component sections
+      rationale: >
+        Component sections not covered by verification allow tampering
+        with type bindings and nested module references.
+    links:
+      - type: issued-by
+        target: CTRL-11
+      - type: leads-to-hazard
+        target: H-21
+
+  - id: UCA-24
+    type: uca
+    title: Verify hybrid sig WITHOUT checking PQC component
+    status: draft
+    description: >
+      Verification Module checks only the classical Ed25519 component of a
+      hybrid signature, skipping the post-quantum ML-DSA component. A
+      quantum-capable adversary can forge the classical signature while the
+      PQC component is never validated.
+    fields:
+      uca-type: not-providing
+      context: >
+        Hybrid signature verified with classical-only code path
+      rationale: >
+        Skipping PQC verification negates the entire purpose of hybrid
+        signatures for quantum resistance.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-23
+
+  - id: UCA-25
+    type: uca
+    title: Sign with PQC key WITHOUT domain separation
+    status: draft
+    description: >
+      CLI Controller signs using a post-quantum key without domain
+      separation between classical and PQC signature contexts. This allows
+      cross-protocol signature reuse where a signature from one context is
+      replayed in the other.
+    fields:
+      uca-type: providing
+      context: >
+        PQC signing context shares same domain tag as classical signing
+      rationale: >
+        Lack of domain separation enables signature confusion attacks
+        between classical and post-quantum verification paths.
+    links:
+      - type: issued-by
+        target: CTRL-1
+      - type: leads-to-hazard
+        target: H-23
+
+  - id: UCA-26
+    type: uca
+    title: Insert cache entry WITHOUT prior verification
+    status: draft
+    description: >
+      Verification Module inserts a proof into the cache without first
+      cryptographically verifying it. An attacker who can influence cache
+      inputs can pre-populate the cache with invalid or fabricated proofs.
+    fields:
+      uca-type: providing
+      context: >
+        Proof inserted into cache before cryptographic verification completes
+      rationale: >
+        Unverified cache entries poison subsequent lookups, accepting
+        invalid proofs from cache.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-25
+
+  - id: UCA-27
+    type: uca
+    title: Return cached proof AFTER key revocation
+    status: draft
+    description: >
+      Verification Module returns a cached proof after the underlying
+      signing key or certificate has been revoked. The cache does not
+      check revocation status, creating a window where revoked signatures
+      continue to verify successfully.
+    fields:
+      uca-type: providing
+      context: >
+        Cached proof served after certificate revocation but before TTL expiry
+      rationale: >
+        Stale cached proofs bypass revocation, allowing revoked keys to
+        remain effective for the cache TTL duration.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-26
+
+  - id: UCA-28
+    type: uca
+    title: Accept Fulcio cert WITHOUT valid SCT
+    status: draft
+    description: >
+      SCT Monitor accepts a Fulcio certificate that does not contain a
+      valid Signed Certificate Timestamp, failing to detect certificates
+      issued outside of Certificate Transparency monitoring.
+    fields:
+      uca-type: not-providing
+      context: >
+        Fulcio certificate accepted without embedded SCT validation
+      rationale: >
+        Missing SCT check allows mis-issued certificates to go
+        undetected by CT monitoring.
+    links:
+      - type: issued-by
+        target: CTRL-12
+      - type: leads-to-hazard
+        target: H-27
+
+  - id: UCA-29
+    type: uca
+    title: Verify SCT against wrong CT log key
+    status: draft
+    description: >
+      SCT Monitor verifies the Signed Certificate Timestamp against an
+      incorrect or attacker-controlled CT log public key, accepting forged
+      SCTs that appear valid but were not issued by a trusted log.
+    fields:
+      uca-type: providing
+      context: >
+        SCT verified against stale or attacker-substituted CT log key
+      rationale: >
+        Wrong key for SCT verification allows forged timestamps to pass,
+        undermining Certificate Transparency guarantees.
+    links:
+      - type: issued-by
+        target: CTRL-12
+      - type: leads-to-hazard
+        target: H-28
+
+  - id: UCA-30
+    type: uca
+    title: Accept checkpoint WITHOUT consistency proof
+    status: draft
+    description: >
+      Checkpoint Consistency Verifier accepts a new Rekor checkpoint
+      without verifying a consistency proof against the previously observed
+      checkpoint. An attacker can present a forked or truncated log without
+      detection.
+    fields:
+      uca-type: not-providing
+      context: >
+        New checkpoint accepted without consistency proof from previous state
+      rationale: >
+        Missing consistency proof allows split-view log attacks where
+        different clients see different log contents.
+    links:
+      - type: issued-by
+        target: CTRL-13
+      - type: leads-to-hazard
+        target: H-29
+
+  - id: UCA-31
+    type: uca
+    title: Persist checkpoint with non-atomic write
+    status: draft
+    description: >
+      Checkpoint Consistency Verifier persists a checkpoint using a
+      non-atomic write operation. A crash or concurrent access during the
+      write leaves the checkpoint file in a corrupt or partially-written
+      state, causing the verifier to fall back to an earlier checkpoint or
+      fail to detect log tampering.
+    fields:
+      uca-type: providing
+      context: >
+        Checkpoint written directly to file without atomic rename
+      rationale: >
+        Non-atomic writes can corrupt checkpoint state, enabling rollback
+        to stale log views.
+    links:
+      - type: issued-by
+        target: CTRL-13
+      - type: leads-to-hazard
+        target: H-30
+
+  - id: UCA-32
+    type: uca
+    title: Produce bundle WITHOUT tlog entries
+    status: draft
+    description: >
+      Verification Module produces a Sigstore bundle that omits
+      transparency log entries. Downstream verifiers (cosign, policy
+      controllers) that require tlog entries reject the bundle, breaking
+      interoperability.
+    fields:
+      uca-type: providing
+      context: >
+        Bundle serialized without tlog entry after Rekor submission failure
+      rationale: >
+        Incomplete bundles cause verification failures in downstream
+        Sigstore ecosystem tools.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-31
+
+  - id: UCA-33
+    type: uca
+    title: Parse bundle WITHOUT media type validation
+    status: draft
+    description: >
+      Verification Module parses a Sigstore bundle without validating the
+      media type field, accepting bundles in unrecognized or deprecated
+      formats that may have different field semantics or missing mandatory
+      fields.
+    fields:
+      uca-type: not-providing
+      context: >
+        Bundle parsed without checking mediaType matches expected version
+      rationale: >
+        Missing media type check allows malformed or forged bundles with
+        unexpected structure to be accepted.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-32
+
+  - id: UCA-34
+    type: uca
+    title: Capture build env from untrusted PATH
+    status: draft
+    description: >
+      CLI Controller captures build environment metadata by invoking tool
+      binaries discovered via the PATH environment variable. An attacker
+      who controls PATH can cause arbitrary code execution during the
+      signing process or inject spoofed build metadata.
+    fields:
+      uca-type: providing
+      context: >
+        Build env capture runs rustc --version via user-controlled PATH
+      rationale: >
+        PATH-based tool discovery allows code injection and build
+        provenance spoofing.
+    links:
+      - type: issued-by
+        target: CTRL-1
+      - type: leads-to-hazard
+        target: H-34
+
+  - id: UCA-35
+    type: uca
+    title: Verify DSSE with any-one-of when policy requires all
+    status: draft
+    description: >
+      Verification Module verifies a DSSE envelope by accepting the
+      payload when any single signature is valid, ignoring the configured
+      multi-signature threshold policy. An attacker with one compromised
+      key bypasses k-of-n signing requirements.
+    fields:
+      uca-type: providing
+      context: >
+        DSSE verify() returns success on first valid signature regardless
+        of threshold
+      rationale: >
+        Any-one-of verification defeats multi-party signing policies
+        intended to prevent single-key compromise.
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-35
+
+  # ──────────────────────────────────────────────────
+  # Round 3: v0.6.x Feature Coverage — Controller Constraints
+  # ──────────────────────────────────────────────────
+
+  - id: CC-13
+    type: controller-constraint
+    title: Component Model Parser MUST traverse nested modules when signing
+    status: draft
+    description: >
+      The component model parser must recursively traverse all nested
+      modules within a WASM component and include them in the hash
+      computation, ensuring substitution of any inner module invalidates
+      the signature.
+    fields:
+      constraint: "The component model parser must recursively traverse all nested modules within a WASM component and include them in the hash computation"
+    links:
+      - type: constrains-controller
+        target: CTRL-11
+      - type: inverts-uca
+        target: UCA-22
+      - type: prevents
+        target: H-22
+
+  - id: CC-14
+    type: controller-constraint
+    title: Component Model Parser MUST use component-aware parser
+    status: draft
+    description: >
+      The component model parser must use a component-aware parser that
+      recognizes component-specific sections, type imports, and nested
+      module references, never falling back to a core-module-only parser.
+    fields:
+      constraint: "The component model parser must use a component-aware parser that recognizes component-specific sections, type imports, and nested module references"
+    links:
+      - type: constrains-controller
+        target: CTRL-11
+      - type: inverts-uca
+        target: UCA-23
+      - type: prevents
+        target: H-21
+
+  - id: CC-15
+    type: controller-constraint
+    title: Verification Module MUST verify both PQC and classical components
+    status: draft
+    description: >
+      The verification module must independently verify both the classical
+      and post-quantum signature components of a hybrid signature, rejecting
+      the bundle if either component fails verification.
+    fields:
+      constraint: "The verification module must independently verify both the classical and post-quantum signature components of a hybrid signature"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-24
+      - type: prevents
+        target: H-23
+
+  - id: CC-16
+    type: controller-constraint
+    title: CLI Controller MUST use domain-separated signing for PQC
+    status: draft
+    description: >
+      The CLI controller must use distinct domain separation tags for
+      classical and post-quantum signing contexts, preventing cross-protocol
+      signature reuse between Ed25519 and ML-DSA verification paths.
+    fields:
+      constraint: "The CLI controller must use distinct domain separation tags for classical and post-quantum signing contexts"
+    links:
+      - type: constrains-controller
+        target: CTRL-1
+      - type: inverts-uca
+        target: UCA-25
+      - type: prevents
+        target: H-23
+
+  - id: CC-17
+    type: controller-constraint
+    title: Verification Module MUST verify proof before caching
+    status: draft
+    description: >
+      The verification module must cryptographically verify a proof before
+      inserting it into the cache, ensuring the cache never contains
+      unverified or fabricated entries.
+    fields:
+      constraint: "The verification module must cryptographically verify a proof before inserting it into the cache"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-26
+      - type: prevents
+        target: H-25
+
+  - id: CC-18
+    type: controller-constraint
+    title: Verification Module MUST check revocation before returning cached proof
+    status: draft
+    description: >
+      The verification module must check the revocation status of the
+      underlying certificate or key before returning a cached proof,
+      ensuring revoked credentials are not accepted via stale cache entries.
+    fields:
+      constraint: "The verification module must check the revocation status of the underlying certificate or key before returning a cached proof"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-27
+      - type: prevents
+        target: H-26
+
+  - id: CC-19
+    type: controller-constraint
+    title: SCT Monitor MUST require valid SCTs
+    status: draft
+    description: >
+      The SCT monitor must require at least one valid Signed Certificate
+      Timestamp in every Fulcio certificate, rejecting certificates that
+      lack SCTs or contain only invalid SCTs.
+    fields:
+      constraint: "The SCT monitor must require at least one valid Signed Certificate Timestamp in every Fulcio certificate"
+    links:
+      - type: constrains-controller
+        target: CTRL-12
+      - type: inverts-uca
+        target: UCA-28
+      - type: prevents
+        target: H-27
+
+  - id: CC-20
+    type: controller-constraint
+    title: SCT Monitor MUST verify SCT against correct trusted log key
+    status: draft
+    description: >
+      The SCT monitor must verify each Signed Certificate Timestamp against
+      the correct trusted CT log public key from the trusted log list,
+      rejecting SCTs signed by unknown or mismatched keys.
+    fields:
+      constraint: "The SCT monitor must verify each Signed Certificate Timestamp against the correct trusted CT log public key from the trusted log list"
+    links:
+      - type: constrains-controller
+        target: CTRL-12
+      - type: inverts-uca
+        target: UCA-29
+      - type: prevents
+        target: H-28
+
+  - id: CC-21
+    type: controller-constraint
+    title: Checkpoint Consistency Verifier MUST require consistency proof
+    status: draft
+    description: >
+      The checkpoint consistency verifier must require a valid consistency
+      proof between the previously observed checkpoint and any new
+      checkpoint before accepting the new state.
+    fields:
+      constraint: "The checkpoint consistency verifier must require a valid consistency proof between the previously observed checkpoint and any new checkpoint"
+    links:
+      - type: constrains-controller
+        target: CTRL-13
+      - type: inverts-uca
+        target: UCA-30
+      - type: prevents
+        target: H-29
+
+  - id: CC-22
+    type: controller-constraint
+    title: Checkpoint Consistency Verifier MUST use atomic write for checkpoint persistence
+    status: draft
+    description: >
+      The checkpoint consistency verifier must use atomic write operations
+      (write-then-rename) for checkpoint persistence, ensuring a crash or
+      concurrent access never leaves the checkpoint in a corrupt state.
+    fields:
+      constraint: "The checkpoint consistency verifier must use atomic write operations (write-then-rename) for checkpoint persistence"
+    links:
+      - type: constrains-controller
+        target: CTRL-13
+      - type: inverts-uca
+        target: UCA-31
+      - type: prevents
+        target: H-30
+
+  - id: CC-23
+    type: controller-constraint
+    title: Verification Module MUST include tlog entries in bundle
+    status: draft
+    description: >
+      The verification module must include transparency log entries in
+      every Sigstore bundle, ensuring downstream verifiers can validate
+      the bundle without additional network requests.
+    fields:
+      constraint: "The verification module must include transparency log entries in every Sigstore bundle"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-32
+      - type: prevents
+        target: H-31
+
+  - id: CC-24
+    type: controller-constraint
+    title: Verification Module MUST validate bundle media type
+    status: draft
+    description: >
+      The verification module must validate the bundle media type against
+      the expected value before parsing, rejecting bundles with
+      unrecognized or deprecated media types.
+    fields:
+      constraint: "The verification module must validate the bundle media type against the expected value before parsing"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-33
+      - type: prevents
+        target: H-32
+
+  - id: CC-25
+    type: controller-constraint
+    title: CLI Controller MUST NOT use PATH for tool discovery
+    status: draft
+    description: >
+      The CLI controller must use hardcoded absolute paths for build
+      environment tool invocation, never relying on the user-supplied
+      PATH environment variable for tool discovery.
+    fields:
+      constraint: "The CLI controller must use hardcoded absolute paths for build environment tool invocation, never relying on the user-supplied PATH"
+    links:
+      - type: constrains-controller
+        target: CTRL-1
+      - type: inverts-uca
+        target: UCA-34
+      - type: prevents
+        target: H-34
+
+  - id: CC-26
+    type: controller-constraint
+    title: Verification Module MUST enforce configured multi-sig threshold policy
+    status: draft
+    description: >
+      The verification module must enforce the configured multi-signature
+      threshold policy during DSSE verification, requiring the specified
+      k-of-n valid signatures rather than accepting any single valid
+      signature.
+    fields:
+      constraint: "The verification module must enforce the configured multi-signature threshold policy during DSSE verification"
+    links:
+      - type: constrains-controller
+        target: CTRL-4
+      - type: inverts-uca
+        target: UCA-35
+      - type: prevents
+        target: H-35
