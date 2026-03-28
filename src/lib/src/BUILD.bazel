@@ -1,5 +1,0 @@
-# Export source files for formal verification targets
-exports_files([
-    "dsse.rs",
-    "format/mod.rs",
-])

@@ -146,6 +146,6 @@ git_override(
     remote = "https://github.com/pulseengine/rules_rocq_rust.git",
 )
 
-# Import repos from rules_rocq_rust extensions
-rocq_of_rust = use_extension("@rules_rocq_rust//coq_of_rust:extensions.bzl", "rocq_of_rust")
-use_repo(rocq_of_rust, "rocq_of_rust_toolchains", "rocq_of_rust_source")
+# NOTE: rules_rocq_rust requires Nix for coq-of-rust toolchain.
+# Extension repos are resolved lazily — only when Rocq targets are built.
+# CI runners without Nix skip Rocq targets; local dev with Nix can build them.

@@ -63,4 +63,8 @@ rust_library(
      ],
 )
 
-exports_files(["Cargo.toml"])
+exports_files([
+    "Cargo.toml",
+    "src/dsse.rs",
+    "src/format/mod.rs",
+])
