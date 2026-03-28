@@ -71,7 +71,7 @@
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "wsc";
-          version = "0.6.0";
+          version = "0.7.0";
           src = ./.;
 
           cargoLock.lockFile = ./Cargo.lock;
