@@ -1,6 +1,8 @@
-load("@rules_verus//verus:defs.bzl", "verus_library", "verus_test")
+load("@rules_verus//verus:defs.bzl", "verus_library", "verus_strip", "verus_test")
 
-# Merkle tree inclusion proof soundness (CV-20) and anti-rollback (CV-21)
+# ── Track 1: Verus SMT verification (CV-20, CV-21, CV-22) ──────────
+# Fully hermetic — bundled Rust sysroot, no rustup needed.
+
 verus_library(
     name = "wsc_merkle_proofs",
     srcs = [
@@ -22,4 +24,16 @@ verus_test(
     ],
     crate_root = "mod.rs",
     crate_name = "wsc_verus_proofs",
+)
+
+# ── Track 2: Strip Verus → plain Rust for coq-of-rust pipeline ─────
+
+verus_strip(
+    name = "wsc_proofs_stripped",
+    srcs = [
+        "mod.rs",
+        "merkle_proofs.rs",
+        "dsse_proofs.rs",
+    ],
+    visibility = ["//visibility:public"],
 )
