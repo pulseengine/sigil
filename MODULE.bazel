@@ -137,7 +137,7 @@ lean = use_extension("@rules_lean//lean:extensions.bzl", "lean")
 use_repo(lean, "mathlib")
 
 # Rocq/coq-of-rust formal verification (CV-22, CV-23)
-# Translates Rust source to Rocq via coq-of-rust, then proves properties
+# Requires Nix for coq-of-rust toolchain — CI installs Nix via cachix/install-nix-action
 bazel_dep(name = "rules_rocq_rust", version = "0.1.0")
 
 git_override(
@@ -145,7 +145,3 @@ git_override(
     commit = "6a8da0b",
     remote = "https://github.com/pulseengine/rules_rocq_rust.git",
 )
-
-# NOTE: rules_rocq_rust requires Nix for coq-of-rust toolchain.
-# Extension repos are resolved lazily — only when Rocq targets are built.
-# CI runners without Nix skip Rocq targets; local dev with Nix can build them.
