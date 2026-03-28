@@ -124,11 +124,24 @@ use_repo(verus, "verus_toolchains")
 register_toolchains("@verus_toolchains//:all")
 
 # Lean4 formal verification (CV-24)
-# rules_lean configures its own toolchain and Mathlib internally
 bazel_dep(name = "rules_lean", version = "0.1.0")
 
 git_override(
     module_name = "rules_lean",
-    commit = "b83f3d1fd1ac9b955dbf8f36ee22769bf281d64e",
+    commit = "3298aea",
     remote = "https://github.com/pulseengine/rules_lean.git",
+)
+
+# Import repos created by rules_lean's extension (don't re-configure)
+lean = use_extension("@rules_lean//lean:extensions.bzl", "lean")
+use_repo(lean, "mathlib")
+
+# Rocq/coq-of-rust formal verification (CV-22, CV-23)
+# Requires Nix for coq-of-rust toolchain — CI installs Nix via cachix/install-nix-action
+bazel_dep(name = "rules_rocq_rust", version = "0.1.0")
+
+git_override(
+    module_name = "rules_rocq_rust",
+    commit = "6a8da0b",
+    remote = "https://github.com/pulseengine/rules_rocq_rust.git",
 )
