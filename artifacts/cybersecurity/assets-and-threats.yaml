@@ -840,3 +840,145 @@ artifacts:
     links:
       - type: assesses
         target: TS-018
+
+  # ── Post-quantum and advanced assets ───────────────────────────────────
+
+  - id: ASSET-023
+    type: asset
+    title: SLH-DSA Key Pair
+    status: approved
+    description: >
+      Post-quantum signing key pair for hybrid signatures using SLH-DSA
+      (FIPS 205). Used alongside Ed25519 to provide quantum-resistant
+      signature capability for long-lived embedded targets.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties:
+        - confidentiality
+        - integrity
+
+  - id: ASSET-024
+    type: asset
+    title: CT Log Public Keys
+    status: approved
+    description: >
+      Trusted public keys for SCT (Signed Certificate Timestamp) verification,
+      used to validate that Fulcio certificates were logged in Certificate
+      Transparency logs.
+    fields:
+      asset-type: key-material
+      cybersecurity-properties:
+        - integrity
+        - availability
+
+  - id: ASSET-025
+    type: asset
+    title: DSSE Envelope
+    status: approved
+    description: >
+      Dead Simple Signing Envelope wrapping in-toto statements, providing
+      authenticated payload type and content binding for attestation
+      signatures.
+    fields:
+      asset-type: data
+      cybersecurity-properties:
+        - integrity
+        - authenticity
+
+  # ── Advanced threat scenarios ──────────────────────────────────────────
+
+  - id: TS-019
+    type: threat-scenario
+    title: PQC Signature Stripping
+    status: approved
+    description: >
+      Attacker strips the post-quantum (SLH-DSA) signature from a hybrid-signed
+      module, leaving only the classical Ed25519 signature. If verification
+      accepts partial signatures, the module loses quantum resistance.
+    fields:
+      attack-vector: network
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-023
+
+  - id: TS-020
+    type: threat-scenario
+    title: PQC Algorithm Negotiation Downgrade
+    status: approved
+    description: >
+      Attacker manipulates algorithm negotiation to force classical-only
+      signing, bypassing post-quantum protection. Mitigated by requiring
+      all-or-nothing hybrid verification when PQC is configured.
+    fields:
+      attack-vector: network
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-023
+
+  - id: TS-021
+    type: threat-scenario
+    title: Proof Cache Poisoning via Verified-then-Revoked Entry
+    status: approved
+    description: >
+      Attacker exploits a cached Rekor inclusion proof for a key that has
+      since been revoked. If the cache does not invalidate entries on key
+      revocation, verification succeeds with a compromised key.
+    fields:
+      attack-vector: network
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-007
+
+  - id: TS-022
+    type: threat-scenario
+    title: CT Log Key Compromise
+    status: approved
+    description: >
+      Attacker compromises a Certificate Transparency log's signing key,
+      enabling fabrication of SCTs that appear to prove certificate logging
+      without actual log inclusion.
+    fields:
+      attack-vector: network
+      attack-feasibility: very-low
+      impact: severe
+    links:
+      - type: threatens
+        target: ASSET-024
+
+  - id: TS-023
+    type: threat-scenario
+    title: SCT Stripping Attack
+    status: approved
+    description: >
+      Attacker strips Signed Certificate Timestamps from a Fulcio certificate,
+      preventing verification of CT log inclusion. If SCT presence is not
+      enforced, certificates may be accepted without transparency guarantees.
+    fields:
+      attack-vector: network
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-024
+
+  - id: TS-024
+    type: threat-scenario
+    title: Build Environment Metadata Spoofing
+    status: approved
+    description: >
+      Attacker spoofs build environment metadata (compiler version, Nix hash,
+      platform) in SLSA provenance attestations, masking a compromised build
+      pipeline while producing apparently-legitimate provenance claims.
+    fields:
+      attack-vector: adjacent
+      attack-feasibility: low
+      impact: major
+    links:
+      - type: threatens
+        target: ASSET-017

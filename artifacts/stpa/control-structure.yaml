@@ -386,3 +386,107 @@ artifacts:
     status: draft
     description: >
       Pushing, pulling, and managing signatures in OCI container registries.
+
+  # ──────────────────────────────────────────────────
+  # Round 3: STPA-Sec Gap Closure
+  # ──────────────────────────────────────────────────
+
+  - id: CTRL-11
+    type: controller
+    title: Component Model Parser
+    status: draft
+    description: >
+      Parses and hashes WASM component model sections, ensuring nested
+      modules and their relationships are correctly identified for
+      component-aware signing and verification.
+    fields:
+      controller-type: automated
+      process-model:
+        - "Component model structure is valid"
+        - "All nested modules are enumerated"
+        - "Component hash covers all child modules"
+
+  - id: CTRL-12
+    type: controller
+    title: SCT Monitor
+    status: draft
+    description: >
+      Monitors Certificate Transparency logs for mis-issuance by verifying
+      Signed Certificate Timestamps embedded in Fulcio certificates.
+    fields:
+      controller-type: automated
+      process-model:
+        - "SCT signature is valid against trusted CT log key"
+        - "CT log is in the trusted log list"
+        - "SCT timestamp is within acceptable window"
+
+  - id: CTRL-13
+    type: controller
+    title: Checkpoint Consistency Verifier
+    status: draft
+    description: >
+      Verifies Rekor checkpoint monotonicity to detect log tampering or
+      split-view attacks by ensuring checkpoints only grow over time.
+    fields:
+      controller-type: automated
+      process-model:
+        - "Checkpoint tree size is monotonically increasing"
+        - "Consistency proof verifies between old and new root"
+        - "Checkpoint signature is valid"
+
+  - id: CP-8
+    type: controlled-process
+    title: WASM Component Processing
+    status: draft
+    description: >
+      Component-model-aware module processing that handles nested modules,
+      type imports/exports, and component-level hashing for signing and
+      verification of WASM components.
+
+  - id: CA-12
+    type: control-action
+    title: Parse and hash component model tree
+    status: draft
+    description: >
+      The component model parser traverses the component structure, enumerates
+      nested modules, and computes a Merkle hash over the component tree for
+      signing and verification.
+    fields:
+      action: Parse and hash component model tree
+    links:
+      - type: issued-by
+        target: CTRL-11
+      - type: acts-on
+        target: CP-8
+
+  - id: CA-13
+    type: control-action
+    title: Verify SCT signature against trusted CT log
+    status: draft
+    description: >
+      The SCT monitor verifies the Signed Certificate Timestamp signature
+      embedded in a Fulcio certificate against the trusted Certificate
+      Transparency log public key.
+    fields:
+      action: Verify SCT signature against trusted CT log
+    links:
+      - type: issued-by
+        target: CTRL-12
+      - type: acts-on
+        target: CP-3
+
+  - id: CA-14
+    type: control-action
+    title: Verify checkpoint consistency proof
+    status: draft
+    description: >
+      The checkpoint consistency verifier checks that a new Rekor checkpoint
+      is consistent with the previously observed checkpoint, ensuring log
+      append-only semantics.
+    fields:
+      action: Verify checkpoint consistency proof
+    links:
+      - type: issued-by
+        target: CTRL-13
+      - type: acts-on
+        target: CP-3

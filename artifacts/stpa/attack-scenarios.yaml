@@ -591,3 +591,297 @@ artifacts:
         target: TA-3
       - type: leads-to-hazard
         target: H-17
+
+  # ──────────────────────────────────────────────────
+  # Round 3: v0.6.x Feature Coverage — Attack Scenarios
+  # ──────────────────────────────────────────────────
+
+  - id: AS-22
+    type: attack-scenario
+    title: Nested module substitution in WASM component
+    status: draft
+    description: >
+      Attacker replaces a nested module within a signed WASM component
+      with a malicious version. Because the signing process does not
+      traverse nested modules, the outer signature remains valid and the
+      modified component passes verification.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-22
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-22
+
+  - id: AS-23
+    type: attack-scenario
+    title: Quantum downgrade -- strip PQC from hybrid sig
+    status: draft
+    description: >
+      Attacker strips the post-quantum (ML-DSA) component from a hybrid
+      signature, leaving only the classical Ed25519 component. If the
+      verifier does not require the PQC component, the downgraded
+      signature passes verification and the system loses quantum
+      resistance.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-24
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-23
+
+  - id: AS-24
+    type: attack-scenario
+    title: Cache pre-population with verified-then-revoked proof
+    status: draft
+    description: >
+      Insider obtains a legitimately signed and verified proof, waits for
+      the signing key to be revoked, then exploits the cache TTL window.
+      The cached proof continues to return success for the revoked key
+      until the cache entry expires.
+    fields:
+      attack-type: replay-attack
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-27
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-26
+
+  - id: AS-25
+    type: attack-scenario
+    title: Cache memory exhaustion via unique hashes
+    status: draft
+    description: >
+      Attacker submits a large number of verification requests with unique
+      module hashes, causing the proof cache to grow without bound. Without
+      cache size limits, this exhausts available memory and causes denial
+      of service for the verification service.
+    fields:
+      attack-type: denial-of-service
+      attack-feasibility: medium
+      impact-safety: none
+      impact-financial: negligible
+      impact-operational: moderate
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-26
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-25
+
+  - id: AS-26
+    type: attack-scenario
+    title: CT log key compromise enables undetected mis-issuance
+    status: draft
+    description: >
+      Attacker compromises a CT log signing key and forges SCTs for
+      mis-issued Fulcio certificates. Because the SCT monitor verifies
+      against the wrong (compromised) key, the forged SCTs pass
+      validation and the mis-issued certificates appear monitored.
+    fields:
+      attack-type: credential-theft
+      attack-feasibility: very-low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-29
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-28
+
+  - id: AS-27
+    type: attack-scenario
+    title: SCT stripping from Fulcio certificate
+    status: draft
+    description: >
+      Insider with access to the signing pipeline strips the embedded SCT
+      extension from a Fulcio certificate before it is stored in the
+      Sigstore bundle. If the SCT monitor does not require SCTs, the
+      certificate is accepted without CT monitoring.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-28
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-27
+
+  - id: AS-28
+    type: attack-scenario
+    title: Checkpoint file replacement with stale state
+    status: draft
+    description: >
+      Insider replaces the persisted checkpoint file with an older
+      checkpoint. Without a consistency proof requirement, the verifier
+      accepts the stale checkpoint and cannot detect log entries that
+      were added after the replaced checkpoint.
+    fields:
+      attack-type: replay-attack
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-30
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-29
+
+  - id: AS-29
+    type: attack-scenario
+    title: Split-view log attack via concurrent checkpoint corruption
+    status: draft
+    description: >
+      Attacker triggers concurrent checkpoint writes to exploit non-atomic
+      persistence. The resulting corrupted checkpoint file causes the
+      verifier to reset to a known-good but stale state, enabling a
+      split-view attack where the attacker presents a forked log view.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-31
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-30
+
+  - id: AS-30
+    type: attack-scenario
+    title: Bundle tlog entry stripping
+    status: draft
+    description: >
+      Insider strips the transparency log entry from a Sigstore bundle
+      before distributing it. If the verification module does not require
+      tlog entries, the bundle is accepted without transparency log
+      proof, bypassing the accountability guarantee.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: moderate
+      impact-financial: major
+      impact-operational: major
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-32
+      - type: executed-by
+        target: TA-2
+      - type: leads-to-hazard
+        target: H-31
+
+  - id: AS-31
+    type: attack-scenario
+    title: PATH poisoning for build env capture
+    status: draft
+    description: >
+      Supply chain attacker modifies the PATH environment variable in the
+      build environment to point to a directory containing trojanized tool
+      binaries. When the CLI controller captures build environment metadata
+      by running tools via PATH, the attacker's binaries execute with
+      signing process privileges.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-34
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-34
+
+  - id: AS-32
+    type: attack-scenario
+    title: WSC_RUSTC_VERSION env var spoofing
+    status: draft
+    description: >
+      Supply chain attacker sets the WSC_RUSTC_VERSION or similar
+      environment variables to spoof build provenance metadata. The
+      signed artifact's attestation claims a trusted toolchain version
+      while the actual build used a compromised compiler.
+    fields:
+      attack-type: supply-chain-compromise
+      attack-feasibility: medium
+      impact-safety: none
+      impact-financial: moderate
+      impact-operational: moderate
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-34
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-34
+
+  - id: AS-33
+    type: attack-scenario
+    title: DSSE policy bypass via single compromised key
+    status: draft
+    description: >
+      Attacker compromises one of N signing keys in a multi-party signing
+      setup. Because DSSE verification accepts any single valid signature
+      regardless of the configured threshold policy, the attacker can sign
+      and verify payloads unilaterally, bypassing the k-of-n requirement.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: low
+      impact-safety: severe
+      impact-financial: severe
+      impact-operational: severe
+      impact-privacy: none
+    links:
+      - type: exploits
+        target: UCA-35
+      - type: executed-by
+        target: TA-1
+      - type: leads-to-hazard
+        target: H-35

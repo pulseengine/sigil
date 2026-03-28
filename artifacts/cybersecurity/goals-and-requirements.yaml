@@ -1149,6 +1149,9 @@ artifacts:
     type: cybersecurity-verification
     title: Kani bounded model checking — varint
     status: approved
+    description: >
+      Formally verifies varint encoding roundtrip correctness, absence of
+      panics, overflow safety, bounded allocation, and deterministic output.
     fields:
       method: formal-verification
       steps: cargo kani --harness proof_put_get32_roundtrip proof_get32_no_panic proof_get32_no_overflow proof_get_slice_bounded_allocation proof_put_deterministic
@@ -1160,6 +1163,9 @@ artifacts:
     type: cybersecurity-verification
     title: Kani bounded model checking — format detection
     status: approved
+    description: >
+      Formally verifies format detection correctness and domain separation
+      between WASM, ELF, and MCUboot signing formats.
     fields:
       method: formal-verification
     links:
@@ -1172,6 +1178,9 @@ artifacts:
     type: cybersecurity-verification
     title: Kani bounded model checking — Merkle tree
     status: approved
+    description: >
+      Formally verifies Merkle tree inclusion proof construction and
+      verification correctness under bounded inputs.
     fields:
       method: formal-verification
     links:
@@ -1182,6 +1191,9 @@ artifacts:
     type: cybersecurity-verification
     title: Kani bounded model checking — DSSE PAE injectivity
     status: approved
+    description: >
+      Formally verifies DSSE Pre-Authentication Encoding injectivity,
+      ensuring distinct payloads produce distinct PAE encodings.
     fields:
       method: formal-verification
     links:
@@ -1298,7 +1310,7 @@ artifacts:
       JSON, deserializes back identically, and that the builder pattern
       produces correct attestations for all field combinations.
     fields:
-      method: test
+      method: automated-test
       tool: cargo-test
     links:
       - type: verifies
@@ -1313,7 +1325,7 @@ artifacts:
       runs and that cargo build produces deterministic output within the
       Nix environment.
     fields:
-      method: test
+      method: automated-test
       tool: nix
     links:
       - type: verifies
@@ -1341,7 +1353,7 @@ artifacts:
       from_env_vars() reads WSC_* variables, to_slsa_internal_params()
       produces valid JSON, and serialization roundtrips correctly.
     fields:
-      method: test
+      method: automated-test
       tool: cargo-test
     links:
       - type: verifies
@@ -1393,7 +1405,7 @@ artifacts:
       cosign config serialization, binary integrity checks, and
       signing/verification result types.
     fields:
-      method: test
+      method: automated-test
       tool: cargo-test
     links:
       - type: verifies
@@ -1410,8 +1422,283 @@ artifacts:
       invalidation, multiple entries, key serialization, and
       thread safety properties.
     fields:
-      method: test
+      method: automated-test
       tool: cargo-test
     links:
       - type: verifies
         target: CD-22
+
+  # ──────────────────────────────────────────────────
+  # Phase 3: Component Model, PQC, and Advanced Requirements
+  # ──────────────────────────────────────────────────
+
+  # Requirements
+  - id: CR-18
+    type: cybersecurity-req
+    title: Component model section handling must be complete
+    status: approved
+    description: >
+      WASM Component Model signing must correctly parse, preserve, and sign
+      all component sections including nested modules, ensuring no section
+      is silently dropped or corrupted during the signing process.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Component model roundtrip preserves all sections; nested modules
+        are correctly handled; no silent section dropping.
+    links:
+      - type: derives-from
+        target: CG-13
+
+  - id: CR-19
+    type: cybersecurity-req
+    title: Hybrid signature verification must be all-or-nothing
+    status: approved
+    description: >
+      When post-quantum hybrid signing is configured, verification must
+      require both the classical (Ed25519) and post-quantum (SLH-DSA)
+      signatures to be present and valid. Partial signatures must be
+      rejected to prevent downgrade attacks.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Verification rejects modules with only classical or only PQC
+        signature when hybrid mode is configured.
+    links:
+      - type: derives-from
+        target: CG-1
+
+  - id: CR-20
+    type: cybersecurity-req
+    title: Proof cache entries must be invalidated on key revocation
+    status: approved
+    description: >
+      Rekor proof cache entries must be invalidated when the associated
+      signing key is revoked, preventing acceptance of modules signed by
+      compromised keys through stale cache hits.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Cache lookup returns miss for entries whose signing key has been
+        revoked; revocation triggers immediate cache invalidation.
+    links:
+      - type: derives-from
+        target: CG-8
+
+  - id: CR-21
+    type: cybersecurity-req
+    title: Fulcio certificates MUST embed valid SCTs from trusted CT logs
+    status: approved
+    description: >
+      Fulcio certificates must contain Signed Certificate Timestamps (SCTs)
+      from trusted Certificate Transparency logs. Verification must reject
+      certificates without valid SCTs to ensure transparency guarantees.
+    fields:
+      req-type: authentication
+      priority: must
+      verification-criteria: >
+        Verification rejects Fulcio certificates missing SCTs or containing
+        SCTs from untrusted CT logs.
+    links:
+      - type: derives-from
+        target: CG-7
+
+  - id: CR-22
+    type: cybersecurity-req
+    title: Checkpoint persistence MUST be atomic and integrity-protected
+    status: approved
+    description: >
+      Rekor checkpoint files must be written atomically using temp-file-plus-
+      rename to prevent partial writes. Checkpoint integrity must be verified
+      on load to detect corruption.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Checkpoint writes are atomic; partial writes do not corrupt existing
+        checkpoints; integrity check detects tampered checkpoints on load.
+    links:
+      - type: derives-from
+        target: CG-8
+
+  - id: CR-23
+    type: cybersecurity-req
+    title: Bundle serialization MUST preserve all verification material fields
+    status: approved
+    description: >
+      Sigstore bundle serialization and deserialization must preserve all
+      verification material fields including certificates, inclusion proofs,
+      and signed timestamps without loss or reordering.
+    fields:
+      req-type: integrity
+      priority: must
+      verification-criteria: >
+        Bundle roundtrip serialization preserves all fields; schema validation
+        rejects bundles with missing required fields.
+    links:
+      - type: derives-from
+        target: CG-3
+
+  - id: CR-24
+    type: cybersecurity-req
+    title: DSSE verification must support configurable threshold policies
+    status: approved
+    description: >
+      DSSE envelope verification must support configurable signature threshold
+      policies (e.g., require N-of-M valid signatures) to enable multi-party
+      signing workflows.
+    fields:
+      req-type: authentication
+      priority: should
+      verification-criteria: >
+        Verification enforces configured threshold; rejects envelopes with
+        fewer valid signatures than the threshold requires.
+    links:
+      - type: derives-from
+        target: CG-1
+
+  # Design
+  - id: CD-23
+    type: cybersecurity-design
+    title: Component-aware recursive parser
+    status: draft
+    description: >
+      WASM Component Model parser that recursively handles nested components
+      and modules, preserving all sections during signing. Uses bounded
+      recursion depth to prevent stack overflow from crafted inputs.
+    fields:
+      mechanism: format-handler
+    links:
+      - type: satisfies
+        target: CR-18
+
+  - id: CD-24
+    type: cybersecurity-design
+    title: Hybrid signature format and verification pipeline
+    status: draft
+    description: >
+      Dual-signature format embedding both Ed25519 and SLH-DSA signatures
+      in the WASM custom section. Verification pipeline enforces all-or-nothing
+      validation when hybrid mode is configured, rejecting partial signatures.
+    fields:
+      mechanism: hybrid-signing
+      algorithm: Ed25519+SLH-DSA
+    links:
+      - type: satisfies
+        target: CR-19
+
+  - id: CD-25
+    type: cybersecurity-design
+    title: SCT verification pipeline with trusted CT log set
+    status: draft
+    description: >
+      Verifier for Signed Certificate Timestamps embedded in Fulcio
+      certificates. Maintains a configurable set of trusted CT log public
+      keys and validates SCT signatures against them.
+    fields:
+      mechanism: certificate-transparency
+      algorithm: ECDSA-P256-SHA256
+    links:
+      - type: satisfies
+        target: CR-21
+
+  - id: CD-26
+    type: cybersecurity-design
+    title: Atomic file checkpoint store with temp+rename
+    status: draft
+    description: >
+      Checkpoint persistence using atomic temp-file-plus-rename pattern.
+      Writes checkpoint to a temporary file in the same directory, then
+      atomically renames to the target path. Integrity verified via
+      embedded checksum on load.
+    fields:
+      mechanism: atomic-persistence
+    links:
+      - type: satisfies
+        target: CR-22
+
+  - id: CD-27
+    type: cybersecurity-design
+    title: SigstoreBundle with schema validation
+    status: draft
+    description: >
+      Sigstore bundle serialization with strict schema validation ensuring
+      all verification material fields (certificates, inclusion proofs,
+      signed timestamps) are preserved through serialization roundtrips.
+    fields:
+      mechanism: bundle-serialization
+      algorithm: JSON-canonical
+    links:
+      - type: satisfies
+        target: CR-23
+
+  # Verification
+  - id: CV-30
+    type: cybersecurity-verification
+    title: Component model signing roundtrip tests
+    status: draft
+    description: >
+      Verify that WASM Component Model modules can be signed and verified
+      with all sections preserved, including nested components and modules.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CD-23
+
+  - id: CV-31
+    type: cybersecurity-verification
+    title: PQC hybrid signing roundtrip tests
+    status: draft
+    description: >
+      Verify that hybrid Ed25519+SLH-DSA signing and verification works
+      end-to-end, and that partial signature stripping is detected and
+      rejected.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CD-24
+
+  - id: CV-32
+    type: cybersecurity-verification
+    title: SCT verification tests
+    status: draft
+    description: >
+      Verify that SCT validation correctly accepts valid SCTs from trusted
+      CT logs and rejects invalid or missing SCTs.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CD-25
+
+  - id: CV-33
+    type: cybersecurity-verification
+    title: Checkpoint consistency verification tests
+    status: draft
+    description: >
+      Verify that checkpoint persistence is atomic, partial writes do not
+      corrupt existing checkpoints, and integrity checks detect tampering.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CD-26
+
+  - id: CV-34
+    type: cybersecurity-verification
+    title: Bundle format conformance tests
+    status: draft
+    description: >
+      Verify that Sigstore bundle serialization roundtrips preserve all
+      fields and that schema validation rejects bundles with missing
+      required verification material.
+    fields:
+      method: automated-test
+    links:
+      - type: verifies
+        target: CD-27

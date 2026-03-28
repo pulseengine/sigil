@@ -484,3 +484,14 @@ artifacts:
       Kani bounded model checking on every PR touching proof files.
     fields:
       phase: phase-2
+
+  - id: FEAT-11
+    type: feature
+    title: WASM Component Model signing
+    status: in-progress
+    description: >
+      Support signing and verification of WASM Component Model modules,
+      including recursive handling of nested components and preservation
+      of all component sections during the signing process.
+    fields:
+      phase: phase-2

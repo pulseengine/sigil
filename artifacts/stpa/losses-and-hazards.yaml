@@ -666,3 +666,399 @@ artifacts:
     links:
       - type: prevents
         target: H-17
+
+  # ---------------------------------------------------------------------------
+  # Round 3: v0.6.x Feature Coverage — Losses
+  # ---------------------------------------------------------------------------
+  - id: L-10
+    type: loss
+    title: Loss of WASM component model integrity
+    status: draft
+    description: >
+      Nested module content within a WASM component is not covered by the
+      outer signature, allowing an attacker to substitute or tamper with
+      inner modules while the top-level signature remains valid. This
+      undermines the component model's compositional trust guarantees.
+
+  # ---------------------------------------------------------------------------
+  # Round 3: v0.6.x Feature Coverage — Hazards
+  # ---------------------------------------------------------------------------
+  - id: H-21
+    type: hazard
+    title: Component section reordering invalidates signature
+    status: draft
+    description: >
+      Reordering sections within a WASM component invalidates the signature
+      even though the semantic content is unchanged, causing false
+      verification failures for legitimately signed components.
+    links:
+      - type: leads-to-loss
+        target: L-10
+
+  - id: H-22
+    type: hazard
+    title: Nested module substitution in signed component
+    status: draft
+    description: >
+      An attacker substitutes a nested module within a signed WASM component
+      without invalidating the outer signature, because the signature does
+      not cover the full component tree recursively.
+    links:
+      - type: leads-to-loss
+        target: L-10
+
+  - id: H-23
+    type: hazard
+    title: PQC hybrid verification skips post-quantum component
+    status: draft
+    description: >
+      Hybrid signature verification accepts the classical (Ed25519) component
+      alone without verifying the post-quantum (ML-DSA) component, leaving
+      the system vulnerable to quantum-capable adversaries.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-24
+    type: hazard
+    title: PQC key material too large for embedded flash
+    status: draft
+    description: >
+      Post-quantum key material exceeds the available flash storage on
+      constrained embedded devices, causing key truncation or storage
+      failures that prevent successful verification.
+    links:
+      - type: leads-to-loss
+        target: L-6
+
+  - id: H-25
+    type: hazard
+    title: Proof cache poisoning accepts revoked entries
+    status: draft
+    description: >
+      An attacker poisons the proof cache with entries that reference
+      revoked or invalid transparency log proofs, causing subsequent
+      verifications to accept stale or revoked signatures from cache.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-26
+    type: hazard
+    title: Cache TTL too long allows stale proofs after revocation
+    status: draft
+    description: >
+      The proof cache time-to-live is set too long, allowing cached proofs
+      to remain valid after the underlying certificate or key has been
+      revoked, creating a window of vulnerability.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-27
+    type: hazard
+    title: SCT verification accepts forged CT log signature
+    status: draft
+    description: >
+      Signed Certificate Timestamp verification accepts a forged CT log
+      signature because the verification does not properly validate the
+      log's signing key against a trusted key set.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-28
+    type: hazard
+    title: SCT monitoring fails silently
+    status: draft
+    description: >
+      SCT monitoring encounters errors (network failures, malformed
+      responses) but fails open, allowing certificates without valid SCTs
+      to be accepted without alerting operators.
+    links:
+      - type: leads-to-loss
+        target: L-3
+
+  - id: H-29
+    type: hazard
+    title: Checkpoint store corruption accepts split-view log
+    status: draft
+    description: >
+      The checkpoint store is corrupted or tampered with, causing the
+      verifier to accept a split-view transparency log where different
+      clients see different log contents.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-30
+    type: hazard
+    title: Checkpoint race condition leaves stale state
+    status: draft
+    description: >
+      Concurrent checkpoint updates create a race condition where a stale
+      checkpoint overwrites a newer one, allowing the verifier to accept
+      log entries that have been superseded or revoked.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-31
+    type: hazard
+    title: Sigstore bundle format mismatch breaks cosign verify
+    status: draft
+    description: >
+      The Sigstore bundle produced by sigil uses a format or media type
+      that cosign or other verifiers do not recognize, causing
+      interoperability failures and verification rejection.
+    links:
+      - type: leads-to-loss
+        target: L-4
+
+  - id: H-32
+    type: hazard
+    title: Bundle missing mandatory fields accepted as valid
+    status: draft
+    description: >
+      A Sigstore bundle with missing mandatory fields (verification
+      material, message signature, or log entries) is accepted as valid,
+      allowing incomplete or forged bundles to pass verification.
+    links:
+      - type: leads-to-loss
+        target: L-2
+
+  - id: H-33
+    type: hazard
+    title: Build environment metadata spoofed via env vars
+    status: draft
+    description: >
+      Build environment attestation metadata is captured from environment
+      variables that an attacker can control, allowing spoofed build
+      provenance to be embedded in signatures.
+    links:
+      - type: leads-to-loss
+        target: L-3
+
+  - id: H-34
+    type: hazard
+    title: Build environment capture executes attacker-controlled binaries
+    status: draft
+    description: >
+      Build environment capture invokes tool binaries discovered via PATH,
+      allowing an attacker who controls PATH to execute arbitrary code
+      during the signing process.
+    links:
+      - type: leads-to-loss
+        target: L-5
+
+  - id: H-35
+    type: hazard
+    title: DSSE verify() accepts single valid sig hiding compromised key
+    status: draft
+    description: >
+      DSSE multi-signature verification accepts a payload when any single
+      signature is valid, allowing an attacker with one compromised key to
+      bypass a multi-party signing policy.
+    links:
+      - type: leads-to-loss
+        target: L-3
+
+  # ---------------------------------------------------------------------------
+  # Round 3: v0.6.x Feature Coverage — System Constraints
+  # ---------------------------------------------------------------------------
+  - id: SC-20
+    type: system-constraint
+    title: Signature MUST cover full component tree including nested modules
+    status: draft
+    description: >
+      Signature computation MUST cover the full component tree including
+      all nested modules, ensuring that substitution of any inner module
+      invalidates the outer signature.
+    links:
+      - type: prevents
+        target: H-22
+      - type: protects
+        target: SP-2
+
+  - id: SC-21
+    type: system-constraint
+    title: Parser MUST recursively traverse component nesting
+    status: draft
+    description: >
+      The component parser MUST recursively traverse all levels of
+      component nesting to produce a canonical byte sequence for signing,
+      preventing section reordering attacks.
+    links:
+      - type: prevents
+        target: H-21
+      - type: protects
+        target: SP-2
+
+  - id: SC-22
+    type: system-constraint
+    title: Hybrid verification MUST check both classical and PQC signatures
+    status: draft
+    description: >
+      Hybrid signature verification MUST independently verify both the
+      classical and post-quantum signature components, rejecting the
+      bundle if either component fails.
+    links:
+      - type: prevents
+        target: H-23
+      - type: protects
+        target: SP-1
+
+  - id: SC-23
+    type: system-constraint
+    title: PQC key material MUST be zeroized on drop
+    status: draft
+    description: >
+      Post-quantum key material MUST be zeroized from memory on drop,
+      using the same zeroize-on-drop guarantees applied to classical
+      key material.
+    links:
+      - type: prevents
+        target: H-24
+      - type: protects
+        target: SP-3
+
+  - id: SC-24
+    type: system-constraint
+    title: Cache MUST only store proofs verified cryptographically
+    status: draft
+    description: >
+      The proof cache MUST only store entries whose cryptographic proofs
+      have been independently verified, preventing cache poisoning with
+      invalid or revoked entries.
+    links:
+      - type: prevents
+        target: H-25
+      - type: protects
+        target: SP-6
+
+  - id: SC-25
+    type: system-constraint
+    title: Cache MUST be bounded in size
+    status: draft
+    description: >
+      The proof cache MUST enforce a maximum entry count and total size
+      bound, evicting oldest entries first, to prevent unbounded growth
+      and resource exhaustion.
+    links:
+      - type: prevents
+        target: H-25
+      - type: protects
+        target: SP-8
+
+  - id: SC-26
+    type: system-constraint
+    title: SCT signatures MUST be verified against trusted CT log keys
+    status: draft
+    description: >
+      Signed Certificate Timestamp signatures MUST be verified against
+      a trusted set of CT log public keys, rejecting SCTs signed by
+      unknown or untrusted logs.
+    links:
+      - type: prevents
+        target: H-27
+      - type: protects
+        target: SP-6
+
+  - id: SC-27
+    type: system-constraint
+    title: SCT monitoring MUST fail-closed when no valid SCTs found
+    status: draft
+    description: >
+      SCT monitoring MUST fail-closed, rejecting certificates when no
+      valid SCTs can be obtained or verified, rather than silently
+      accepting unmonitored certificates.
+    links:
+      - type: prevents
+        target: H-28
+      - type: protects
+        target: SP-6
+
+  - id: SC-28
+    type: system-constraint
+    title: Checkpoint store MUST be atomically updated
+    status: draft
+    description: >
+      Checkpoint store updates MUST be atomic (write-then-rename),
+      ensuring that a crash or concurrent access never leaves the
+      store in a corrupt or partially-written state.
+    links:
+      - type: prevents
+        target: H-29
+      - type: protects
+        target: SP-6
+
+  - id: SC-29
+    type: system-constraint
+    title: Checkpoint MUST persist across process restarts
+    status: draft
+    description: >
+      The latest verified checkpoint MUST be persisted to durable
+      storage and loaded on process restart, preventing rollback to
+      an earlier log state.
+    links:
+      - type: prevents
+        target: H-30
+      - type: protects
+        target: SP-6
+
+  - id: SC-30
+    type: system-constraint
+    title: Bundle MUST include complete verification material
+    status: draft
+    description: >
+      Sigstore bundles MUST include all mandatory verification material
+      (certificate chain, transparency log entry, timestamps) and MUST
+      be rejected if any required field is absent.
+    links:
+      - type: prevents
+        target: H-32
+      - type: protects
+        target: SP-6
+
+  - id: SC-31
+    type: system-constraint
+    title: Bundle media type MUST be validated before parsing
+    status: draft
+    description: >
+      The Sigstore bundle media type MUST be validated against the
+      expected value before parsing, ensuring interoperability with
+      cosign and other Sigstore verifiers.
+    links:
+      - type: prevents
+        target: H-31
+      - type: protects
+        target: SP-2
+
+  - id: SC-32
+    type: system-constraint
+    title: Build env capture MUST NOT trust user-supplied PATH
+    status: draft
+    description: >
+      Build environment capture MUST use hardcoded absolute paths for
+      tool invocation and MUST NOT rely on the user-supplied PATH
+      environment variable, preventing PATH injection attacks.
+    links:
+      - type: prevents
+        target: H-34
+      - type: protects
+        target: SP-3
+
+  - id: SC-33
+    type: system-constraint
+    title: DSSE multi-sig verification policy MUST be configurable
+    status: draft
+    description: >
+      DSSE multi-signature verification MUST support configurable
+      threshold policies (e.g., k-of-n), defaulting to requiring all
+      signatures to be valid, preventing single-key compromise from
+      bypassing multi-party signing requirements.
+    links:
+      - type: prevents
+        target: H-35
+      - type: protects
+        target: SP-6

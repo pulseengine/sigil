@@ -480,8 +480,11 @@ artifacts:
     fields:
       source: CTRL-3
       destination: CP-5
-      data-type: attestation-chain
-      sensitivity: integrity-critical
+      data-type: attestation
+      sensitivity: critical
+      protection:
+        - cryptographic-binding
+        - hash-chain
     links:
       - type: flows-from
         target: CTRL-3
@@ -491,3 +494,154 @@ artifacts:
         target: SP-2
       - type: carries
         target: SP-6
+
+  # ──────────────────────────────────────────────────
+  # Round 3: STPA-Sec Gap Closure
+  # ──────────────────────────────────────────────────
+
+  - id: DF-17
+    type: data-flow
+    title: Component Nested Module Content Flow
+    status: draft
+    description: >
+      Nested module binary content flows from the component model parser
+      to the WASM component processing pipeline for hashing and signature
+      coverage.
+    fields:
+      data-type: binary
+      sensitivity: critical
+      persistence: transient
+      protection:
+        - hash-verification
+    links:
+      - type: flows-from
+        target: CTRL-11
+      - type: flows-to
+        target: CP-8
+
+  - id: DF-18
+    type: data-flow
+    title: PQC Key Material Flow
+    status: draft
+    description: >
+      Post-quantum cryptographic key material flows from the CLI controller
+      to the WASM module processing pipeline for quantum-resistant signing
+      operations.
+    fields:
+      data-type: cryptographic-key
+      sensitivity: critical
+      persistence: transient
+      protection:
+        - memory-only
+        - zeroization-on-drop
+    links:
+      - type: flows-from
+        target: CTRL-1
+      - type: flows-to
+        target: CP-1
+
+  - id: DF-19
+    type: data-flow
+    title: Cached Proof Data Flow
+    status: draft
+    description: >
+      Cached Rekor inclusion and consistency proofs flow from the verification
+      module to key material storage for offline verification support.
+    fields:
+      data-type: attestation
+      sensitivity: high
+      persistence: persistent
+      protection:
+        - integrity-check
+    links:
+      - type: flows-from
+        target: CTRL-4
+      - type: flows-to
+        target: CP-2
+
+  - id: DF-20
+    type: data-flow
+    title: SCT from Fulcio Certificate
+    status: draft
+    description: >
+      Signed Certificate Timestamp extracted from Fulcio certificate flows
+      to the SCT monitor for Certificate Transparency verification.
+    fields:
+      data-type: attestation
+      sensitivity: high
+      persistence: transient
+      protection:
+        - signature-verification
+    links:
+      - type: flows-from
+        target: CTRL-12
+      - type: flows-to
+        target: CP-2
+
+  - id: DF-21
+    type: data-flow
+    title: Checkpoint Persistence Flow
+    status: draft
+    description: >
+      Rekor checkpoint data flows from the checkpoint consistency verifier
+      to key material storage for persistence and future consistency checks.
+    fields:
+      data-type: attestation
+      sensitivity: high
+      persistence: persistent
+      protection:
+        - integrity-check
+    links:
+      - type: flows-from
+        target: CTRL-13
+      - type: flows-to
+        target: CP-2
+
+  - id: DF-22
+    type: data-flow
+    title: Bundle Format Conversion
+    status: draft
+    description: >
+      Trust bundle attestation data flows from the verification module to
+      Sigstore infrastructure for format conversion between bundle versions.
+    fields:
+      data-type: attestation
+      sensitivity: high
+      persistence: transient
+      protection:
+        - integrity-check
+    links:
+      - type: flows-from
+        target: CTRL-4
+      - type: flows-to
+        target: CP-3
+
+  - id: SP-11
+    type: security-property
+    title: PQC key material confidentiality
+    status: draft
+    description: >
+      Post-quantum cryptographic key material must never be exposed outside
+      the signing module boundary, in memory dumps, logs, or error messages,
+      maintaining the same confidentiality guarantees as classical keys.
+    fields:
+      property-type: confidentiality
+      required-level: critical
+    links:
+      - type: property-of
+        target: DF-18
+
+  - id: SP-12
+    type: security-property
+    title: Proof cache integrity
+    status: draft
+    description: >
+      Cached Rekor inclusion and consistency proofs must maintain integrity
+      to prevent replay or substitution attacks that could cause acceptance
+      of revoked or invalid signatures.
+    fields:
+      property-type: integrity
+      required-level: high
+    links:
+      - type: property-of
+        target: DF-19
