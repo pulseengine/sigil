@@ -4,6 +4,13 @@
 /// integers in the LEB128 format used by WebAssembly modules.
 pub mod varint;
 
+/// WASM Component Model section types (informational).
+///
+/// Documents the component model section IDs for reference. The core parser
+/// handles component sections via `SectionId::Extension(u8)`, which is
+/// sufficient for signing since the hash covers all bytes.
+pub mod component;
+
 use crate::signature::*;
 
 use ct_codecs::{Encoder, Hex};
@@ -873,5 +880,95 @@ mod tests {
         let custom = CustomSection::default();
         assert_eq!(custom.name(), "");
         assert_eq!(custom.payload(), &[] as &[u8]);
+    }
+
+    #[test]
+    fn test_component_model_sign_verify() {
+        use crate::KeyPair;
+
+        // Build a minimal component: header + one custom section
+        let mut component = Vec::new();
+        component.extend_from_slice(&WASM_COMPONENT_HEADER);
+        // Add a custom section (id=0, name="test", content="hello")
+        let section_name = b"test";
+        let section_content = b"hello";
+        let section_payload_len = 1 + section_name.len() + section_content.len();
+        component.push(0x00); // custom section id
+        // varint encode payload length
+        component.push(section_payload_len as u8);
+        component.push(section_name.len() as u8);
+        component.extend_from_slice(section_name);
+        component.extend_from_slice(section_content);
+
+        let mut reader = io::Cursor::new(&component);
+        let module = Module::deserialize(&mut reader).expect("should parse component");
+        assert_eq!(module.header, WASM_COMPONENT_HEADER);
+
+        let kp = KeyPair::generate();
+        let signed = kp.sk.sign(module, None).expect("should sign component");
+
+        // Serialize and verify
+        let mut signed_bytes = Vec::new();
+        signed
+            .serialize(&mut signed_bytes)
+            .expect("should serialize");
+        let mut verify_reader = io::Cursor::new(&signed_bytes);
+        assert!(
+            kp.pk.verify(&mut verify_reader, None).is_ok(),
+            "should verify component signature"
+        );
+    }
+
+    #[test]
+    fn test_component_model_tamper_detection() {
+        use crate::KeyPair;
+
+        let mut component = Vec::new();
+        component.extend_from_slice(&WASM_COMPONENT_HEADER);
+        let section_name = b"data";
+        let section_content = b"important content";
+        let section_payload_len = 1 + section_name.len() + section_content.len();
+        component.push(0x00);
+        component.push(section_payload_len as u8);
+        component.push(section_name.len() as u8);
+        component.extend_from_slice(section_name);
+        component.extend_from_slice(section_content);
+
+        let mut reader = io::Cursor::new(&component);
+        let module = Module::deserialize(&mut reader).expect("should parse component");
+        let kp = KeyPair::generate();
+        let signed = kp.sk.sign(module, None).expect("should sign");
+
+        // Serialize, tamper, re-verify
+        let mut bytes = Vec::new();
+        signed.serialize(&mut bytes).expect("should serialize");
+        // Find and modify content byte
+        if let Some(pos) = bytes
+            .windows(b"important".len())
+            .position(|w| w == b"important")
+        {
+            bytes[pos] = b'X'; // tamper
+        }
+        let mut tampered_reader = io::Cursor::new(&bytes);
+        assert!(
+            kp.pk.verify(&mut tampered_reader, None).is_err(),
+            "tampered component must fail verification"
+        );
+    }
+}
+
+// ============================================================================
+// Kani proof harnesses for WASM module/component headers
+// ============================================================================
+#[cfg(kani)]
+mod component_proofs {
+    use super::*;
+
+    #[kani::proof]
+    fn proof_component_module_header_mutual_exclusivity() {
+        let b: [u8; 8] = kani::any();
+        let is_module = b == WASM_HEADER;
+        let is_component = b == WASM_COMPONENT_HEADER;
+        assert!(!(is_module && is_component));
     }
 }
