@@ -22,11 +22,12 @@ pub open spec fn spec_leaf_hash(data: Seq<u8>) -> Seq<u8>;
 pub open spec fn spec_node_hash(left: Seq<u8>, right: Seq<u8>) -> Seq<u8>;
 
 /// Largest power of 2 strictly less than n (spec version).
-pub open spec fn spec_largest_pow2_lt(n: u64) -> u64
+/// Uses `int` (mathematical integers) for spec-level reasoning.
+pub open spec fn spec_largest_pow2_lt(n: int) -> int
     decreases n,
 {
-    if n <= 1 { 0 }
-    else if n <= 2 { 1 }
+    if n <= 1 { 0int }
+    else if n <= 2 { 1int }
     else {
         2 * spec_largest_pow2_lt((n + 1) / 2)
     }
@@ -60,8 +61,8 @@ pub proof fn lemma_leaf_node_domain_separation()
 /// Mirrors the actual verify_inclusion_proof algorithm.
 pub open spec fn spec_walk_proof(
     leaf_hash: Seq<u8>,
-    leaf_index: u64,
-    tree_size: u64,
+    leaf_index: int,
+    tree_size: int,
     proof_hashes: Seq<Seq<u8>>,
     step: int,
 ) -> Seq<u8>
@@ -93,8 +94,8 @@ pub open spec fn spec_walk_proof(
 ///           implies leaf is at position idx in tree with root hash root.
 pub proof fn theorem_inclusion_proof_soundness(
     leaf_hash: Seq<u8>,
-    leaf_index: u64,
-    tree_size: u64,
+    leaf_index: int,
+    tree_size: int,
     proof_hashes: Seq<Seq<u8>>,
     expected_root: Seq<u8>,
 )
@@ -130,9 +131,9 @@ pub proof fn theorem_inclusion_proof_soundness(
 /// The air-gapped verifier stores last_verified_tree_size in
 /// DeviceSecurityState and rejects smaller tree sizes.
 pub proof fn theorem_anti_rollback_invariant(
-    last_verified_size: u64,
-    new_tree_size: u64,
-    leaf_index: u64,
+    last_verified_size: int,
+    new_tree_size: int,
+    leaf_index: int,
 )
     requires
         new_tree_size < last_verified_size,
@@ -152,7 +153,7 @@ pub proof fn theorem_anti_rollback_invariant(
 
 /// The number of proof hashes needed equals ceil(log2(tree_size)).
 /// This bounds the proof size logarithmically.
-pub proof fn lemma_proof_length_bound(tree_size: u64)
+pub proof fn lemma_proof_length_bound(tree_size: int)
     requires tree_size > 0,
     ensures
         // For any valid proof, proof_hashes.len() <= 64
