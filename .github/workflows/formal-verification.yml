@@ -61,7 +61,26 @@ jobs:
     - name: Run Kani proofs (14 fast + 5 DSSE)
       run: cargo kani -p wsc --default-unwind 4 --output-format terse
       timeout-minutes: 60
-      # 14/19 proofs pass within timeout. 5 DSSE proofs use Vec allocation
-      # in compute_pae() which is expensive for CBMC. These properties are
-      # proven at the Verus SMT level instead (unbounded, no allocation).
       continue-on-error: true
+
+  rocq-proofs:
+    name: Rocq/coq-of-rust Translation
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Nix
+      uses: cachix/install-nix-action@v30
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+
+    - name: Setup Bazel
+      uses: bazel-contrib/setup-bazel@0.14.0
+      with:
+        bazelisk-cache: true
+        disk-cache: ${{ github.workflow }}-rocq
+        repository-cache: true
+
+    - name: Translate PAE to Rocq and compile proof
+      run: bazel build //verification/rocq:pae_verified
+      timeout-minutes: 30
