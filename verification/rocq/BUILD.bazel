@@ -1,17 +1,10 @@
 load("@rules_rocq_rust//coq_of_rust:defs.bzl", "rocq_rust_verified_library")
 
-# Translate DSSE module from Rust to Rocq via coq-of-rust (CV-22)
+# Translate PAE (Pre-Authentication Encoding) to Rocq via coq-of-rust (CV-22)
+# Self-contained extraction of compute_pae from dsse.rs — no external deps.
 rocq_rust_verified_library(
-    name = "dsse_verified",
-    rust_sources = ["//src/lib:src/dsse.rs"],
-    extra_flags = ["-impredicative-set"],
-    visibility = ["//visibility:public"],
-)
-
-# Translate format detection module from Rust to Rocq (CV-23)
-rocq_rust_verified_library(
-    name = "format_verified",
-    rust_sources = ["//src/lib:src/format/mod.rs"],
+    name = "pae_verified",
+    rust_sources = ["pae.rs"],
     extra_flags = ["-impredicative-set"],
     visibility = ["//visibility:public"],
 )

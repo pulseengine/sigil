@@ -145,3 +145,7 @@ git_override(
     commit = "6a8da0b",
     remote = "https://github.com/pulseengine/rules_rocq_rust.git",
 )
+
+# Import coq-of-rust repos from rules_rocq_rust extension
+rocq_of_rust = use_extension("@rules_rocq_rust//coq_of_rust:extensions.bzl", "rocq_of_rust")
+use_repo(rocq_of_rust, "rocq_of_rust_source")
