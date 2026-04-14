@@ -92,7 +92,7 @@ optional = true
 # Wasmtime runtime for hosting WASM components (optional)
 # Enables running WASM components that use wsc:crypto interface
 [dependencies.wasmtime]
-version = "29"
+version = "43"
 features = ["component-model"]
 optional = true
 

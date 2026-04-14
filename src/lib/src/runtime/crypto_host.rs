@@ -13,7 +13,7 @@ use wasmtime::{Config, Engine, Store};
 wasmtime::component::bindgen!({
     path: "../../wit/deps/wsc-crypto",
     world: "crypto-guest",
-    async: false,
+    require_store_data_send: true,
 });
 
 /// State held by the wasmtime Store for crypto operations.
@@ -189,8 +189,11 @@ impl<P: SecureKeyProvider + Send + Sync + 'static> WscRuntime<P> {
         let mut linker = Linker::new(&engine);
 
         // Add wsc:crypto imports to the linker
-        CryptoGuest::add_to_linker(&mut linker, |state| state)
-            .map_err(|e| WSError::InternalError(format!("Failed to add crypto bindings: {}", e)))?;
+        CryptoGuest::add_to_linker::<CryptoHostState<P>, wasmtime::component::HasSelf<CryptoHostState<P>>>(
+            &mut linker,
+            |state| state,
+        )
+        .map_err(|e| WSError::InternalError(format!("Failed to add crypto bindings: {}", e)))?;
 
         Ok(Self { engine, linker })
     }

@@ -1,8 +1,12 @@
-/// Certificate pinning for Sigstore endpoints
+/// SPKI certificate pinning for Sigstore endpoints
 ///
-/// This module implements certificate pinning to protect against CA compromise
-/// and man-in-the-middle attacks. It validates that TLS certificates match
-/// known SHA256 fingerprints.
+/// This module implements SPKI (Subject Public Key Info) pinning to protect
+/// against CA compromise and man-in-the-middle attacks. It validates that
+/// the public key in TLS certificates matches known SHA256(SPKI) hashes.
+///
+/// SPKI pinning is more resilient than leaf-cert pinning: pins survive
+/// certificate renewals as long as the key stays the same (common for
+/// Google Trust Services which issues Sigstore's TLS certs).
 ///
 /// # Security Model
 ///
@@ -67,54 +71,49 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 #[cfg(not(target_arch = "wasm32"))]
 use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 
-/// Production Fulcio certificate pins (SHA256 fingerprints)
+/// Production Fulcio SPKI pins (SHA256 of SubjectPublicKeyInfo DER)
 ///
-/// These are the SHA256 fingerprints of certificates in the Sigstore production
-/// certificate chain. Multiple pins are included for rotation support.
+/// SPKI pinning survives certificate renewals — only changes when the
+/// actual public key rotates (rare for Google Trust Services).
 ///
-/// To get the current fingerprint:
+/// To get the current SPKI pin:
 /// ```bash
 /// echo | openssl s_client -connect fulcio.sigstore.dev:443 -servername fulcio.sigstore.dev 2>/dev/null | \
-///   openssl x509 -outform DER | sha256sum
+///   openssl x509 -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum
 /// ```
 ///
-/// Sigstore uses Google Trust Services certificates (GTS Root R1 -> GTS CA 1D4 -> fulcio.sigstore.dev)
-/// We pin both the intermediate and root CA for defense in depth.
+/// Sigstore uses Google Trust Services certificates (GTS Root R1 -> GTS WR3 -> fulcio.sigstore.dev)
+/// We pin the leaf SPKI and the intermediate CA SPKI for defense in depth.
 const FULCIO_PRODUCTION_PINS: &[&str] = &[
-    // Current fulcio.sigstore.dev leaf certificate (updated 2026-03-21)
-    // Run: echo | openssl s_client -connect fulcio.sigstore.dev:443 -servername fulcio.sigstore.dev 2>/dev/null | openssl x509 -outform DER | sha256sum
-    "ba90f09de9ec18ad1e17dd8e050f5aa1042a42f633a8bd69981e0aeaea7e36b6",
-    // Previous pins kept for rotation grace period
-    "a1ab2a71570894a6d9b2e539ec31419968cc3192b8c64bafb016bb72013f4087",
-    "d947432abde7b7fa90fc2e6b59101b12780fe0b4f02be0d81f4a6e2a0d5f2c17",
+    // fulcio.sigstore.dev leaf SPKI (updated 2026-04-14)
+    "6611c54b2960f4ed00fef7be46e6ea6541f38e65b039f756b87c0825c0f67df4",
+    // Google Trust Services WR3 intermediate CA SPKI
+    "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
-/// Production Rekor certificate pins (SHA256 fingerprints)
+/// Production Rekor SPKI pins (SHA256 of SubjectPublicKeyInfo DER)
 ///
 /// Rekor uses the same Google Trust Services infrastructure as Fulcio.
 const REKOR_PRODUCTION_PINS: &[&str] = &[
-    // Current rekor.sigstore.dev leaf certificate (updated 2026-03-15)
-    // Run: echo | openssl s_client -connect rekor.sigstore.dev:443 -servername rekor.sigstore.dev 2>/dev/null | openssl x509 -outform DER | sha256sum
-    "b4eb704754cb6f968f0aad64e4f8dedea5105ca2eb5974cbf82a38021cd54433",
-    // Previous pins kept for rotation grace period
-    "1d1d8295591c131c4e3581c8bdaa6ee0a76baae16f454467069cd1211756b88d",
-    "d947432abde7b7fa90fc2e6b59101b12780fe0b4f02be0d81f4a6e2a0d5f2c17",
+    // rekor.sigstore.dev leaf SPKI (updated 2026-04-14)
+    "356aacac31f1dda36c418426c4fad25071f849fdaccda221cca9a41b9ddb140d",
+    // Google Trust Services WR3 intermediate CA SPKI
+    "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
-/// Staging Fulcio certificate pins (SHA256 fingerprints)
+/// Staging Fulcio SPKI pins (SHA256 of SubjectPublicKeyInfo DER)
 ///
 /// Staging environment uses different certificates. Set WSC_SIGSTORE_STAGING=1
 /// to use staging endpoints.
 const FULCIO_STAGING_PINS: &[&str] = &[
-    // Staging uses Let's Encrypt certificates
-    // ISRG Root X1
-    "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6",
+    // ISRG Root X1 SPKI (Let's Encrypt root — extremely stable)
+    "0b9fa5a59eed715c26c1020c711b4f6ec42d58b0015e14337a39dad301c5afc3",
 ];
 
-/// Staging Rekor certificate pins (SHA256 fingerprints)
+/// Staging Rekor SPKI pins (SHA256 of SubjectPublicKeyInfo DER)
 const REKOR_STAGING_PINS: &[&str] = &[
-    // ISRG Root X1
-    "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6",
+    // ISRG Root X1 SPKI (Let's Encrypt root)
+    "0b9fa5a59eed715c26c1020c711b4f6ec42d58b0015e14337a39dad301c5afc3",
 ];
 
 /// Certificate pinning configuration
@@ -281,10 +280,13 @@ impl PinningConfig {
 // Rustls-dependent methods (native only)
 #[cfg(not(target_arch = "wasm32"))]
 impl PinningConfig {
-    /// Verify a certificate matches one of the pins
+    /// Verify a certificate's SPKI matches one of the pins.
+    ///
+    /// Extracts the SubjectPublicKeyInfo (SPKI) from the X.509 certificate
+    /// and computes SHA256(SPKI_DER). This survives certificate renewals
+    /// as long as the public key stays the same.
     fn verify_certificate(&self, cert_der: &CertificateDer) -> Result<(), WSError> {
         if !self.is_enabled() {
-            // No pins configured - allow connection but log warning
             log::warn!(
                 "Certificate pinning disabled for {} (no pins configured)",
                 self.service_name
@@ -292,22 +294,28 @@ impl PinningConfig {
             return Ok(());
         }
 
-        // Compute SHA256 fingerprint of the certificate
+        // Parse the X.509 certificate to extract SPKI
+        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
+            .map_err(|e| WSError::CertificatePinningError(format!(
+                "Failed to parse certificate for SPKI extraction: {:?}", e
+            )))?;
+
+        // Hash the raw SubjectPublicKeyInfo DER bytes
+        let spki_der = cert.public_key().raw;
         let mut hasher = Sha256::new();
-        hasher.update(cert_der.as_ref());
+        hasher.update(spki_der);
         let fingerprint = hasher.finalize();
         let fingerprint_hex = hex::encode(fingerprint);
 
-        // Check if fingerprint matches any pin
+        // Check if SPKI fingerprint matches any pin
         if self.pins.contains(&fingerprint_hex) {
             log::debug!(
-                "Certificate pin matched for {} (fingerprint: {}...)",
+                "SPKI pin matched for {} (fingerprint: {}...)",
                 self.service_name,
                 &fingerprint_hex[..16]
             );
             Ok(())
         } else if self.enforce {
-            // SECURITY (Issue #9): Only show first 16 hex chars (8 bytes) of fingerprint
             Err(WSError::CertificatePinningError(format!(
                 "Certificate pin mismatch for {}: got {}..., expected one of {} configured pins",
                 self.service_name,
@@ -316,7 +324,7 @@ impl PinningConfig {
             )))
         } else {
             log::warn!(
-                "Certificate pin mismatch for {} (warn-only mode): {}...",
+                "SPKI pin mismatch for {} (warn-only mode): {}...",
                 self.service_name,
                 &fingerprint_hex[..16]
             );
@@ -541,23 +549,28 @@ mod tests {
     }
 
     #[test]
-    fn test_certificate_fingerprint_matching() {
-        // Create a test certificate (DER format)
-        let test_cert_der = vec![0x30, 0x82, 0x01, 0x00]; // Minimal DER structure
-        let cert = CertificateDer::from(test_cert_der.clone());
+    fn test_spki_fingerprint_matching() {
+        // Generate a real self-signed certificate for SPKI pinning test
+        let params = rcgen::CertificateParams::new(vec!["test.example.com".to_string()]).unwrap();
+        let cert_key = rcgen::KeyPair::generate().unwrap();
+        let cert = params.self_signed(&cert_key).unwrap();
+        let cert_der = cert.der().to_vec();
+        let cert_ref = CertificateDer::from(cert_der.clone());
 
-        // Compute expected fingerprint
+        // Extract SPKI and compute expected pin
+        let (_, parsed) = x509_parser::parse_x509_certificate(&cert_der).unwrap();
+        let spki_der = parsed.public_key().raw;
         let mut hasher = Sha256::new();
-        hasher.update(&test_cert_der);
+        hasher.update(spki_der);
         let expected = hex::encode(hasher.finalize());
 
-        // Create config with correct pin
+        // Config with correct SPKI pin should pass
         let config = PinningConfig::custom(vec![expected.clone()], "test".to_string());
-        assert!(config.verify_certificate(&cert).is_ok());
+        assert!(config.verify_certificate(&cert_ref).is_ok());
 
-        // Create config with wrong pin
+        // Config with wrong pin should fail
         let wrong_config = PinningConfig::custom(vec!["a".repeat(64)], "test".to_string());
-        assert!(wrong_config.verify_certificate(&cert).is_err());
+        assert!(wrong_config.verify_certificate(&cert_ref).is_err());
     }
 
     #[test]
@@ -565,12 +578,12 @@ mod tests {
         let fulcio = PinningConfig::fulcio_production();
         assert_eq!(fulcio.service_name, "fulcio.sigstore.dev");
         assert!(fulcio.is_enabled());
-        assert!(fulcio.pin_count() >= 3); // Current leaf + previous pins for rotation
+        assert!(fulcio.pin_count() >= 2); // Leaf SPKI + intermediate CA SPKI
 
         let rekor = PinningConfig::rekor_production();
         assert_eq!(rekor.service_name, "rekor.sigstore.dev");
         assert!(rekor.is_enabled());
-        assert!(rekor.pin_count() >= 3);
+        assert!(rekor.pin_count() >= 2);
     }
 
     #[test]
@@ -601,9 +614,14 @@ mod tests {
 
         assert!(!config.is_enforcing());
 
-        // In warn-only mode, verification should pass even with wrong cert
-        let wrong_cert = vec![0x30, 0x82, 0x01, 0x00];
-        let result = config.verify_certificate(&CertificateDer::from(wrong_cert));
+        // Generate a real cert with a non-matching pin
+        let params = rcgen::CertificateParams::new(vec!["warn.example.com".to_string()]).unwrap();
+        let cert_key = rcgen::KeyPair::generate().unwrap();
+        let cert = params.self_signed(&cert_key).unwrap();
+        let cert_der = CertificateDer::from(cert.der().to_vec());
+
+        // In warn-only mode, verification should pass even with wrong pin
+        let result = config.verify_certificate(&cert_der);
         assert!(result.is_ok()); // Should just warn, not error
     }
 
@@ -652,13 +670,26 @@ mod tests {
 
     #[test]
     fn test_pinning_with_multiple_certs() {
-        // Test that pinning works with multiple pinned certificates
-        let cert1 = vec![0x30, 0x82, 0x01, 0x01];
-        let cert2 = vec![0x30, 0x82, 0x01, 0x02];
+        // Generate two real certificates
+        let params1 = rcgen::CertificateParams::new(vec!["one.example.com".to_string()]).unwrap();
+        let key1 = rcgen::KeyPair::generate().unwrap();
+        let cert1 = params1.self_signed(&key1).unwrap();
+        let cert1_der = cert1.der().to_vec();
 
-        // Compute fingerprints
-        let fp1 = hex::encode(Sha256::digest(&cert1));
-        let fp2 = hex::encode(Sha256::digest(&cert2));
+        let params2 = rcgen::CertificateParams::new(vec!["two.example.com".to_string()]).unwrap();
+        let key2 = rcgen::KeyPair::generate().unwrap();
+        let cert2 = params2.self_signed(&key2).unwrap();
+        let cert2_der = cert2.der().to_vec();
+
+        // Compute SPKI fingerprints
+        let fp1 = {
+            let (_, p) = x509_parser::parse_x509_certificate(&cert1_der).unwrap();
+            hex::encode(Sha256::digest(p.public_key().raw))
+        };
+        let fp2 = {
+            let (_, p) = x509_parser::parse_x509_certificate(&cert2_der).unwrap();
+            hex::encode(Sha256::digest(p.public_key().raw))
+        };
 
         let config =
             PinningConfig::custom(vec![fp1.clone(), fp2.clone()], "multi-test".to_string());
@@ -666,20 +697,22 @@ mod tests {
         // Both certificates should pass
         assert!(
             config
-                .verify_certificate(&CertificateDer::from(cert1))
+                .verify_certificate(&CertificateDer::from(cert1_der))
                 .is_ok()
         );
         assert!(
             config
-                .verify_certificate(&CertificateDer::from(cert2))
+                .verify_certificate(&CertificateDer::from(cert2_der))
                 .is_ok()
         );
 
-        // Wrong certificate should fail
-        let cert3 = vec![0x30, 0x82, 0x01, 0x03];
+        // Certificate with different key should fail
+        let params3 = rcgen::CertificateParams::new(vec!["three.example.com".to_string()]).unwrap();
+        let key3 = rcgen::KeyPair::generate().unwrap();
+        let cert3 = params3.self_signed(&key3).unwrap();
         assert!(
             config
-                .verify_certificate(&CertificateDer::from(cert3))
+                .verify_certificate(&CertificateDer::from(cert3.der().to_vec()))
                 .is_err()
         );
     }
