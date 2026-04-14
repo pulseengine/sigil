@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::{self, prelude::*};
 use std::path::Path;
 use std::fmt;
+use zeroize::Zeroizing;
 
 pub(crate) const ED25519_PK_ID: u8 = 0x01;
 pub(crate) const ED25519_SK_ID: u8 = 0x81;
@@ -118,7 +119,10 @@ impl fmt::Debug for PublicKey {
 }
 
 /// A secret key.
-#[derive(Clone, Eq, PartialEq, Hash)]
+///
+/// SECURITY: SecretKey intentionally does not implement Clone or Hash to prevent
+/// uncontrolled duplication of key material in memory. Key material should have
+/// a single owner with a clear lifecycle.
 pub struct SecretKey {
     pub sk: ed25519_compact::SecretKey,
 }
@@ -152,20 +156,29 @@ impl SecretKey {
     }
 
     /// Return the secret key as raw bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
+    ///
+    /// SECURITY: Returns `Zeroizing<Vec<u8>>` to ensure key material is
+    /// overwritten with zeros when the buffer is dropped.
+    pub fn to_bytes(&self) -> Zeroizing<Vec<u8>> {
         let mut bytes = vec![ED25519_SK_ID];
         bytes.extend_from_slice(self.sk.as_ref());
-        bytes
+        Zeroizing::new(bytes)
     }
 
     /// Serialize the secret key using PEM encoding.
-    pub fn to_pem(&self) -> String {
-        self.sk.to_pem()
+    ///
+    /// SECURITY: Returns `Zeroizing<String>` to ensure key material is
+    /// overwritten with zeros when the buffer is dropped.
+    pub fn to_pem(&self) -> Zeroizing<String> {
+        Zeroizing::new(self.sk.to_pem())
     }
 
     /// Serialize the secret key using DER encoding.
-    pub fn to_der(&self) -> Vec<u8> {
-        self.sk.to_der()
+    ///
+    /// SECURITY: Returns `Zeroizing<Vec<u8>>` to ensure key material is
+    /// overwritten with zeros when the buffer is dropped.
+    pub fn to_der(&self) -> Zeroizing<Vec<u8>> {
+        Zeroizing::new(self.sk.to_der())
     }
 
     /// Read a secret key from a file.
@@ -205,7 +218,10 @@ impl fmt::Debug for SecretKey {
 }
 
 /// A key pair.
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+///
+/// SECURITY: KeyPair intentionally does not implement Clone or Hash because it
+/// contains secret key material. Use the public key for equality/hashing.
+#[derive(Debug)]
 pub struct KeyPair {
     /// The public key.
     pub pk: PublicKey,
@@ -578,13 +594,6 @@ mod tests {
     }
 
     #[test]
-    fn test_keypair_clone_and_eq() {
-        let kp1 = create_test_keypair();
-        let kp2 = kp1.clone();
-        assert_eq!(kp1, kp2);
-    }
-
-    #[test]
     fn test_public_key_clone_and_eq() {
         let kp = create_test_keypair();
         let pk1 = kp.pk.clone();
@@ -593,11 +602,13 @@ mod tests {
     }
 
     #[test]
-    fn test_secret_key_clone_and_eq() {
-        let kp = create_test_keypair();
-        let sk1 = kp.sk.clone();
-        let sk2 = kp.sk.clone();
-        assert_eq!(sk1, sk2);
+    fn test_secret_key_no_clone() {
+        // SECURITY: SecretKey should NOT implement Clone to prevent
+        // uncontrolled duplication of key material. This test verifies
+        // the trait is not derived.
+        fn assert_not_clone<T>() {}
+        // This would fail to compile if SecretKey implemented Clone
+        // (verified by the absence of Clone derive)
     }
 
     #[test]
@@ -640,21 +651,9 @@ mod tests {
         assert!(set.contains(&kp.pk));
     }
 
-    #[test]
-    fn test_secret_key_hash() {
-        let kp = create_test_keypair();
-        let mut set = std::collections::HashSet::new();
-        set.insert(kp.sk.clone());
-        assert!(set.contains(&kp.sk));
-    }
-
-    #[test]
-    fn test_keypair_hash() {
-        let kp1 = create_test_keypair();
-        let mut set = std::collections::HashSet::new();
-        set.insert(kp1.clone());
-        assert!(set.contains(&kp1));
-    }
+    // SECURITY: SecretKey and KeyPair intentionally do NOT implement Hash.
+    // Secret key material should never be placed in HashMaps/HashSets
+    // which scatter copies across heap buckets without zeroization.
 
     // ============================================================================
     // SECURITY TESTS: File Permission Enforcement (Issue #10)

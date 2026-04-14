@@ -143,15 +143,19 @@ impl<T: TimeSource> AirGappedVerifier<T> {
     /// Check trust bundle health
     ///
     /// Returns warnings about expiring/expired bundle.
+    /// If no time source is configured, includes an `UnreliableTimeSource` warning
+    /// and falls back to build timestamp for health estimation.
     pub fn check_bundle_health(&self) -> Vec<VerificationWarning> {
         let mut warnings = Vec::new();
 
-        // Get current time (use time source if available, otherwise build time)
-        let current_time = self
-            .time_source
-            .as_ref()
-            .and_then(|ts| ts.now_unix().ok())
-            .unwrap_or(BUILD_TIMESTAMP);
+        // Get current time (use time source if available, otherwise build time with warning)
+        let current_time = match self.time_source.as_ref().and_then(|ts| ts.now_unix().ok()) {
+            Some(t) => t,
+            None => {
+                warnings.push(VerificationWarning::UnreliableTimeSource);
+                BUILD_TIMESTAMP
+            }
+        };
 
         // Check if bundle is expired
         if current_time > self.trust_bundle.validity.not_after {
@@ -199,11 +203,17 @@ impl<T: TimeSource> AirGappedVerifier<T> {
         let mut warnings = Vec::new();
 
         // Get current time for bundle validity check
+        // SECURITY: Fail closed when no time source is available. Without a reliable
+        // clock, all time-based checks (expiry, freshness, grace period) are meaningless.
         let current_time = self
             .time_source
             .as_ref()
             .and_then(|ts| ts.now_unix().ok())
-            .unwrap_or(BUILD_TIMESTAMP);
+            .ok_or_else(|| WSError::VerificationError(
+                "No time source available: air-gapped verification requires a reliable clock \
+                 to enforce bundle expiry and signature freshness. Configure a time source \
+                 via with_time_source() or use BuildTimeSource for development only.".to_string(),
+            ))?;
 
         // 1. Check bundle validity
         if !self.trust_bundle.is_valid(current_time) {

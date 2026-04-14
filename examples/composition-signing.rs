@@ -152,16 +152,13 @@ fn sign_component(
     key_handle: KeyHandle,
     output_path: &str,
 ) -> Result<String, WSError> {
-    // For testing, use full keypair
-    let keypair = provider.export_keypair(key_handle)?;
+    // Borrow keypair for cert creation (key stays in store for signing)
     let device_id = DeviceIdentity::new("device");
     let cert_config = CertificateConfig::new("device");
 
-    let device_cert = ca.sign_device_certificate_with_keypair(
-        &keypair,
-        &device_id,
-        &cert_config,
-    )?;
+    let device_cert = provider.with_keypair(key_handle, |keypair| {
+        ca.sign_device_certificate_with_keypair(keypair, &device_id, &cert_config)
+    })??;
 
     let cert_chain = vec![device_cert, ca.certificate().to_vec()];
 
@@ -208,16 +205,13 @@ fn sign_composed_component(
     key_handle: KeyHandle,
     output_path: &str,
 ) -> Result<(), WSError> {
-    // For testing, use full keypair
-    let keypair = provider.export_keypair(key_handle)?;
+    // Borrow keypair for cert creation (key stays in store for signing)
     let device_id = DeviceIdentity::new("integrator-device");
     let cert_config = CertificateConfig::new("integrator-device");
 
-    let device_cert = ca.sign_device_certificate_with_keypair(
-        &keypair,
-        &device_id,
-        &cert_config,
-    )?;
+    let device_cert = provider.with_keypair(key_handle, |keypair| {
+        ca.sign_device_certificate_with_keypair(keypair, &device_id, &cert_config)
+    })??;
 
     let cert_chain = vec![device_cert, ca.certificate().to_vec()];
 

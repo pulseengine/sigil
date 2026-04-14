@@ -114,6 +114,29 @@ impl SoftwareProvider {
         Ok(store.insert(keypair))
     }
 
+    /// Borrow a key pair for a callback
+    ///
+    /// # Security Warning
+    ///
+    /// This exposes the private key! Only use for testing or migration.
+    /// The key remains in the store after the callback completes.
+    pub fn with_keypair<R>(
+        &self,
+        handle: KeyHandle,
+        f: impl FnOnce(&KeyPair) -> R,
+    ) -> Result<R, WSError> {
+        let store = self
+            .store
+            .lock()
+            .map_err(|e| WSError::InternalError(format!("Lock poisoned: {}", e)))?;
+
+        let keypair = store
+            .get(handle)
+            .ok_or_else(|| WSError::InternalError("Invalid key handle".to_string()))?;
+
+        Ok(f(keypair))
+    }
+
     /// Export a key pair
     ///
     /// # Security Warning
@@ -126,16 +149,16 @@ impl SoftwareProvider {
     ///
     /// # Returns
     ///
-    /// The key pair (including private key)
+    /// The key pair (including private key). This **removes** the key from
+    /// the store — the caller takes ownership of the key material.
     pub fn export_keypair(&self, handle: KeyHandle) -> Result<KeyPair, WSError> {
-        let store = self
+        let mut store = self
             .store
             .lock()
             .map_err(|e| WSError::InternalError(format!("Lock poisoned: {}", e)))?;
 
         store
-            .get(handle)
-            .cloned()
+            .remove(handle)
             .ok_or_else(|| WSError::InternalError("Invalid key handle".to_string()))
     }
 }
@@ -362,22 +385,22 @@ mod tests {
     fn test_import_export_keypair() {
         let provider = SoftwareProvider::new();
 
-        // Generate a key pair the old way
+        // Generate a key pair and capture the public key before importing
         let original_keypair = KeyPair::generate();
+        let original_pk_bytes = original_keypair.pk.pk.as_ref().to_vec();
 
-        // Import it
+        // Import it (moves ownership — KeyPair intentionally does not impl Clone)
         let handle = provider
-            .import_keypair(original_keypair.clone())
+            .import_keypair(original_keypair)
             .expect("Failed to import keypair");
 
-        // Export it
+        // Export removes the key from the store (takes ownership)
         let exported_keypair = provider
             .export_keypair(handle)
             .expect("Failed to export keypair");
 
-        // Verify they match
-        assert_eq!(original_keypair.pk.pk, exported_keypair.pk.pk);
-        assert_eq!(original_keypair.sk.sk, exported_keypair.sk.sk);
+        // Verify the exported public key matches the original
+        assert_eq!(original_pk_bytes, exported_keypair.pk.pk.as_ref());
     }
 
     #[test]

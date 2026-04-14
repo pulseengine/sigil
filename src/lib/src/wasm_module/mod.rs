@@ -276,6 +276,11 @@ impl Section {
             SectionId::CustomSection => {
                 let mut reader = io::Cursor::new(payload);
                 let name_len = varint::get32(&mut reader)? as usize;
+                // SECURITY: Bound custom section name length to prevent OOM
+                // on malformed WASM with excessive name_len values.
+                if name_len > varint::MAX_SLICE_LEN {
+                    return Err(WSError::ParseError);
+                }
                 let mut name_slice = vec![0u8; name_len];
                 reader.read_exact(&mut name_slice)?;
                 let name = str::from_utf8(&name_slice)?.to_string();
@@ -296,6 +301,11 @@ impl Section {
             Err(e) => return Err(e),
         };
         let len = varint::get32(reader)? as usize;
+        // SECURITY: Bound section payload length to prevent OOM on malformed
+        // WASM modules with excessive length prefixes (matches get_slice limit).
+        if len > varint::MAX_SLICE_LEN {
+            return Err(WSError::ParseError);
+        }
         let mut payload = vec![0u8; len];
         reader.read_exact(&mut payload)?;
         let section = Section::new(id, payload)?;

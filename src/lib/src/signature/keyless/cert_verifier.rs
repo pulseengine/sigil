@@ -215,12 +215,22 @@ impl CertificatePool {
         cert_der: &[u8],
         integrated_time: i64,
     ) -> Result<(), CertVerificationError> {
+        // SECURITY: Reject negative timestamps before casting to u64.
+        // A negative i64 wraps to a huge u64, which would place the
+        // verification time far in the future and bypass expiry checks.
+        if integrated_time < 0 {
+            return Err(CertVerificationError::NotYetValid(format!(
+                "Negative integrated_time: {}",
+                integrated_time
+            )));
+        }
+
         let cert_der = CertificateDer::from(cert_der);
         let cert = EndEntityCert::try_from(&cert_der).map_err(|e| {
             CertVerificationError::ParseError(format!("Failed to parse certificate: {:?}", e))
         })?;
 
-        // Convert integrated_time to UnixTime for verification
+        // Convert integrated_time to UnixTime for verification (safe: checked non-negative above)
         let verification_time =
             UnixTime::since_unix_epoch(Duration::from_secs(integrated_time as u64));
 

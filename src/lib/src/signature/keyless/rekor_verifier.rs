@@ -688,14 +688,21 @@ impl RekorKeyring {
         // This is common in production - the log has grown since the proof was generated
         // The checkpoint represents a newer tree state, which includes the entry
         if checkpoint.note.size > proof_tree_size {
-            log::debug!(
-                "Checkpoint tree size ({}) > proof tree size ({}) - log has grown, accepting",
+            // SECURITY NOTE: Without a consistency proof between the two tree states,
+            // we cannot cryptographically verify that the proof's tree is a prefix of
+            // the checkpoint's tree. We accept this because:
+            // 1. The checkpoint signature IS verified (proves Rekor signed this tree head)
+            // 2. The Merkle inclusion proof IS verified (proves entry in proof's tree)
+            // 3. An attacker would need Rekor's signing key to forge either
+            //
+            // However, a compromised log could present an inconsistent view. When
+            // consistency proofs are available (Rekor API v2), they should be verified.
+            log::warn!(
+                "Checkpoint tree size ({}) > proof tree size ({}) — accepting without \
+                 consistency proof. This is normal for production but reduces assurance.",
                 checkpoint.note.size,
                 proof_tree_size
             );
-            // TODO: Ideally we should verify a consistency proof between the two tree states
-            // For now, we accept this case as the entry is in an earlier tree state that
-            // is included in the current checkpoint's tree
             return Ok(());
         }
 

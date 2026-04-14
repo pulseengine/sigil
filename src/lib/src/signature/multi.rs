@@ -72,7 +72,12 @@ impl SecretKey {
                         error!("The signature section was not the first module section");
                         continue;
                     }
-                    assert_eq!(previous_signature_data, None);
+                    // SECURITY: Reject modules with multiple signature headers
+                    // instead of panicking. A crafted module could have duplicate
+                    // signature sections to trigger a DoS via assert panic.
+                    if previous_signature_data.is_some() {
+                        return Err(WSError::ParseError);
+                    }
                     previous_signature_data = Some(custom_section.signature_data()?);
                     continue;
                 }

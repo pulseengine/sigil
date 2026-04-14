@@ -94,10 +94,20 @@ impl SignatureForHashes {
             }
             if cert_count > 0 {
                 let mut certs = Vec::with_capacity(cert_count as usize);
-                for _ in 0..cert_count {
-                    if let Ok(cert) = varint::get_slice(&mut reader) {
-                        certs.push(cert);
-                    }
+                for i in 0..cert_count {
+                    // SECURITY: Fail on malformed certificates instead of silently
+                    // skipping. Silent drops could lead to incomplete certificate
+                    // chains passing validation.
+                    let cert = varint::get_slice(&mut reader).map_err(|e| {
+                        debug!(
+                            "Failed to deserialize certificate {} of {}: {:?}",
+                            i + 1,
+                            cert_count,
+                            e
+                        );
+                        e
+                    })?;
+                    certs.push(cert);
                 }
                 Some(certs)
             } else {
@@ -154,11 +164,19 @@ impl SignedHashes {
             return Err(WSError::TooManySignatures(MAX_SIGNATURES));
         }
         let mut signatures = Vec::with_capacity(signatures_count);
-        for _ in 0..signatures_count {
+        for i in 0..signatures_count {
             let bin = varint::get_slice(&mut reader)?;
-            if let Ok(signature) = SignatureForHashes::deserialize(bin) {
-                signatures.push(signature);
-            }
+            // SECURITY: Fail on malformed signatures instead of silently skipping.
+            let signature = SignatureForHashes::deserialize(bin).map_err(|e| {
+                debug!(
+                    "Failed to deserialize signature {} of {}: {:?}",
+                    i + 1,
+                    signatures_count,
+                    e
+                );
+                e
+            })?;
+            signatures.push(signature);
         }
         Ok(Self { hashes, signatures })
     }

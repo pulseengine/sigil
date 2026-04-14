@@ -115,13 +115,22 @@ pub struct SctMonitorResult {
 
 // ── Default Trusted CT Logs ───────────────────────────────────────────
 
-/// Returns the set of well-known, trusted CT logs.
+/// Returns PLACEHOLDER CT log entries for development/testing only.
 ///
-/// This list includes major log operators (Google, Cloudflare, DigiCert).
-/// In production, this should be refreshed from the CT log list published
-/// by browser vendors, but a static default provides a useful baseline
-/// for offline verification.
+/// # Security Warning
+///
+/// These entries contain **truncated placeholder public keys** (ending in
+/// 0xdeadbeef, 0xcafebabe, 0xfeedface) and MUST NOT be used for production
+/// SCT verification. Replace with real CT log keys from the Chrome CT log
+/// list or Apple's CT policy before deploying.
+///
+/// Additionally, `verify_sct()` does not yet perform cryptographic signature
+/// verification — see the warning in that function.
 pub fn default_trusted_logs() -> Vec<TrustedCtLog> {
+    log::warn!(
+        "Using placeholder CT log keys — these are NOT real public keys. \
+         SCT verification results are meaningless until real keys are configured."
+    );
     vec![
         TrustedCtLog {
             log_id: [
@@ -240,12 +249,22 @@ impl SctVerifier {
         // extensions
         signed_data.extend_from_slice(&sct.extensions);
 
-        // Verify signature over signed_data using the log's public key.
-        // Full cryptographic verification requires the log's actual key type;
-        // here we perform a structural check that the signature and key are
-        // present and the lengths are plausible.  A production implementation
-        // would dispatch to p256/ed25519 verification based on
-        // `sct.signature_algorithm`.
+        // SECURITY WARNING: Full cryptographic SCT verification is not yet
+        // implemented. This performs only structural validation — it does NOT
+        // verify the ECDSA/Ed25519 signature. SCT results should be treated
+        // as ADVISORY ONLY until crypto verification is added.
+        //
+        // TODO: Implement actual signature verification:
+        //   - ECDSA P-256: parse log.public_key as SPKI, verify with p256 crate
+        //   - Ed25519: parse log.public_key, verify with ed25519-compact
+        //
+        // Without this, a forged SCT with a plausible-length signature will
+        // pass validation. Do NOT use SCT results for security decisions.
+        log::warn!(
+            "SCT verification is structural only — cryptographic signature \
+             verification is not yet implemented. Do not rely on SCT results \
+             for security decisions."
+        );
         let valid = !sct.signature.is_empty()
             && !log.public_key.is_empty()
             && sct.signature.len() >= 8;

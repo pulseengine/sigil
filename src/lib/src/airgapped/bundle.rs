@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 /// Current trust bundle format version
 pub const TRUST_BUNDLE_FORMAT_VERSION: u8 = 1;
 
+/// Maximum grace period: 365 days (in seconds)
+///
+/// SECURITY: Prevents malicious bundles from setting an excessively large
+/// grace period that would effectively disable expiry checking.
+pub const MAX_GRACE_PERIOD_SECONDS: u64 = 365 * 86400;
+
 /// Trust bundle containing all trust anchors for offline verification
 ///
 /// This structure contains:
@@ -83,6 +89,23 @@ impl TrustBundle {
         }
     }
 
+    /// Set the grace period, capping at MAX_GRACE_PERIOD_SECONDS (365 days).
+    ///
+    /// Returns the actual grace period applied (may be less than requested).
+    pub fn set_grace_period(&mut self, seconds: u64) -> u64 {
+        let capped = seconds.min(MAX_GRACE_PERIOD_SECONDS);
+        if capped < seconds {
+            log::warn!(
+                "Grace period capped from {} to {} seconds (max {} days)",
+                seconds,
+                capped,
+                MAX_GRACE_PERIOD_SECONDS / 86400
+            );
+        }
+        self.validity.grace_period_seconds = capped;
+        capped
+    }
+
     /// Add a certificate authority
     pub fn add_certificate_authority(&mut self, ca: CertificateAuthority) {
         self.certificate_authorities.push(ca);
@@ -106,9 +129,20 @@ impl TrustBundle {
     }
 
     /// Check if the bundle is in grace period
+    ///
+    /// SECURITY: Caps grace period to MAX_GRACE_PERIOD_SECONDS and uses checked
+    /// arithmetic to prevent overflow in the `not_after + grace` calculation.
     pub fn is_in_grace_period(&self, current_time: u64) -> bool {
-        current_time > self.validity.not_after
-            && current_time <= self.validity.not_after + self.validity.grace_period_seconds
+        let capped_grace = self
+            .validity
+            .grace_period_seconds
+            .min(MAX_GRACE_PERIOD_SECONDS);
+        let grace_end = self
+            .validity
+            .not_after
+            .checked_add(capped_grace)
+            .unwrap_or(u64::MAX);
+        current_time > self.validity.not_after && current_time <= grace_end
     }
 
     /// Check if a certificate fingerprint is revoked
