@@ -121,16 +121,16 @@ impl Guest for Component {
         // Note: OpenSSH format not supported - convert to PEM first
         // Try raw WSC bytes first
         if let Ok(sk) = SecretKey::from_bytes(&key_bytes) {
-            return Ok(sk.to_bytes());
+            return Ok(sk.to_bytes().to_vec());
         }
         // Try DER
         if let Ok(sk) = SecretKey::from_der(&key_bytes) {
-            return Ok(sk.to_bytes());
+            return Ok(sk.to_bytes().to_vec());
         }
         // Try PEM (text format)
         if let Ok(s) = std::str::from_utf8(&key_bytes) {
             if let Ok(sk) = SecretKey::from_pem(s) {
-                return Ok(sk.to_bytes());
+                return Ok(sk.to_bytes().to_vec());
             }
         }
         Err("Failed to parse secret key. Supported formats: WSC bytes, DER, PEM".to_string())
@@ -147,7 +147,7 @@ impl Guest for Component {
         let sk =
             SecretKey::from_bytes(&key_bytes).map_err(|e| format!("Invalid secret key: {}", e))?;
 
-        Ok(sk.to_pem())
+        Ok((*sk.to_pem()).clone())
     }
 }
 
