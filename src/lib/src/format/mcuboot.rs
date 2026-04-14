@@ -103,8 +103,25 @@ impl McubootArtifact {
             )));
         }
 
-        // Verify that the actual file has reasonable content after the declared image
-        // (should be TLV trailer or empty)
+        // SC-36 / H-38 / AS-36: Check for partial-image attack.
+        // In a legitimate MCUboot image, the content beyond declared_total
+        // is the TLV trailer (typically < 4KB for signatures + metadata).
+        // If the file has significantly more content than declared, the
+        // header may have been manipulated to exclude payload from signing.
+        let trailing_bytes = data.len() - declared_total;
+        const MAX_TLV_OVERHEAD: usize = 8192; // 8KB generous TLV allowance
+        if trailing_bytes > MAX_TLV_OVERHEAD {
+            return Err(WSError::InternalError(format!(
+                "MCUboot image has {} bytes beyond declared content ({} bytes). \
+                 Maximum expected TLV trailer is {} bytes. This may indicate a \
+                 partial-image attack where ih_img_size was reduced to exclude \
+                 payload from signing (SC-36 / H-38)",
+                trailing_bytes,
+                declared_total,
+                MAX_TLV_OVERHEAD,
+            )));
+        }
+
         let verified_img_size = header_img_size;
 
         Ok(McubootArtifact {
