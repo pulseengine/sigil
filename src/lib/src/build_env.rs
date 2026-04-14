@@ -69,9 +69,58 @@ pub struct BuildEnvironment {
     pub captured_at: Option<String>,
 }
 
+/// Resolve a command to its absolute path for logging (SC-35).
+///
+/// Uses `which`-style PATH lookup to determine which binary will actually
+/// be executed. Returns None if the command is not found.
+fn resolve_command_path(cmd: &str) -> Option<std::path::PathBuf> {
+    // Check for explicit override env var first (e.g., WSC_RUSTC_PATH)
+    let env_key = format!("WSC_{}_PATH", cmd.to_uppercase().replace('-', "_"));
+    if let Ok(explicit_path) = std::env::var(&env_key) {
+        let path = std::path::PathBuf::from(explicit_path);
+        if path.exists() {
+            return Some(path);
+        }
+        log::warn!(
+            "{} set to {:?} but file does not exist — falling back to PATH",
+            env_key,
+            path
+        );
+    }
+
+    // Fall back to PATH resolution
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let full = dir.join(cmd);
+            if full.is_file() {
+                Some(full)
+            } else {
+                None
+            }
+        })
+    })
+}
+
 /// Run a command and return trimmed stdout, or None on any failure.
+///
+/// SECURITY (SC-35 / H-37): Logs the resolved absolute path of the binary
+/// to provide visibility into which tool is actually executed. Operators can
+/// override tool paths via WSC_<TOOL>_PATH environment variables.
 fn capture_command_output(cmd: &str, args: &[&str]) -> Option<String> {
-    Command::new(cmd)
+    // SC-35: Resolve and log the actual binary path
+    let resolved = resolve_command_path(cmd);
+    if let Some(ref path) = resolved {
+        log::debug!("Build env capture: {} resolved to {:?}", cmd, path);
+    } else {
+        log::debug!("Build env capture: {} not found in PATH", cmd);
+    }
+
+    let binary = resolved
+        .as_ref()
+        .map(|p| p.as_os_str())
+        .unwrap_or_else(|| std::ffi::OsStr::new(cmd));
+
+    Command::new(binary)
         .args(args)
         .output()
         .ok()

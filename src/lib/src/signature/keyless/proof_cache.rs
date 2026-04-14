@@ -100,28 +100,50 @@ pub trait ProofCacheBackend: Send + Sync {
     }
 }
 
-/// In-memory proof cache with TTL-based expiry.
+/// Default maximum cache entries (SC-25 / SC-34).
+const DEFAULT_MAX_CACHE_ENTRIES: usize = 10_000;
+
+/// In-memory proof cache with TTL-based expiry and bounded size.
 ///
 /// Thread-safe via `Mutex`. Suitable for CLI tools and short-lived
 /// processes. For long-running services, consider a file-based or
 /// distributed cache backend.
+///
+/// # Security (SC-25 / SC-34)
+///
+/// The cache enforces a maximum entry count to prevent unbounded memory
+/// growth from cache flooding attacks (H-36 / AS-34). When the limit is
+/// reached, expired entries are evicted first; if still over limit, the
+/// oldest entries are removed.
 pub struct MemoryProofCache {
     entries: Mutex<HashMap<CacheKey, CacheEntry>>,
     ttl: Duration,
+    max_entries: usize,
 }
 
 /// Internal cache entry with instant-based expiry for in-memory use.
 struct CacheEntry {
     proof: CachedProof,
+    inserted_at: Instant,
     expires_at: Instant,
 }
 
 impl MemoryProofCache {
-    /// Create a new in-memory cache with the given TTL.
+    /// Create a new in-memory cache with the given TTL and default size limit.
     pub fn new(ttl: Duration) -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
             ttl,
+            max_entries: DEFAULT_MAX_CACHE_ENTRIES,
+        }
+    }
+
+    /// Create a cache with custom TTL and maximum entry count.
+    pub fn with_max_entries(ttl: Duration, max_entries: usize) -> Self {
+        Self {
+            entries: Mutex::new(HashMap::new()),
+            ttl,
+            max_entries,
         }
     }
 
@@ -133,6 +155,11 @@ impl MemoryProofCache {
     /// Get the configured TTL.
     pub fn ttl(&self) -> Duration {
         self.ttl
+    }
+
+    /// Get the maximum entry count.
+    pub fn max_entries(&self) -> usize {
+        self.max_entries
     }
 }
 
@@ -148,11 +175,38 @@ impl ProofCacheBackend for MemoryProofCache {
 
     fn insert(&self, key: CacheKey, proof: CachedProof) {
         if let Ok(mut entries) = self.entries.lock() {
+            let now = Instant::now();
+
+            // SC-34: Enforce maximum entry count to prevent cache flooding (H-36)
+            if entries.len() >= self.max_entries {
+                // First try evicting expired entries
+                entries.retain(|_, entry| now < entry.expires_at);
+
+                // If still over limit, evict oldest entries
+                if entries.len() >= self.max_entries {
+                    let evict_count = entries.len() - self.max_entries + 1;
+                    let mut by_age: Vec<(CacheKey, Instant)> = entries
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.inserted_at))
+                        .collect();
+                    by_age.sort_by_key(|(_, inserted)| *inserted);
+                    for (old_key, _) in by_age.into_iter().take(evict_count) {
+                        entries.remove(&old_key);
+                    }
+                    log::debug!(
+                        "Cache at capacity ({}): evicted {} oldest entries",
+                        self.max_entries,
+                        evict_count
+                    );
+                }
+            }
+
             entries.insert(
                 key,
                 CacheEntry {
                     proof,
-                    expires_at: Instant::now() + self.ttl,
+                    inserted_at: now,
+                    expires_at: now + self.ttl,
                 },
             );
         }

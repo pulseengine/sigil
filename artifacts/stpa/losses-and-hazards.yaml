@@ -1062,3 +1062,141 @@ artifacts:
         target: H-35
       - type: protects
         target: SP-6
+
+  # ---------------------------------------------------------------------------
+  # Round 4: Security Hardening Audit (v0.7.x) — Status Updates
+  # ---------------------------------------------------------------------------
+  #
+  # PR #80 (14 fixes) addressed the following hazards:
+  #
+  # FIXED (code changes merged):
+  #   H-3  → SecretKey no longer implements Clone/Hash; to_bytes()/to_pem()/to_der()
+  #          return Zeroizing wrappers. Reduces key material copies in memory.
+  #   H-10 → WASM section payload lengths bounded to MAX_SLICE_LEN (16 MB).
+  #          Custom section name_len also bounded. Matches get_slice() protection.
+  #   H-11 → All cryptographic comparisons confirmed constant-time (ct_codecs).
+  #          No changes needed — validated during audit.
+  #
+  # PARTIALLY FIXED:
+  #   H-6  → Air-gapped verifier now fails closed when no time source available.
+  #          Online Rekor verification was already fail-closed (DD-2).
+  #   H-7  → Checkpoint signature verified. Root hash comparison improved with
+  #          log::warn when tree sizes don't match (consistency proof gap documented).
+  #   H-9  → Certificate chain validation uses webpki with full RFC 5280 path
+  #          validation. Silent certificate drop in sig_sections.rs fixed (now fails
+  #          on malformed certs). integrated_time negative value check added.
+  #   H-27 → SCT verification marked as structural-only with runtime warning.
+  #          Cryptographic verification NOT YET IMPLEMENTED (SC-26 gap).
+  #   H-28 → SCT monitoring uses placeholder CT log keys (marked with warning).
+  #          Real CT log keys NOT YET CONFIGURED (SC-27 gap).
+  #
+  # NEW FINDINGS (Round 4):
+  #   H-36 → Cache memory exhaustion (no max_entries on MemoryProofCache)
+  #   H-37 → Build environment capture trusts PATH (Command::new via PATH)
+  #   H-38 → MCUboot partial-image attack not fully mitigated (lower bound gap)
+  #   H-39 → assert_eq! in production signing path (fixed in PR #80)
+  #   H-40 → TranscodingPredicateBuilder panics on missing fields (fixed in PR #80)
+  #
+
+  - id: H-36
+    type: hazard
+    title: Proof cache unbounded growth causes memory exhaustion
+    status: draft
+    description: >
+      The MemoryProofCache has no maximum entry count. An attacker
+      submitting verification requests with unique module hashes can grow
+      the cache without bound, exhausting available memory and causing
+      denial of service for the verification service.
+    fields:
+      severity: high
+    links:
+      - type: leads-to-loss
+        target: L-4
+      - type: related-to
+        target: H-25
+
+  - id: H-37
+    type: hazard
+    title: Build environment capture executes PATH-resolved binaries
+    status: draft
+    description: >
+      BuildEnvironment::capture() invokes tools (rustc, cargo, bazel,
+      wasm-tools) via Command::new() which resolves through the user's
+      PATH. An attacker who controls PATH can execute arbitrary code
+      during the signing process, compromising build provenance attestation
+      and potentially the signing key.
+    fields:
+      severity: high
+    links:
+      - type: leads-to-loss
+        target: L-3
+      - type: leads-to-loss
+        target: L-5
+      - type: related-to
+        target: H-33
+      - type: related-to
+        target: H-34
+
+  - id: H-38
+    type: hazard
+    title: MCUboot ih_img_size set smaller than actual payload
+    status: draft
+    description: >
+      The MCUboot parser validates that declared_total <= file.len() but
+      does NOT check if ih_img_size is unreasonably small relative to the
+      actual file content. An attacker who sets ih_img_size to a small
+      value causes the signing module to hash only a prefix of the image.
+      Malicious code appended after the signed prefix executes undetected.
+    fields:
+      severity: critical
+    links:
+      - type: leads-to-loss
+        target: L-6
+      - type: related-to
+        target: H-14
+
+  # Round 4: New System Constraints
+
+  - id: SC-34
+    type: system-constraint
+    title: Proof cache MUST enforce maximum entry count
+    status: draft
+    description: >
+      The proof cache MUST enforce a configurable maximum entry count,
+      evicting the oldest entries when the limit is reached, to prevent
+      unbounded memory growth from cache flooding attacks.
+    links:
+      - type: prevents
+        target: H-36
+      - type: refines
+        target: SC-25
+
+  - id: SC-35
+    type: system-constraint
+    title: Build env capture MUST log PATH-resolved binary locations
+    status: draft
+    description: >
+      BuildEnvironment::capture() MUST resolve and log the absolute path
+      of each tool binary before execution, and MUST accept override via
+      explicit environment variables (WSC_RUSTC_PATH etc.) to allow
+      operators to pin trusted tool locations.
+    links:
+      - type: prevents
+        target: H-37
+      - type: refines
+        target: SC-32
+
+  - id: SC-36
+    type: system-constraint
+    title: MCUboot signing MUST validate ih_img_size covers majority of file
+    status: draft
+    description: >
+      MCUboot signing MUST reject images where ih_img_size + ih_hdr_size
+      is significantly smaller than the file size (accounting for TLV
+      trailer), preventing partial-image signature attacks where the
+      header declares a small image to exclude malicious trailing content.
+    links:
+      - type: prevents
+        target: H-38
+      - type: refines
+        target: SC-13
