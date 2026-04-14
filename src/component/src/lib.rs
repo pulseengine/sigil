@@ -25,7 +25,7 @@ impl Guest for Component {
 
         Ok(KeyPair {
             public_key: kp.pk.to_bytes(),
-            secret_key: kp.sk.to_bytes(),
+            secret_key: kp.sk.to_bytes().to_vec(),
         })
     }
 
