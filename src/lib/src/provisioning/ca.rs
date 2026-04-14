@@ -512,8 +512,9 @@ impl PrivateCA {
     /// Convert Ed25519 keypair to PEM format for rcgen
     fn ed25519_to_pem(keypair: &KeyPair) -> Result<String, WSError> {
         // Use ed25519-compact's PEM export feature
+        // to_pem returns Zeroizing<String> — extract the inner value
         let pem = keypair.sk.to_pem();
-        Ok(pem)
+        Ok((*pem).clone())
     }
 
     /// Get CA certificate (DER)

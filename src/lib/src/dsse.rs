@@ -133,7 +133,15 @@ impl DsseEnvelope {
 
     /// Verify the envelope and return the decoded payload
     ///
-    /// Verifies at least one signature is valid.
+    /// Verifies at least one signature is valid (1-of-N).
+    ///
+    /// # Security Warning
+    ///
+    /// This method returns `Ok` if **any single** signature is valid. An attacker
+    /// who can append signatures to an envelope could add a valid signature alongside
+    /// forged ones. If you need to verify that ALL signatures are valid (e.g., for
+    /// multi-party signing where every signer must be trusted), use [`verify_all()`]
+    /// instead.
     pub fn verify(&self, verifier: &dyn DsseVerifier) -> Result<Vec<u8>, WSError> {
         if self.signatures.is_empty() {
             return Err(WSError::VerificationFailed);

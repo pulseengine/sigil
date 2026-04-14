@@ -264,11 +264,13 @@ fn test_bundle_anti_rollback() {
 fn test_bundle_validity_periods() {
     let (signed_bundle, public_key) = create_test_bundle();
 
-    let verifier = AirGappedVerifier::<wsc::time::BuildTimeSource>::new(
+    let verifier = AirGappedVerifier::<wsc::time::SystemTimeSource>::new(
         &signed_bundle,
         &public_key,
         AirGappedConfig::default(),
-    ).unwrap();
+    )
+    .unwrap()
+    .with_time_source(wsc::time::SystemTimeSource);
 
     // Check bundle health
     let warnings = verifier.check_bundle_health();
@@ -279,6 +281,6 @@ fn test_bundle_validity_periods() {
         println!("  - {:?}", w);
     }
 
-    // Fresh bundle should have no warnings
+    // Fresh bundle with a time source should have no warnings
     assert!(warnings.is_empty(), "Fresh bundle should have no warnings");
 }

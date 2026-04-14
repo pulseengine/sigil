@@ -628,18 +628,21 @@ mod tests {
         let root_config = CAConfig::new("Test Corp", "Test Root CA");
         let root_ca = PrivateCA::create_root(root_config).unwrap();
 
-        // For testing with SoftwareProvider, we can export the full keypair
-        // and use it to create a proper certificate (hardware doesn't allow this)
+        // For testing with SoftwareProvider, borrow the keypair to create
+        // a certificate while keeping the key in the store for signing.
         let provider = SoftwareProvider::new();
         let key_handle = provider.generate_key().unwrap();
-        let device_keypair = provider.export_keypair(key_handle).unwrap();
 
         let device_id = DeviceIdentity::new("device-test");
         let cert_config = CertificateConfig::new("device-test");
 
-        // Create certificate with the actual device keypair (for testing)
-        let device_cert = root_ca
-            .sign_device_certificate_with_keypair(&device_keypair, &device_id, &cert_config)
+        // Borrow keypair for certificate creation (key stays in store)
+        let device_cert = provider
+            .with_keypair(key_handle, |device_keypair| {
+                root_ca
+                    .sign_device_certificate_with_keypair(device_keypair, &device_id, &cert_config)
+            })
+            .unwrap()
             .unwrap();
 
         // Build result manually for testing
@@ -688,13 +691,16 @@ mod tests {
             PrivateCA::create_root(CAConfig::new("Owner Corp", "Owner Root CA")).unwrap();
         let owner_provider = SoftwareProvider::new();
         let owner_key = owner_provider.generate_key().unwrap();
-        let owner_keypair = owner_provider.export_keypair(owner_key).unwrap();
 
         let owner_id = DeviceIdentity::new("owner-device");
         let owner_config = CertificateConfig::new("owner-device");
 
-        let owner_cert = owner_ca
-            .sign_device_certificate_with_keypair(&owner_keypair, &owner_id, &owner_config)
+        let owner_cert = owner_provider
+            .with_keypair(owner_key, |owner_keypair| {
+                owner_ca
+                    .sign_device_certificate_with_keypair(owner_keypair, &owner_id, &owner_config)
+            })
+            .unwrap()
             .unwrap();
 
         // Create test WASM module
@@ -718,17 +724,19 @@ mod tests {
             PrivateCA::create_root(CAConfig::new("Integrator Inc", "Integrator Root CA")).unwrap();
         let integrator_provider = SoftwareProvider::new();
         let integrator_key = integrator_provider.generate_key().unwrap();
-        let integrator_keypair = integrator_provider.export_keypair(integrator_key).unwrap();
 
         let integrator_id = DeviceIdentity::new("integrator-device");
         let integrator_config = CertificateConfig::new("integrator-device");
 
-        let integrator_cert = integrator_ca
-            .sign_device_certificate_with_keypair(
-                &integrator_keypair,
-                &integrator_id,
-                &integrator_config,
-            )
+        let integrator_cert = integrator_provider
+            .with_keypair(integrator_key, |integrator_keypair| {
+                integrator_ca.sign_device_certificate_with_keypair(
+                    integrator_keypair,
+                    &integrator_id,
+                    &integrator_config,
+                )
+            })
+            .unwrap()
             .unwrap();
 
         // Integrator signs the already-signed module

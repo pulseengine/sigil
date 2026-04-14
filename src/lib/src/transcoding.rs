@@ -17,7 +17,8 @@
 //!     .compiler("synth", "0.1.0")
 //!     .target("aarch64", "elf")
 //!     .optimization_level("O2")
-//!     .build();
+//!     .build()
+//!     .unwrap();
 //!
 //! let statement = create_transcoding_statement(
 //!     "firmware.elf",
@@ -176,7 +177,8 @@ pub struct SourceVerification {
 ///     .source_signature_status("verified")
 ///     .compiler("synth", "0.1.0")
 ///     .target("aarch64", "elf")
-///     .build();
+///     .build()
+///     .unwrap();
 /// ```
 pub struct TranscodingAttestationBuilder {
     source_digest: Option<DigestSet>,
@@ -347,16 +349,17 @@ impl TranscodingAttestationBuilder {
 
     /// Build the `TranscodingPredicate`
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if required fields (`source_digest`, `source_signature_status`,
-    /// `compiler` name/version, `target` architecture/output_format) are not set.
-    pub fn build(self) -> TranscodingPredicate {
+    /// Returns `WSError::InvalidArgument` if required fields are not set:
+    /// `source_digest`, `source_signature_status`, `compiler` name/version,
+    /// `target` architecture/output_format.
+    pub fn build(self) -> Result<TranscodingPredicate, crate::WSError> {
         let source = TranscodingSource {
-            digest: self.source_digest.expect("source_digest is required"),
+            digest: self.source_digest.ok_or(crate::WSError::InvalidArgument)?,
             signature_status: self
                 .source_signature_status
-                .expect("source_signature_status is required"),
+                .ok_or(crate::WSError::InvalidArgument)?,
             signer_identity: self.source_signer_identity,
             slsa_level: self.source_slsa_level,
             uri: self.source_uri,
@@ -364,8 +367,8 @@ impl TranscodingAttestationBuilder {
         };
 
         let compiler = CompilerInfo {
-            name: self.compiler_name.expect("compiler name is required"),
-            version: self.compiler_version.expect("compiler version is required"),
+            name: self.compiler_name.ok_or(crate::WSError::InvalidArgument)?,
+            version: self.compiler_version.ok_or(crate::WSError::InvalidArgument)?,
             digest: self.compiler_digest,
             uri: self.compiler_uri,
         };
@@ -373,10 +376,10 @@ impl TranscodingAttestationBuilder {
         let target = TargetInfo {
             architecture: self
                 .target_architecture
-                .expect("target architecture is required"),
+                .ok_or(crate::WSError::InvalidArgument)?,
             output_format: self
                 .target_output_format
-                .expect("target output_format is required"),
+                .ok_or(crate::WSError::InvalidArgument)?,
             profile: self.target_profile,
         };
 
@@ -407,13 +410,13 @@ impl TranscodingAttestationBuilder {
                 None
             };
 
-        TranscodingPredicate {
+        Ok(TranscodingPredicate {
             source,
             compiler,
             target,
             compilation_parameters,
             verification,
-        }
+        })
     }
 }
 
@@ -465,6 +468,7 @@ mod tests {
             .verification_policy("strict")
             .verified_at("2026-03-17T12:00:00Z")
             .build()
+            .unwrap()
     }
 
     #[test]
@@ -474,7 +478,8 @@ mod tests {
             .source_signature_status("unsigned")
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(predicate.source.signature_status, "unsigned");
         assert_eq!(predicate.compiler.name, "synth");
@@ -536,43 +541,43 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "source_digest is required")]
     fn test_builder_missing_source_digest() {
-        TranscodingAttestationBuilder::new()
+        let result = TranscodingAttestationBuilder::new()
             .source_signature_status("verified")
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
             .build();
+        assert!(result.is_err(), "build() should fail without source_digest");
     }
 
     #[test]
-    #[should_panic(expected = "source_signature_status is required")]
     fn test_builder_missing_signature_status() {
-        TranscodingAttestationBuilder::new()
+        let result = TranscodingAttestationBuilder::new()
             .source_digest(DigestSet::sha256("abc"))
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
             .build();
+        assert!(result.is_err(), "build() should fail without signature_status");
     }
 
     #[test]
-    #[should_panic(expected = "compiler name is required")]
     fn test_builder_missing_compiler() {
-        TranscodingAttestationBuilder::new()
+        let result = TranscodingAttestationBuilder::new()
             .source_digest(DigestSet::sha256("abc"))
             .source_signature_status("verified")
             .target("aarch64", "elf")
             .build();
+        assert!(result.is_err(), "build() should fail without compiler");
     }
 
     #[test]
-    #[should_panic(expected = "target architecture is required")]
     fn test_builder_missing_target() {
-        TranscodingAttestationBuilder::new()
+        let result = TranscodingAttestationBuilder::new()
             .source_digest(DigestSet::sha256("abc"))
             .source_signature_status("verified")
             .compiler("synth", "0.1.0")
             .build();
+        assert!(result.is_err(), "build() should fail without target");
     }
 
     #[test]
@@ -624,7 +629,8 @@ mod tests {
             .source_signature_status("unsigned")
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
-            .build();
+            .build()
+            .unwrap();
 
         let json = serde_json::to_string(&predicate).unwrap();
 
@@ -643,7 +649,8 @@ mod tests {
             .source_signature_status("verified")
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
-            .build();
+            .build()
+            .unwrap();
 
         let statement = create_transcoding_statement(
             "firmware.elf",
@@ -700,7 +707,8 @@ mod tests {
             .target_profile("release")
             .optimization_level("Os")
             .memory_model("mpu-protected")
-            .build();
+            .build()
+            .unwrap();
 
         let statement = create_transcoding_statement(
             "app.mcuboot",
@@ -749,7 +757,8 @@ mod tests {
             .flag("lto", "fat")
             .flag("codegen-units", "1")
             .flag("strip", "symbols")
-            .build();
+            .build()
+            .unwrap();
 
         let params = predicate.compilation_parameters.as_ref().unwrap();
         assert_eq!(params.flags.len(), 3);
@@ -766,7 +775,8 @@ mod tests {
             .source_attestation_bundle("base64encodeddata==")
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
-            .build();
+            .build()
+            .unwrap();
 
         assert_eq!(
             predicate.source.attestation_bundle.as_deref(),
@@ -787,7 +797,8 @@ mod tests {
             .compiler("synth", "0.1.0")
             .compiler_digest(compiler_digest)
             .target("aarch64", "elf")
-            .build();
+            .build()
+            .unwrap();
 
         assert!(predicate.compiler.digest.is_some());
         assert_eq!(
