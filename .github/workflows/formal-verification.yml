@@ -58,9 +58,9 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    - name: Run Kani proofs (14 fast + 5 DSSE)
+    - name: Run Kani proofs (21 total across varint, merkle, DSSE, format, wasm_module)
       run: cargo kani -p wsc --default-unwind 4 --output-format terse
-      timeout-minutes: 60
+      timeout-minutes: 120
       continue-on-error: true
 
   rocq-proofs:
