@@ -43,8 +43,22 @@ jobs:
       continue-on-error: true
 
   kani-proofs:
-    name: Kani Bounded Model Checking
+    name: Kani ${{ matrix.module }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: varint
+            harness: wasm_module::varint
+          - module: merkle
+            harness: signature::keyless::merkle
+          - module: dsse
+            harness: dsse
+          - module: format
+            harness: format
+          - module: wasm_module
+            harness: wasm_module::tests
     steps:
     - uses: actions/checkout@v4
 
@@ -58,8 +72,10 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    - name: Run Kani proofs (14 fast + 5 DSSE)
-      run: cargo kani -p wsc --default-unwind 4 --output-format terse
+    - name: Run Kani ${{ matrix.module }} proofs
+      env:
+        HARNESS: ${{ matrix.harness }}
+      run: cargo kani -p wsc --default-unwind 4 --output-format terse --harness "$HARNESS"
       timeout-minutes: 60
       continue-on-error: true
 
