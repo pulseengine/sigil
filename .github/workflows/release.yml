@@ -171,6 +171,13 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential gcc g++
 
+    # Nix is required for rules_rocq_rust toolchain registered in MODULE.bazel
+    # (Bazel evaluates all toolchains during loading, even for non-Rocq builds)
+    - name: Install Nix
+      uses: cachix/install-nix-action@v30
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+
     - name: Setup Bazel
       uses: bazel-contrib/setup-bazel@0.15.0
       with:
