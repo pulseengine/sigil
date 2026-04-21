@@ -83,8 +83,22 @@ impl SignatureForHashes {
         }
         let signature = varint::get_slice(&mut reader)?;
 
-        // Deserialize certificate chain (optional, for backward compatibility)
-        let certificate_chain = if let Ok(cert_count) = varint::get32(&mut reader) {
+        // Deserialize certificate chain (optional, for backward compatibility).
+        //
+        // A pre-cert-chain signature (old format) has no cert_count field — the
+        // byte stream ends here. A modern signature always writes at least a
+        // 0-byte varint for cert_count. We distinguish the two by peeking the
+        // reader; clean EOF is backward-compat, any other error must propagate.
+        //
+        // The previous `if let Ok(cert_count) = varint::get32(...)` pattern
+        // silently swallowed ALL error variants (including malformed cert_count
+        // bytes), downgrading cert-based signatures to bare-key signatures
+        // without flagging. See AS-37 / UCA-6.
+        let certificate_chain = if reader.fill_buf()?.is_empty() {
+            // Backward compat: no cert_count field at all.
+            None
+        } else {
+            let cert_count = varint::get32(&mut reader)?;
             if cert_count as usize > MAX_CERTIFICATES {
                 debug!(
                     "Too many certificates: {} (max: {})",
@@ -113,8 +127,6 @@ impl SignatureForHashes {
             } else {
                 None
             }
-        } else {
-            None
         };
 
         Ok(Self {
@@ -491,5 +503,28 @@ mod tests {
 
         // Payloads should be different (random)
         assert_ne!(section1.payload(), section2.payload());
+    }
+
+    /// Regression test for AS-37 / UCA-6: malformed cert_count bytes must
+    /// propagate as an error, not be silently converted to `certificate_chain:
+    /// None` (which would downgrade a cert-based signature to bare-key).
+    ///
+    /// PoC: 5 bytes each with MSB set make `varint::get32` consume all 5 and
+    /// return `WSError::ParseError`. Before the fix, the `if let Ok(...)`
+    /// pattern swallowed this and produced `Ok { certificate_chain: None }`.
+    #[test]
+    fn test_malformed_cert_count_is_rejected() {
+        let mut buf = Vec::new();
+        varint::put(&mut buf, 0u64).unwrap();                   // key_id = empty
+        buf.push(ED25519_PK_ID);                                 // alg_id
+        varint::put_slice(&mut buf, &[1, 2, 3, 4]).unwrap();     // signature
+        buf.extend_from_slice(&[0x80, 0x80, 0x80, 0x80, 0x80]);  // malformed cert_count
+
+        let result = SignatureForHashes::deserialize(&buf);
+        assert!(
+            result.is_err(),
+            "malformed cert_count must error, not silently drop chain — got {:?}",
+            result
+        );
     }
 }

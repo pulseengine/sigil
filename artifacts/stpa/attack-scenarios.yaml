@@ -948,6 +948,55 @@ artifacts:
       - type: executed-by
         target: TA-3
 
+  - id: AS-37
+    type: attack-scenario
+    title: Cert-chain downgrade via silently-swallowed cert_count parse error
+    status: approved
+    description: >
+      SignatureForHashes::deserialize used `if let Ok(cert_count) =
+      varint::get32(...)` which silently swallowed ALL parse errors —
+      including WSError::ParseError from malformed cert_count bytes —
+      not just the EOF that signals backward compatibility with the
+      pre-cert-chain format. An attacker who corrupted the cert_count
+      bytes (e.g., 5 bytes each with MSB set; get32 consumes all 5 and
+      returns ParseError) could strip the certificate chain from a
+      cert-based signature, downgrading it to a bare-key signature
+      without the parser flagging the malformed input. Verified by
+      test_malformed_cert_count_is_rejected in
+      src/lib/src/signature/sig_sections.rs. Kani harness inconclusive:
+      CBMC OOMs symbolically exercising std::io::BufReader + Vec;
+      primitive-layer Kani proofs in src/lib/src/wasm_module/varint.rs
+      (proof_get32_no_panic, proof_get32_no_overflow) establish get32's
+      error behavior on malformed symbolic bytes. Related class:
+      wasmtime CVE-2026-27572 (panic on excessive
+      wasi:http/types.fields) — same family of "parser reacts wrongly
+      to malformed size field." Fix: replace the if-let-Ok with a
+      fill_buf-based peek that distinguishes clean EOF (old format
+      without a cert_count field) from malformed bytes (error
+      propagates). Discovered by Mythos delta pass on tier-5 file
+      sig_sections.rs.
+    fields:
+      attack-type: exploit-vulnerability
+      attack-feasibility: medium
+      elapsed-time: 3
+      specialist-expertise: 3
+      knowledge-of-item: 3
+      window-of-opportunity: 1
+      equipment: 0
+      impact-safety: moderate
+      impact-financial: moderate
+      impact-operational: moderate
+      impact-privacy: negligible
+    links:
+      - type: exploits
+        target: UCA-6
+      - type: exploits
+        target: DF-5
+      - type: executed-by
+        target: TA-3
+      - type: leads-to-hazard
+        target: H-9
+
   - id: AS-36
     type: attack-scenario
     title: MCUboot partial-image signature via small ih_img_size
