@@ -917,6 +917,10 @@ artifacts:
       - type: executed-by
         target: TA-1
 
+      - type: exploits
+        target: UCA-36
+      - type: exploits
+        target: DF-19
   - id: AS-35
     type: attack-scenario
     title: PATH injection during build environment attestation
@@ -948,6 +952,8 @@ artifacts:
       - type: executed-by
         target: TA-3
 
+      - type: exploits
+        target: UCA-34
   - id: AS-37
     type: attack-scenario
     title: Cert-chain downgrade via silently-swallowed cert_count parse error
@@ -1028,3 +1034,7 @@ artifacts:
         target: H-14
       - type: executed-by
         target: TA-3
+      - type: exploits
+        target: UCA-14
+      - type: exploits
+        target: DF-12

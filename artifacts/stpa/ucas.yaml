@@ -1269,3 +1269,18 @@ artifacts:
         target: UCA-35
       - type: prevents
         target: H-35
+
+  - id: UCA-36
+    type: uca
+    title: Insert proof into cache APPLIED TOO LONG without max-entries bound
+    status: draft
+    description: >
+      Verification Module inserts proofs into MemoryProofCache for every verification request without enforcing a maximum entry count. An attacker submitting requests with unique module hashes causes the cache to grow without bound until memory is exhausted and the verification service is OOM-killed.
+    fields:
+      context: Cache insertion performed on every verification without an enforced maximum entry count, allowing unique-hash flood to grow MemoryProofCache unboundedly
+      uca-type: providing
+    links:
+      - type: issued-by
+        target: CTRL-4
+      - type: leads-to-hazard
+        target: H-36
