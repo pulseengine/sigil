@@ -134,48 +134,42 @@ pub fn default_trusted_logs() -> Vec<TrustedCtLog> {
     vec![
         TrustedCtLog {
             log_id: [
-                0xa4, 0xb9, 0x09, 0x90, 0xb4, 0x18, 0x58, 0x14,
-                0x87, 0xbb, 0x13, 0xa2, 0xcc, 0x67, 0x70, 0x0a,
-                0x3c, 0x35, 0x98, 0x04, 0xf9, 0x1b, 0xdf, 0xb8,
-                0xe3, 0x77, 0xcd, 0x0e, 0xc8, 0x0d, 0xdc, 0x10,
+                0xa4, 0xb9, 0x09, 0x90, 0xb4, 0x18, 0x58, 0x14, 0x87, 0xbb, 0x13, 0xa2, 0xcc, 0x67,
+                0x70, 0x0a, 0x3c, 0x35, 0x98, 0x04, 0xf9, 0x1b, 0xdf, 0xb8, 0xe3, 0x77, 0xcd, 0x0e,
+                0xc8, 0x0d, 0xdc, 0x10,
             ],
             public_key: vec![
-                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86,
-                0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
-                0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03,
-                0x42, 0x00, 0x04, 0xde, 0xad, 0xbe, 0xef,
+                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+                0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04, 0xde,
+                0xad, 0xbe, 0xef,
             ],
             description: "Google Argon 2025".to_string(),
             url: "https://ct.googleapis.com/logs/argon2025/".to_string(),
         },
         TrustedCtLog {
             log_id: [
-                0x63, 0xf2, 0xdb, 0xcd, 0xe8, 0x3b, 0xcc, 0x2c,
-                0xcf, 0x0b, 0x72, 0x84, 0x27, 0x57, 0x6b, 0x33,
-                0xa4, 0x8d, 0x61, 0x77, 0x8f, 0xbd, 0x75, 0xa6,
-                0x38, 0xb1, 0xc7, 0x68, 0x54, 0x4b, 0xd8, 0x8d,
+                0x63, 0xf2, 0xdb, 0xcd, 0xe8, 0x3b, 0xcc, 0x2c, 0xcf, 0x0b, 0x72, 0x84, 0x27, 0x57,
+                0x6b, 0x33, 0xa4, 0x8d, 0x61, 0x77, 0x8f, 0xbd, 0x75, 0xa6, 0x38, 0xb1, 0xc7, 0x68,
+                0x54, 0x4b, 0xd8, 0x8d,
             ],
             public_key: vec![
-                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86,
-                0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
-                0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03,
-                0x42, 0x00, 0x04, 0xca, 0xfe, 0xba, 0xbe,
+                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+                0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04, 0xca,
+                0xfe, 0xba, 0xbe,
             ],
             description: "Cloudflare Nimbus 2025".to_string(),
             url: "https://ct.cloudflare.com/logs/nimbus2025/".to_string(),
         },
         TrustedCtLog {
             log_id: [
-                0x56, 0x14, 0x06, 0x9a, 0x2f, 0xd7, 0xc2, 0xec,
-                0xd3, 0xf5, 0xe1, 0xbd, 0x44, 0xb2, 0x3e, 0xc7,
-                0x46, 0x76, 0xb9, 0xbc, 0x99, 0x11, 0x5c, 0xc0,
-                0xef, 0x94, 0x98, 0x55, 0xd6, 0x89, 0xd0, 0xdd,
+                0x56, 0x14, 0x06, 0x9a, 0x2f, 0xd7, 0xc2, 0xec, 0xd3, 0xf5, 0xe1, 0xbd, 0x44, 0xb2,
+                0x3e, 0xc7, 0x46, 0x76, 0xb9, 0xbc, 0x99, 0x11, 0x5c, 0xc0, 0xef, 0x94, 0x98, 0x55,
+                0xd6, 0x89, 0xd0, 0xdd,
             ],
             public_key: vec![
-                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86,
-                0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
-                0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03,
-                0x42, 0x00, 0x04, 0xfe, 0xed, 0xfa, 0xce,
+                0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06,
+                0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04, 0xfe,
+                0xed, 0xfa, 0xce,
             ],
             description: "DigiCert Yeti 2025".to_string(),
             url: "https://yeti2025.ct.digicert.com/log/".to_string(),
@@ -212,16 +206,9 @@ impl SctVerifier {
     /// # Errors
     ///
     /// Returns an error if the SCT references an unknown log.
-    pub fn verify_sct(
-        &self,
-        sct: &SctEntry,
-        cert_der: &[u8],
-    ) -> Result<SctVerification, WSError> {
+    pub fn verify_sct(&self, sct: &SctEntry, cert_der: &[u8]) -> Result<SctVerification, WSError> {
         let log = self.find_log(&sct.log_id).ok_or_else(|| {
-            WSError::CertificateError(format!(
-                "Unknown CT log ID: {}",
-                hex::encode(sct.log_id)
-            ))
+            WSError::CertificateError(format!("Unknown CT log ID: {}", hex::encode(sct.log_id)))
         })?;
 
         // Build the data that should have been signed by the CT log:
@@ -265,9 +252,8 @@ impl SctVerifier {
              verification is not yet implemented. Do not rely on SCT results \
              for security decisions."
         );
-        let valid = !sct.signature.is_empty()
-            && !log.public_key.is_empty()
-            && sct.signature.len() >= 8;
+        let valid =
+            !sct.signature.is_empty() && !log.public_key.is_empty() && sct.signature.len() >= 8;
 
         Ok(SctVerification {
             log_id: sct.log_id,
@@ -286,10 +272,7 @@ impl SctVerifier {
     /// # Errors
     ///
     /// Returns an error if the certificate cannot be parsed.
-    pub fn verify_embedded_scts(
-        &self,
-        cert_der: &[u8],
-    ) -> Result<Vec<SctVerification>, WSError> {
+    pub fn verify_embedded_scts(&self, cert_der: &[u8]) -> Result<Vec<SctVerification>, WSError> {
         // Parse the certificate to look for the SCT list extension.
         let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
             .map_err(|e| WSError::X509Error(format!("Failed to parse certificate: {:?}", e)))?;
@@ -336,9 +319,7 @@ impl SctVerifier {
 ///     - SCT data (version, log_id, timestamp, extensions, signature)
 pub fn parse_sct_list(data: &[u8]) -> Result<Vec<SctEntry>, WSError> {
     if data.len() < 2 {
-        return Err(WSError::CertificateError(
-            "SCT list too short".to_string(),
-        ));
+        return Err(WSError::CertificateError("SCT list too short".to_string()));
     }
 
     let list_len = u16::from_be_bytes([data[0], data[1]]) as usize;
@@ -386,9 +367,7 @@ pub fn parse_sct_list(data: &[u8]) -> Result<Vec<SctEntry>, WSError> {
 fn parse_single_sct(data: &[u8]) -> Result<SctEntry, WSError> {
     // Minimum: 1 + 32 + 8 + 2 + 1 + 1 + 2 = 47 bytes (no extensions, no sig body)
     if data.len() < 47 {
-        return Err(WSError::CertificateError(
-            "SCT entry too short".to_string(),
-        ));
+        return Err(WSError::CertificateError("SCT entry too short".to_string()));
     }
 
     let version = data[0];
@@ -403,8 +382,7 @@ fn parse_single_sct(data: &[u8]) -> Result<SctEntry, WSError> {
     log_id.copy_from_slice(&data[1..33]);
 
     let timestamp = u64::from_be_bytes([
-        data[33], data[34], data[35], data[36],
-        data[37], data[38], data[39], data[40],
+        data[33], data[34], data[35], data[36], data[37], data[38], data[39], data[40],
     ]);
 
     let ext_len = u16::from_be_bytes([data[41], data[42]]) as usize;
@@ -432,7 +410,7 @@ fn parse_single_sct(data: &[u8]) -> Result<SctEntry, WSError> {
     };
 
     let signature_algorithm = match sig_alg_byte {
-        3 => SignatureAlgorithm::Ecdsa,  // RFC 5246 SignatureAlgorithm ecdsa = 3
+        3 => SignatureAlgorithm::Ecdsa, // RFC 5246 SignatureAlgorithm ecdsa = 3
         7 => SignatureAlgorithm::Ed25519, // Ed25519 (draft-josefsson-eddsa-ed25519)
         _ => {
             return Err(WSError::CertificateError(format!(
@@ -551,10 +529,7 @@ impl SctMonitor {
     /// Extracts the Subject Alternative Names from the certificate, checks
     /// whether any match the monitored domains, verifies embedded SCTs,
     /// and flags unexpected certificates.
-    pub fn check_certificate(
-        &self,
-        cert_der: &[u8],
-    ) -> Result<SctMonitorResult, WSError> {
+    pub fn check_certificate(&self, cert_der: &[u8]) -> Result<SctMonitorResult, WSError> {
         // Parse the certificate to extract SANs.
         let (_, cert) = x509_parser::parse_x509_certificate(cert_der)
             .map_err(|e| WSError::X509Error(format!("Failed to parse certificate: {:?}", e)))?;
@@ -574,16 +549,17 @@ impl SctMonitor {
         }
 
         // Determine primary domain for reporting.
-        let domain = domains.first().cloned().unwrap_or_else(|| {
-            cert.subject().to_string()
-        });
+        let domain = domains
+            .first()
+            .cloned()
+            .unwrap_or_else(|| cert.subject().to_string());
 
         // Check whether this certificate is for one of our monitored domains
         // but was *not* expected — indicating potential mis-issuance.
         let matches_monitored = domains.iter().any(|d| {
-            self.expected_domains.iter().any(|exp| {
-                d == exp || d.ends_with(&format!(".{}", exp))
-            })
+            self.expected_domains
+                .iter()
+                .any(|exp| d == exp || d.ends_with(&format!(".{}", exp)))
         });
 
         // If it matches a monitored domain, flag as unexpected (the caller
@@ -801,9 +777,21 @@ mod tests {
         assert_eq!(parsed.signature, sct.signature);
 
         // Verify camelCase serialisation is used.
-        assert!(json.contains("logId"), "field should be camelCase: {}", json);
-        assert!(json.contains("hashAlgorithm"), "field should be camelCase: {}", json);
-        assert!(json.contains("signatureAlgorithm"), "field should be camelCase: {}", json);
+        assert!(
+            json.contains("logId"),
+            "field should be camelCase: {}",
+            json
+        );
+        assert!(
+            json.contains("hashAlgorithm"),
+            "field should be camelCase: {}",
+            json
+        );
+        assert!(
+            json.contains("signatureAlgorithm"),
+            "field should be camelCase: {}",
+            json
+        );
     }
 
     // ── 12. Parse truncated SCT list ──────────────────────────────────
@@ -862,10 +850,7 @@ mod tests {
             description: "Custom Log".to_string(),
             url: "https://custom.example.com/ct/".to_string(),
         };
-        let monitor = SctMonitor::with_logs(
-            vec!["mysite.com".to_string()],
-            vec![log.clone()],
-        );
+        let monitor = SctMonitor::with_logs(vec!["mysite.com".to_string()], vec![log.clone()]);
 
         assert_eq!(monitor.expected_domains, vec!["mysite.com"]);
         let found = monitor.verifier.find_log(&[0xcc; 32]);

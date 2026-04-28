@@ -236,7 +236,7 @@ impl PublicKeySet {
         let mut valid_pks = HashSet::new();
         for (pk, valid_hashes) in valid_hashes_for_pks {
             // SECURITY: Use constant-time comparison to prevent timing attacks
-        if ct_contains_hash(&valid_hashes, &h) {
+            if ct_contains_hash(&valid_hashes, &h) {
                 valid_pks.insert(pk);
             }
         }

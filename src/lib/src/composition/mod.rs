@@ -3,19 +3,6 @@ use crate::wasm_module::{CustomSection, Module, Section, SectionLike};
 use base64::Engine;
 
 // Re-export attestation types from the minimal attestation crate
-pub use wsc_attestation::{
-    // Section constants
-    TRANSFORMATION_ATTESTATION_SECTION, TRANSFORMATION_AUDIT_TRAIL_SECTION,
-    // Build provenance
-    BuildProvenance, ProvenanceBuilder,
-    // Transformation types
-    TransformationType, ArtifactDescriptor, SignatureStatus,
-    InputSignatureInfo, ToolInfo, AttestationSignature,
-    InputArtifact, TransformationAttestation,
-    RootComponent, TransformationAuditTrail,
-    // Builder
-    TransformationAttestationBuilder,
-};
 /// Component composition and provenance tracking
 ///
 /// This module provides support for WebAssembly component composition with
@@ -86,6 +73,27 @@ pub use wsc_attestation::{
 /// ```
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+pub use wsc_attestation::{
+    ArtifactDescriptor,
+    AttestationSignature,
+    // Build provenance
+    BuildProvenance,
+    InputArtifact,
+    InputSignatureInfo,
+    ProvenanceBuilder,
+    RootComponent,
+    SignatureStatus,
+    // Section constants
+    TRANSFORMATION_ATTESTATION_SECTION,
+    TRANSFORMATION_AUDIT_TRAIL_SECTION,
+    ToolInfo,
+    TransformationAttestation,
+    // Builder
+    TransformationAttestationBuilder,
+    TransformationAuditTrail,
+    // Transformation types
+    TransformationType,
+};
 use x509_parser::prelude::FromDer;
 
 // BuildProvenance and ProvenanceBuilder are re-exported from wsc_attestation
@@ -284,10 +292,7 @@ impl DependencyGraph {
     pub fn add_dependency(&mut self, from: impl Into<String>, to: impl Into<String>) {
         let from = from.into();
         let to = to.into();
-        self.dependencies
-            .entry(from)
-            .or_default()
-            .push(to);
+        self.dependencies.entry(from).or_default().push(to);
     }
 
     /// Set the actual hash for a component (for validation)
@@ -317,9 +322,9 @@ impl DependencyGraph {
             if !visited.contains_key(node)
                 && let Some(cycle) =
                     self.dfs_cycle_detection(node, &mut visited, &mut rec_stack, &mut Vec::new())
-                {
-                    return Some(cycle);
-                }
+            {
+                return Some(cycle);
+            }
         }
 
         None
@@ -371,13 +376,14 @@ impl DependencyGraph {
 
         for (id, expected_hash) in &self.expected_hashes {
             if let Some(actual_hash) = self.actual_hashes.get(id)
-                && expected_hash != actual_hash {
-                    substitutions.push(ComponentSubstitution {
-                        component_id: id.clone(),
-                        expected_hash: expected_hash.clone(),
-                        actual_hash: actual_hash.clone(),
-                    });
-                }
+                && expected_hash != actual_hash
+            {
+                substitutions.push(ComponentSubstitution {
+                    component_id: id.clone(),
+                    expected_hash: expected_hash.clone(),
+                    actual_hash: actual_hash.clone(),
+                });
+            }
         }
 
         substitutions
@@ -1352,20 +1358,18 @@ pub fn extract_composition_manifest(
 ) -> Result<Option<CompositionManifest>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == COMPOSITION_MANIFEST_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in composition manifest: {}", e))
-                })?;
+            && custom.name() == COMPOSITION_MANIFEST_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                WSError::InternalError(format!("Invalid UTF-8 in composition manifest: {}", e))
+            })?;
 
-                let manifest = CompositionManifest::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!(
-                        "Failed to deserialize composition manifest: {}",
-                        e
-                    ))
-                })?;
+            let manifest = CompositionManifest::from_json(json).map_err(|e| {
+                WSError::InternalError(format!("Failed to deserialize composition manifest: {}", e))
+            })?;
 
-                return Ok(Some(manifest));
-            }
+            return Ok(Some(manifest));
+        }
     }
     Ok(None)
 }
@@ -1392,17 +1396,18 @@ pub fn embed_build_provenance(
 pub fn extract_build_provenance(module: &Module) -> Result<Option<BuildProvenance>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == BUILD_PROVENANCE_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in build provenance: {}", e))
-                })?;
+            && custom.name() == BUILD_PROVENANCE_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                WSError::InternalError(format!("Invalid UTF-8 in build provenance: {}", e))
+            })?;
 
-                let provenance = serde_json::from_str(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize build provenance: {}", e))
-                })?;
+            let provenance = serde_json::from_str(json).map_err(|e| {
+                WSError::InternalError(format!("Failed to deserialize build provenance: {}", e))
+            })?;
 
-                return Ok(Some(provenance));
-            }
+            return Ok(Some(provenance));
+        }
     }
     Ok(None)
 }
@@ -1423,16 +1428,17 @@ pub fn embed_sbom(mut module: Module, sbom: &Sbom) -> Result<Module, WSError> {
 pub fn extract_sbom(module: &Module) -> Result<Option<Sbom>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == SBOM_SECTION {
-                let json = std::str::from_utf8(custom.payload())
-                    .map_err(|e| WSError::InternalError(format!("Invalid UTF-8 in SBOM: {}", e)))?;
+            && custom.name() == SBOM_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload())
+                .map_err(|e| WSError::InternalError(format!("Invalid UTF-8 in SBOM: {}", e)))?;
 
-                let sbom = Sbom::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!("Failed to deserialize SBOM: {}", e))
-                })?;
+            let sbom = Sbom::from_json(json).map_err(|e| {
+                WSError::InternalError(format!("Failed to deserialize SBOM: {}", e))
+            })?;
 
-                return Ok(Some(sbom));
-            }
+            return Ok(Some(sbom));
+        }
     }
     Ok(None)
 }
@@ -1459,20 +1465,18 @@ pub fn embed_intoto_attestation(
 pub fn extract_intoto_attestation(module: &Module) -> Result<Option<InTotoAttestation>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == INTOTO_ATTESTATION_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in in-toto attestation: {}", e))
-                })?;
+            && custom.name() == INTOTO_ATTESTATION_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                WSError::InternalError(format!("Invalid UTF-8 in in-toto attestation: {}", e))
+            })?;
 
-                let attestation = InTotoAttestation::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!(
-                        "Failed to deserialize in-toto attestation: {}",
-                        e
-                    ))
-                })?;
+            let attestation = InTotoAttestation::from_json(json).map_err(|e| {
+                WSError::InternalError(format!("Failed to deserialize in-toto attestation: {}", e))
+            })?;
 
-                return Ok(Some(attestation));
-            }
+            return Ok(Some(attestation));
+        }
     }
     Ok(None)
 }
@@ -1528,7 +1532,10 @@ pub fn embed_transformation_attestation(
     attestation: &TransformationAttestation,
 ) -> Result<Module, WSError> {
     let json = attestation.to_json().map_err(|e| {
-        WSError::InternalError(format!("Failed to serialize transformation attestation: {}", e))
+        WSError::InternalError(format!(
+            "Failed to serialize transformation attestation: {}",
+            e
+        ))
     })?;
 
     let custom_section = CustomSection::new(
@@ -1614,7 +1621,10 @@ pub fn embed_transformation_audit_trail(
     trail: &TransformationAuditTrail,
 ) -> Result<Module, WSError> {
     let json = trail.to_json().map_err(|e| {
-        WSError::InternalError(format!("Failed to serialize transformation audit trail: {}", e))
+        WSError::InternalError(format!(
+            "Failed to serialize transformation audit trail: {}",
+            e
+        ))
     })?;
 
     let custom_section = CustomSection::new(
@@ -1975,10 +1985,7 @@ pub fn verify_attestation_signature(
     let signature = match Signature::from_slice(&signature_bytes) {
         Ok(sig) => sig,
         Err(e) => {
-            return AttestationSignatureResult::Invalid(format!(
-                "Invalid signature format: {}",
-                e
-            ));
+            return AttestationSignatureResult::Invalid(format!("Invalid signature format: {}", e));
         }
     };
 
@@ -2105,7 +2112,10 @@ fn verify_attestation_recursive(
     // Verify tool is trusted
     let tool_info = policy.trusted_tools.get(tool_name);
     if let Some(info) = tool_info {
-        if !info.satisfies(&attestation.tool.version, attestation.tool.tool_hash.as_deref()) {
+        if !info.satisfies(
+            &attestation.tool.version,
+            attestation.tool.tool_hash.as_deref(),
+        ) {
             result.add_error(format!(
                 "Tool '{}' version '{}' does not meet policy requirements",
                 tool_name, attestation.tool.version
@@ -2192,10 +2202,7 @@ fn verify_attestation_recursive(
 
         if let Some(signer_id) = signer {
             if !policy.trusted_attestation_signers.contains(signer_id) {
-                result.add_error(format!(
-                    "Attestation signer '{}' is not trusted",
-                    signer_id
-                ));
+                result.add_error(format!("Attestation signer '{}' is not trusted", signer_id));
             }
         } else {
             result.add_error("Attestation has no signer identity or key ID");
@@ -2346,9 +2353,10 @@ pub fn validate_attestation_timestamps(
 ) -> Result<(), String> {
     // Validate metadata timestamps
     if let Some(finished_on_value) = attestation.predicate.metadata.get("finishedOn")
-        && let Some(finished_on) = finished_on_value.as_str() {
-            policy.validate_timestamp(finished_on, "Build completion")?;
-        }
+        && let Some(finished_on) = finished_on_value.as_str()
+    {
+        policy.validate_timestamp(finished_on, "Build completion")?;
+    }
 
     Ok(())
 }
@@ -2375,15 +2383,17 @@ pub fn validate_all_timestamps(
 
     // Validate build provenance timestamps
     if let Some(ref p) = provenance
-        && let Err(e) = validate_provenance_timestamps(p, policy) {
-            errors.push(e);
-        }
+        && let Err(e) = validate_provenance_timestamps(p, policy)
+    {
+        errors.push(e);
+    }
 
     // Validate attestation timestamps
     if let Some(ref a) = attestation
-        && let Err(e) = validate_attestation_timestamps(a, policy) {
-            errors.push(e);
-        }
+        && let Err(e) = validate_attestation_timestamps(a, policy)
+    {
+        errors.push(e);
+    }
 
     Ok(ValidationResult {
         valid: errors.is_empty(),
@@ -2457,13 +2467,14 @@ impl SignatureFreshnessPolicy {
 
         // Check minimum timestamp
         if let Some(min_ts) = &self.minimum_timestamp
-            && timestamp_utc < *min_ts {
-                return Err(format!(
-                    "{} signature was created before minimum acceptable time ({})",
-                    context,
-                    min_ts.to_rfc3339()
-                ));
-            }
+            && timestamp_utc < *min_ts
+        {
+            return Err(format!(
+                "{} signature was created before minimum acceptable time ({})",
+                context,
+                min_ts.to_rfc3339()
+            ));
+        }
 
         Ok(())
     }
@@ -2550,14 +2561,13 @@ impl CertificateValidityPolicy {
             .with_timezone(&chrono::Utc);
 
         // Check if certificate is not yet valid
-        if now < not_before_time
-            && !self.allow_not_yet_valid {
-                return Err(format!(
-                    "{} certificate is not yet valid (valid from: {})",
-                    context,
-                    not_before_time.to_rfc3339()
-                ));
-            }
+        if now < not_before_time && !self.allow_not_yet_valid {
+            return Err(format!(
+                "{} certificate is not yet valid (valid from: {})",
+                context,
+                not_before_time.to_rfc3339()
+            ));
+        }
 
         // Check if certificate is expired
         if now > not_after_time {
@@ -2875,20 +2885,18 @@ pub fn embed_device_attestation(
 pub fn extract_device_attestation(module: &Module) -> Result<Option<DeviceAttestation>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == DEVICE_ATTESTATION_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!("Invalid UTF-8 in device attestation: {}", e))
-                })?;
+            && custom.name() == DEVICE_ATTESTATION_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                WSError::InternalError(format!("Invalid UTF-8 in device attestation: {}", e))
+            })?;
 
-                let attestation = DeviceAttestation::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!(
-                        "Failed to deserialize device attestation: {}",
-                        e
-                    ))
-                })?;
+            let attestation = DeviceAttestation::from_json(json).map_err(|e| {
+                WSError::InternalError(format!("Failed to deserialize device attestation: {}", e))
+            })?;
 
-                return Ok(Some(attestation));
-            }
+            return Ok(Some(attestation));
+        }
     }
     Ok(None)
 }
@@ -2917,23 +2925,21 @@ pub fn extract_transparency_log_entry(
 ) -> Result<Option<TransparencyLogEntry>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section
-            && custom.name() == TRANSPARENCY_LOG_SECTION {
-                let json = std::str::from_utf8(custom.payload()).map_err(|e| {
-                    WSError::InternalError(format!(
-                        "Invalid UTF-8 in transparency log entry: {}",
-                        e
-                    ))
-                })?;
+            && custom.name() == TRANSPARENCY_LOG_SECTION
+        {
+            let json = std::str::from_utf8(custom.payload()).map_err(|e| {
+                WSError::InternalError(format!("Invalid UTF-8 in transparency log entry: {}", e))
+            })?;
 
-                let entry = TransparencyLogEntry::from_json(json).map_err(|e| {
-                    WSError::InternalError(format!(
-                        "Failed to deserialize transparency log entry: {}",
-                        e
-                    ))
-                })?;
+            let entry = TransparencyLogEntry::from_json(json).map_err(|e| {
+                WSError::InternalError(format!(
+                    "Failed to deserialize transparency log entry: {}",
+                    e
+                ))
+            })?;
 
-                return Ok(Some(entry));
-            }
+            return Ok(Some(entry));
+        }
     }
     Ok(None)
 }
@@ -2965,7 +2971,7 @@ pub fn embed_slsa_provenance(
     signer: &dyn crate::dsse::DsseSigner,
 ) -> Result<Module, WSError> {
     use crate::dsse::DsseEnvelope;
-    use crate::intoto::{predicate_types, Statement, Subject};
+    use crate::intoto::{Statement, Subject, predicate_types};
     use sha2::{Digest, Sha256};
 
     // Compute module hash for subject
@@ -2988,8 +2994,10 @@ pub fn embed_slsa_provenance(
 
     // Serialize and embed
     let envelope_json = envelope.to_json()?;
-    let custom_section =
-        CustomSection::new(DSSE_ATTESTATION_SECTION.to_string(), envelope_json.into_bytes());
+    let custom_section = CustomSection::new(
+        DSSE_ATTESTATION_SECTION.to_string(),
+        envelope_json.into_bytes(),
+    );
     module.sections.push(Section::Custom(custom_section));
 
     Ok(module)
@@ -3010,7 +3018,7 @@ pub fn embed_transformation_dsse(
     signer: &dyn crate::dsse::DsseSigner,
 ) -> Result<Module, WSError> {
     use crate::dsse::DsseEnvelope;
-    use crate::intoto::{predicate_types, Statement, Subject};
+    use crate::intoto::{Statement, Subject, predicate_types};
     use sha2::{Digest, Sha256};
 
     // Compute module hash for subject
@@ -3033,8 +3041,10 @@ pub fn embed_transformation_dsse(
 
     // Serialize and embed
     let envelope_json = envelope.to_json()?;
-    let custom_section =
-        CustomSection::new(DSSE_ATTESTATION_SECTION.to_string(), envelope_json.into_bytes());
+    let custom_section = CustomSection::new(
+        DSSE_ATTESTATION_SECTION.to_string(),
+        envelope_json.into_bytes(),
+    );
     module.sections.push(Section::Custom(custom_section));
 
     Ok(module)
@@ -3046,7 +3056,9 @@ pub fn embed_transformation_dsse(
 /// - Verified with any DSSE-compatible tool
 /// - Saved as a standalone .sigstore bundle
 /// - Parsed to extract the in-toto statement
-pub fn extract_dsse_attestation(module: &Module) -> Result<Option<crate::dsse::DsseEnvelope>, WSError> {
+pub fn extract_dsse_attestation(
+    module: &Module,
+) -> Result<Option<crate::dsse::DsseEnvelope>, WSError> {
     for section in &module.sections {
         if let Section::Custom(custom) = section {
             if custom.name() == DSSE_ATTESTATION_SECTION {
@@ -3134,12 +3146,13 @@ pub fn validate_device_attestation(
 
     // Validate device ID matches expected (if provided)
     if let Some(expected) = _expected_device_id
-        && attestation.device_id != expected {
-            return Err(format!(
-                "Device ID mismatch: expected '{}', got '{}'",
-                expected, attestation.device_id
-            ));
-        }
+        && attestation.device_id != expected
+    {
+        return Err(format!(
+            "Device ID mismatch: expected '{}', got '{}'",
+            expected, attestation.device_id
+        ));
+    }
 
     // Validate timestamp format
     if chrono::DateTime::parse_from_rfc3339(&attestation.timestamp).is_err() {
@@ -4911,10 +4924,9 @@ mod tests {
         let mut policy = ChainVerificationPolicy::default();
         policy.mode = ChainVerificationMode::NoRootSignaturesRequired;
         policy.verify_attestation_signatures = false;
-        policy.trusted_tools.insert(
-            "loom".to_string(),
-            TrustedToolInfo::min_version("0.1.0"),
-        );
+        policy
+            .trusted_tools
+            .insert("loom".to_string(), TrustedToolInfo::min_version("0.1.0"));
 
         // Verify should pass because signature verification is disabled
         let result = verify_transformation_chain(&attestation, &policy);

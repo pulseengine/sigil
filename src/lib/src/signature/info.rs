@@ -6,7 +6,7 @@
 //! Backported from wasmsign2 (commit 8223bec, 2025-12-18).
 
 use crate::error::*;
-use crate::signature::sig_sections::{SignatureData, SIGNATURE_SECTION_HEADER_NAME};
+use crate::signature::sig_sections::{SIGNATURE_SECTION_HEADER_NAME, SignatureData};
 use crate::wasm_module::{Module, Section};
 use std::fs::File;
 use std::io::{BufReader, Read};

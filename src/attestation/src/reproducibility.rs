@@ -326,10 +326,7 @@ impl BuilderIdentity {
 
             return Some(Self {
                 builder_type: "github-actions".to_string(),
-                builder_id: format!(
-                    "https://github.com/{}/actions/runs/{}",
-                    repo, run_id
-                ),
+                builder_id: format!("https://github.com/{}/actions/runs/{}", repo, run_id),
                 workflow: std::env::var("GITHUB_WORKFLOW").ok(),
                 job: std::env::var("GITHUB_JOB").ok(),
                 run_id: Some(run_id),
@@ -635,7 +632,11 @@ pub struct DependencyPin {
 
 impl DependencyPin {
     /// Create a new dependency pin
-    pub fn new(name: impl Into<String>, version: impl Into<String>, source: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        source: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into(),
             version: version.into(),
@@ -650,8 +651,7 @@ impl DependencyPin {
 
     /// Create a crates.io dependency
     pub fn crates_io(name: impl Into<String>, version: impl Into<String>) -> Self {
-        Self::new(name, version, "crates.io")
-            .with_registry("https://crates.io")
+        Self::new(name, version, "crates.io").with_registry("https://crates.io")
     }
 
     /// Create a git dependency
@@ -668,7 +668,11 @@ impl DependencyPin {
     }
 
     /// Create a path dependency
-    pub fn path(name: impl Into<String>, version: impl Into<String>, path: impl Into<String>) -> Self {
+    pub fn path(
+        name: impl Into<String>,
+        version: impl Into<String>,
+        path: impl Into<String>,
+    ) -> Self {
         let mut dep = Self::new(name, version, "path");
         dep.path = Some(path.into());
         dep
@@ -745,10 +749,7 @@ pub struct ReproducibilityVerification {
 
 impl ReproducibilityVerification {
     /// Create a successful verification
-    pub fn success(
-        env: BuildEnvironment,
-        original_hash: impl Into<String>,
-    ) -> Self {
+    pub fn success(env: BuildEnvironment, original_hash: impl Into<String>) -> Self {
         let hash = original_hash.into();
         Self {
             is_reproducible: true,
@@ -802,12 +803,15 @@ mod tests {
     fn test_builder_identity_github_detection() {
         // Can't easily test actual detection without setting env vars
         // but we can test the struct creation
-        let builder = BuilderIdentity::new("github-actions", "https://github.com/org/repo/actions/runs/123")
-            .with_workflow("CI")
-            .with_job("build")
-            .with_run_id("123")
-            .with_repository("org/repo")
-            .with_commit_sha("abc123");
+        let builder = BuilderIdentity::new(
+            "github-actions",
+            "https://github.com/org/repo/actions/runs/123",
+        )
+        .with_workflow("CI")
+        .with_job("build")
+        .with_run_id("123")
+        .with_repository("org/repo")
+        .with_commit_sha("abc123");
 
         assert_eq!(builder.builder_type, "github-actions");
         assert_eq!(builder.workflow, Some("CI".to_string()));
@@ -816,8 +820,7 @@ mod tests {
 
     #[test]
     fn test_dependency_pin() {
-        let dep = DependencyPin::crates_io("serde", "1.0.195")
-            .with_hash("sha256:abc123");
+        let dep = DependencyPin::crates_io("serde", "1.0.195").with_hash("sha256:abc123");
 
         assert_eq!(dep.name, "serde");
         assert_eq!(dep.version, "1.0.195");
@@ -835,7 +838,10 @@ mod tests {
             .add_dependency(DependencyPin::crates_io("tokio", "1.0"))
             .build();
 
-        assert_eq!(manifest.cargo_lock_hash, Some("sha256:lockfile123".to_string()));
+        assert_eq!(
+            manifest.cargo_lock_hash,
+            Some("sha256:lockfile123".to_string())
+        );
         assert_eq!(manifest.git_commit, Some("abc123def456".to_string()));
         assert_eq!(manifest.dependency_count(), 2);
     }

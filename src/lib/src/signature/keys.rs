@@ -3,10 +3,10 @@ use crate::secure_file;
 
 use ct_codecs::{Encoder, Hex};
 use std::collections::HashSet;
+use std::fmt;
 use std::fs::File;
 use std::io::{self, prelude::*};
 use std::path::Path;
-use std::fmt;
 use zeroize::Zeroizing;
 
 pub(crate) const ED25519_PK_ID: u8 = 0x01;
@@ -112,8 +112,10 @@ impl fmt::Debug for PublicKey {
             f,
             "PublicKey {{ [{}] - key_id: {:?} }}",
             Hex::encode_to_string(self.pk.as_ref()).unwrap_or_else(|_| "<hex error>".to_string()),
-            self.key_id()
-                .map(|key_id| format!("[{}]", Hex::encode_to_string(key_id).unwrap_or_else(|_| "<hex error>".to_string())))
+            self.key_id().map(|key_id| format!(
+                "[{}]",
+                Hex::encode_to_string(key_id).unwrap_or_else(|_| "<hex error>".to_string())
+            ))
         )
     }
 }

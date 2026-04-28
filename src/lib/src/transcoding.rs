@@ -288,7 +288,11 @@ impl TranscodingAttestationBuilder {
     }
 
     /// Set the target architecture and output format
-    pub fn target(mut self, architecture: impl Into<String>, output_format: impl Into<String>) -> Self {
+    pub fn target(
+        mut self,
+        architecture: impl Into<String>,
+        output_format: impl Into<String>,
+    ) -> Self {
         self.target_architecture = Some(architecture.into());
         self.target_output_format = Some(output_format.into());
         self
@@ -325,11 +329,7 @@ impl TranscodingAttestationBuilder {
     }
 
     /// Set source verification results
-    pub fn source_verification(
-        mut self,
-        signature_verified: bool,
-        chain_verified: bool,
-    ) -> Self {
+    pub fn source_verification(mut self, signature_verified: bool, chain_verified: bool) -> Self {
         self.signature_verified = Some(signature_verified);
         self.chain_verified = Some(chain_verified);
         self
@@ -368,7 +368,9 @@ impl TranscodingAttestationBuilder {
 
         let compiler = CompilerInfo {
             name: self.compiler_name.ok_or(crate::WSError::InvalidArgument)?,
-            version: self.compiler_version.ok_or(crate::WSError::InvalidArgument)?,
+            version: self
+                .compiler_version
+                .ok_or(crate::WSError::InvalidArgument)?,
             digest: self.compiler_digest,
             uri: self.compiler_uri,
         };
@@ -398,17 +400,16 @@ impl TranscodingAttestationBuilder {
             None
         };
 
-        let verification =
-            if self.signature_verified.is_some() || self.chain_verified.is_some() {
-                Some(SourceVerification {
-                    signature_verified: self.signature_verified.unwrap_or(false),
-                    chain_verified: self.chain_verified.unwrap_or(false),
-                    policy: self.verification_policy,
-                    verified_at: self.verified_at,
-                })
-            } else {
-                None
-            };
+        let verification = if self.signature_verified.is_some() || self.chain_verified.is_some() {
+            Some(SourceVerification {
+                signature_verified: self.signature_verified.unwrap_or(false),
+                chain_verified: self.chain_verified.unwrap_or(false),
+                policy: self.verification_policy,
+                verified_at: self.verified_at,
+            })
+        } else {
+            None
+        };
 
         Ok(TranscodingPredicate {
             source,
@@ -495,10 +496,7 @@ mod tests {
     fn test_builder_full() {
         let predicate = sample_predicate();
 
-        assert_eq!(
-            predicate.source.digest.sha256_value(),
-            Some("aabbccdd")
-        );
+        assert_eq!(predicate.source.digest.sha256_value(), Some("aabbccdd"));
         assert_eq!(predicate.source.signature_status, "verified");
         assert_eq!(
             predicate.source.signer_identity.as_deref(),
@@ -557,7 +555,10 @@ mod tests {
             .compiler("synth", "0.1.0")
             .target("aarch64", "elf")
             .build();
-        assert!(result.is_err(), "build() should fail without signature_status");
+        assert!(
+            result.is_err(),
+            "build() should fail without signature_status"
+        );
     }
 
     #[test]
@@ -672,11 +673,8 @@ mod tests {
     #[test]
     fn test_statement_serialization_roundtrip() {
         let predicate = sample_predicate();
-        let statement = create_transcoding_statement(
-            "firmware.elf",
-            DigestSet::sha256("deadbeef"),
-            predicate,
-        );
+        let statement =
+            create_transcoding_statement("firmware.elf", DigestSet::sha256("deadbeef"), predicate);
 
         let json = statement.to_json_pretty().unwrap();
 
@@ -689,8 +687,7 @@ mod tests {
         assert!(json.contains("aarch64"));
 
         // Roundtrip
-        let parsed: Statement<TranscodingPredicate> =
-            Statement::from_json(&json).unwrap();
+        let parsed: Statement<TranscodingPredicate> = Statement::from_json(&json).unwrap();
         assert_eq!(parsed.subject[0].name, "firmware.elf");
         assert_eq!(parsed.predicate.compiler.name, "synth");
         assert_eq!(parsed.predicate.target.architecture, "aarch64");
@@ -710,15 +707,11 @@ mod tests {
             .build()
             .unwrap();
 
-        let statement = create_transcoding_statement(
-            "app.mcuboot",
-            DigestSet::sha256("112233"),
-            predicate,
-        );
+        let statement =
+            create_transcoding_statement("app.mcuboot", DigestSet::sha256("112233"), predicate);
 
         let bytes = statement.to_json_bytes().unwrap();
-        let parsed: Statement<TranscodingPredicate> =
-            Statement::from_json_bytes(&bytes).unwrap();
+        let parsed: Statement<TranscodingPredicate> = Statement::from_json_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.subject[0].name, "app.mcuboot");
         assert_eq!(parsed.predicate.target.output_format, "mcuboot");
@@ -737,10 +730,7 @@ mod tests {
 
     #[test]
     fn test_constants() {
-        assert_eq!(
-            TRANSCODING_PREDICATE_V1,
-            "https://wsc.dev/transcoding/v1"
-        );
+        assert_eq!(TRANSCODING_PREDICATE_V1, "https://wsc.dev/transcoding/v1");
         assert_eq!(
             WASM_NATIVE_BUILD_TYPE,
             "https://wsc.dev/WasmNativeTranscode/v1"

@@ -48,6 +48,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use tss_esapi::{
+    Context,
     attributes::ObjectAttributesBuilder,
     interface_types::{
         algorithm::{HashingAlgorithm, PublicAlgorithm},
@@ -55,12 +56,11 @@ use tss_esapi::{
         resource_handles::Hierarchy,
     },
     structures::{
-        EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme,
-        PublicBuilder, PublicEccParametersBuilder, SignatureScheme,
+        EccPoint, EccScheme, HashScheme, KeyDerivationFunctionScheme, PublicBuilder,
+        PublicEccParametersBuilder, SignatureScheme,
     },
     tcti_ldr::{DeviceConfig, NetworkTPMConfig, TctiNameConf},
     utils::PublicKey as TssPublicKey,
-    Context,
 };
 
 /// Signing algorithm used by a TPM key
@@ -132,9 +132,8 @@ impl Tpm2Provider {
     /// let provider = Tpm2Provider::with_tcti(tcti)?;
     /// ```
     pub fn with_tcti(tcti: TctiNameConf) -> Result<Self, WSError> {
-        let context = Context::new(tcti).map_err(|e| {
-            WSError::HardwareError(format!("Failed to connect to TPM: {}", e))
-        })?;
+        let context = Context::new(tcti)
+            .map_err(|e| WSError::HardwareError(format!("Failed to connect to TPM: {}", e)))?;
 
         let context = Arc::new(Mutex::new(context));
 
@@ -172,9 +171,8 @@ impl Tpm2Provider {
     fn detect_tcti() -> Result<TctiNameConf, WSError> {
         // Check environment variable first (allows override)
         if std::env::var("TPM2_TCTI").is_ok() {
-            return TctiNameConf::from_environment_variable().map_err(|e| {
-                WSError::HardwareError(format!("Invalid TPM2_TCTI: {}", e))
-            });
+            return TctiNameConf::from_environment_variable()
+                .map_err(|e| WSError::HardwareError(format!("Invalid TPM2_TCTI: {}", e)));
         }
 
         #[cfg(target_os = "linux")]
@@ -218,11 +216,7 @@ impl Tpm2Provider {
 
         // Query supported ECC curves
         let (caps, _more) = ctx
-            .get_capability(
-                tss_esapi::constants::CapabilityType::EccCurves,
-                0,
-                100,
-            )
+            .get_capability(tss_esapi::constants::CapabilityType::EccCurves, 0, 100)
             .map_err(|e| {
                 WSError::HardwareError(format!("Failed to query TPM capabilities: {}", e))
             })?;
@@ -306,7 +300,9 @@ impl Tpm2Provider {
             .with_ecc_parameters(ecc_params)
             .with_ecc_unique_identifier(EccPoint::default())
             .build()
-            .map_err(|e| WSError::InternalError(format!("Failed to build public template: {}", e)))?;
+            .map_err(|e| {
+                WSError::InternalError(format!("Failed to build public template: {}", e))
+            })?;
 
         // Create the primary key under the owner hierarchy
         // Use execute_with_nullauth_session for proper authorization handling
@@ -323,9 +319,7 @@ impl Tpm2Provider {
     }
 
     /// Extract public key bytes from TPM public structure
-    fn extract_ecc_public_key(
-        public: &tss_esapi::structures::Public,
-    ) -> Result<Vec<u8>, WSError> {
+    fn extract_ecc_public_key(public: &tss_esapi::structures::Public) -> Result<Vec<u8>, WSError> {
         // Convert Public to tss_esapi's PublicKey enum
         let public_key = TssPublicKey::try_from(public.clone())
             .map_err(|e| WSError::InternalError(format!("Failed to extract public key: {}", e)))?;
@@ -361,7 +355,11 @@ impl Tpm2Provider {
                 fn encode_integer(val: &[u8]) -> Vec<u8> {
                     let mut result = Vec::new();
                     // Skip leading zeros but keep at least one byte
-                    let val = val.iter().skip_while(|&&b| b == 0).copied().collect::<Vec<_>>();
+                    let val = val
+                        .iter()
+                        .skip_while(|&&b| b == 0)
+                        .copied()
+                        .collect::<Vec<_>>();
                     let val = if val.is_empty() { vec![0] } else { val };
 
                     // Add leading zero if high bit is set (to keep positive)
@@ -463,7 +461,9 @@ impl SecureKeyProvider for Tpm2Provider {
         // First get the key data (need to hold keys lock briefly)
         let tpm_handle = {
             let keys = self.keys.lock().unwrap();
-            let key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
+            let key_data = keys
+                .get(&handle.as_raw())
+                .ok_or(WSError::InvalidKeyHandle)?;
             key_data.key_handle
         };
 
@@ -497,7 +497,9 @@ impl SecureKeyProvider for Tpm2Provider {
 
     fn get_public_key(&self, handle: KeyHandle) -> Result<PublicKey, WSError> {
         let keys = self.keys.lock().unwrap();
-        let _key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
+        let _key_data = keys
+            .get(&handle.as_raw())
+            .ok_or(WSError::InvalidKeyHandle)?;
 
         // For TPM2 with P-256, we store the uncompressed point (65 bytes)
         // The PublicKey struct expects ed25519 format, but we're using P-256
@@ -515,7 +517,8 @@ impl SecureKeyProvider for Tpm2Provider {
     fn delete_key(&self, handle: KeyHandle) -> Result<(), WSError> {
         let key_data = {
             let mut keys = self.keys.lock().unwrap();
-            keys.remove(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?
+            keys.remove(&handle.as_raw())
+                .ok_or(WSError::InvalidKeyHandle)?
         };
 
         // Flush the key from TPM
@@ -544,7 +547,9 @@ impl Tpm2Provider {
     /// Returns the uncompressed P-256 point (65 bytes: 0x04 || x || y)
     pub fn get_public_key_bytes(&self, handle: KeyHandle) -> Result<Vec<u8>, WSError> {
         let keys = self.keys.lock().unwrap();
-        let key_data = keys.get(&handle.as_raw()).ok_or(WSError::InvalidKeyHandle)?;
+        let key_data = keys
+            .get(&handle.as_raw())
+            .ok_or(WSError::InvalidKeyHandle)?;
         Ok(key_data.public_key.clone())
     }
 
@@ -557,7 +562,7 @@ impl Tpm2Provider {
         data: &[u8],
         signature_der: &[u8],
     ) -> Result<bool, WSError> {
-        use p256::ecdsa::{signature::Verifier, Signature, VerifyingKey};
+        use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
 
         let public_key_bytes = self.get_public_key_bytes(handle)?;
 

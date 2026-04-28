@@ -92,11 +92,7 @@ fn resolve_command_path(cmd: &str) -> Option<std::path::PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths).find_map(|dir| {
             let full = dir.join(cmd);
-            if full.is_file() {
-                Some(full)
-            } else {
-                None
-            }
+            if full.is_file() { Some(full) } else { None }
         })
     })
 }
@@ -180,20 +176,23 @@ impl BuildEnvironment {
 
         let nix_flake_lock_hash = hash_flake_lock();
 
-        let nix_build = if std::env::var("IN_NIX_SHELL").is_ok()
-            || std::env::var("NIX_BUILD_TOP").is_ok()
-        {
-            Some(true)
-        } else {
-            None
-        };
+        let nix_build =
+            if std::env::var("IN_NIX_SHELL").is_ok() || std::env::var("NIX_BUILD_TOP").is_ok() {
+                Some(true)
+            } else {
+                None
+            };
 
         let wasm_tools_version = capture_command_output("wasm-tools", &["--version"]);
 
-        let host_platform = Some(format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS));
+        let host_platform = Some(format!(
+            "{}-{}",
+            std::env::consts::ARCH,
+            std::env::consts::OS
+        ));
 
-        let os_version = capture_command_output("uname", &["-sr"])
-            .or_else(|| std::env::var("OS").ok());
+        let os_version =
+            capture_command_output("uname", &["-sr"]).or_else(|| std::env::var("OS").ok());
 
         let captured_at = Some(chrono::Utc::now().to_rfc3339());
 
@@ -340,10 +339,7 @@ mod tests {
             env.additional_tools.get("protoc"),
             Some(&"3.21.0".to_string())
         );
-        assert_eq!(
-            env.additional_tools.get("z3"),
-            Some(&"4.12.0".to_string())
-        );
+        assert_eq!(env.additional_tools.get("z3"), Some(&"4.12.0".to_string()));
     }
 
     #[test]
@@ -385,7 +381,8 @@ mod tests {
 
     #[test]
     fn test_capture_command_output_missing_tool() {
-        let result = capture_command_output("this-tool-definitely-does-not-exist-xyz", &["--version"]);
+        let result =
+            capture_command_output("this-tool-definitely-does-not-exist-xyz", &["--version"]);
         assert!(result.is_none());
     }
 

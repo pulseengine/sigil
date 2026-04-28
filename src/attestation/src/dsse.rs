@@ -71,7 +71,10 @@ impl DsseEnvelope {
     }
 
     /// Create a DSSE envelope from a JSON-serializable payload
-    pub fn from_payload<T: Serialize>(payload: &T, payload_type: impl Into<String>) -> Result<Self, serde_json::Error> {
+    pub fn from_payload<T: Serialize>(
+        payload: &T,
+        payload_type: impl Into<String>,
+    ) -> Result<Self, serde_json::Error> {
         let json = serde_json::to_vec(payload)?;
         Ok(Self::new(&json, payload_type))
     }
@@ -134,7 +137,9 @@ impl DsseEnvelope {
 
     /// Parse the payload as JSON
     pub fn payload_json<T: for<'de> Deserialize<'de>>(&self) -> Result<T, DsseError> {
-        let bytes = self.payload_bytes().map_err(|e| DsseError::DecodeError(e.to_string()))?;
+        let bytes = self
+            .payload_bytes()
+            .map_err(|e| DsseError::DecodeError(e.to_string()))?;
         serde_json::from_slice(&bytes).map_err(|e| DsseError::JsonError(e.to_string()))
     }
 
@@ -163,7 +168,10 @@ impl DsseEnvelope {
 
     /// Verify all signatures in the envelope
     #[cfg(feature = "signing")]
-    pub fn verify_ed25519(&self, public_key: &ed25519_compact::PublicKey) -> Result<bool, DsseError> {
+    pub fn verify_ed25519(
+        &self,
+        public_key: &ed25519_compact::PublicKey,
+    ) -> Result<bool, DsseError> {
         use base64::Engine;
 
         if self.signatures.is_empty() {
@@ -180,7 +188,8 @@ impl DsseEnvelope {
             let signature = ed25519_compact::Signature::from_slice(&sig_bytes)
                 .map_err(|e| DsseError::InvalidSignature(e.to_string()))?;
 
-            public_key.verify(&pae, &signature)
+            public_key
+                .verify(&pae, &signature)
                 .map_err(|_| DsseError::VerificationFailed)?;
         }
 
@@ -365,10 +374,7 @@ impl ResourceDescriptor {
     }
 
     /// Create for a git source
-    pub fn git_source(
-        repo_url: impl Into<String>,
-        commit: impl Into<String>,
-    ) -> Self {
+    pub fn git_source(repo_url: impl Into<String>, commit: impl Into<String>) -> Self {
         let commit = commit.into();
         let mut digest = std::collections::HashMap::new();
         digest.insert("gitCommit".to_string(), commit.clone());
@@ -515,7 +521,9 @@ mod tests {
             message: String,
         }
 
-        let payload = TestPayload { message: "test".to_string() };
+        let payload = TestPayload {
+            message: "test".to_string(),
+        };
         let envelope = DsseEnvelope::from_payload(&payload, "application/json").unwrap();
 
         assert_eq!(envelope.payload_type, "application/json");
@@ -532,7 +540,9 @@ mod tests {
             tool: String,
         }
 
-        let predicate = TestPredicate { tool: "test-tool".to_string() };
+        let predicate = TestPredicate {
+            tool: "test-tool".to_string(),
+        };
         let mut statement = InTotoStatement::new(WSC_TRANSFORMATION_PREDICATE, &predicate).unwrap();
 
         statement.add_subject("artifact.wasm", "abc123def456");
@@ -541,7 +551,10 @@ mod tests {
         assert_eq!(statement.predicate_type, WSC_TRANSFORMATION_PREDICATE);
         assert_eq!(statement.subject.len(), 1);
         assert_eq!(statement.subject[0].name, "artifact.wasm");
-        assert_eq!(statement.subject[0].digest.get("sha256"), Some(&"abc123def456".to_string()));
+        assert_eq!(
+            statement.subject[0].digest.get("sha256"),
+            Some(&"abc123def456".to_string())
+        );
     }
 
     #[test]
@@ -551,7 +564,9 @@ mod tests {
             version: String,
         }
 
-        let predicate = TestPredicate { version: "1.0".to_string() };
+        let predicate = TestPredicate {
+            version: "1.0".to_string(),
+        };
         let mut statement = InTotoStatement::new(WSC_TRANSFORMATION_PREDICATE, &predicate).unwrap();
         statement.add_subject("test.wasm", "sha256hash");
 
@@ -583,8 +598,14 @@ mod tests {
             .with_digest("sha1", "sha1hash");
 
         assert_eq!(subject.digest.len(), 3);
-        assert_eq!(subject.digest.get("sha256"), Some(&"sha256hash".to_string()));
-        assert_eq!(subject.digest.get("sha512"), Some(&"sha512hash".to_string()));
+        assert_eq!(
+            subject.digest.get("sha256"),
+            Some(&"sha256hash".to_string())
+        );
+        assert_eq!(
+            subject.digest.get("sha512"),
+            Some(&"sha512hash".to_string())
+        );
     }
 
     #[cfg(feature = "signing")]

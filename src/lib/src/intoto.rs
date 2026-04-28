@@ -62,39 +62,34 @@ impl<P: Serialize> Statement<P> {
 
     /// Serialize to JSON bytes (for DSSE payload)
     pub fn to_json_bytes(&self) -> Result<Vec<u8>, WSError> {
-        serde_json::to_vec(self).map_err(|e| {
-            WSError::InternalError(format!("Failed to serialize statement: {}", e))
-        })
+        serde_json::to_vec(self)
+            .map_err(|e| WSError::InternalError(format!("Failed to serialize statement: {}", e)))
     }
 
     /// Serialize to JSON string
     pub fn to_json(&self) -> Result<String, WSError> {
-        serde_json::to_string(self).map_err(|e| {
-            WSError::InternalError(format!("Failed to serialize statement: {}", e))
-        })
+        serde_json::to_string(self)
+            .map_err(|e| WSError::InternalError(format!("Failed to serialize statement: {}", e)))
     }
 
     /// Serialize to pretty JSON string
     pub fn to_json_pretty(&self) -> Result<String, WSError> {
-        serde_json::to_string_pretty(self).map_err(|e| {
-            WSError::InternalError(format!("Failed to serialize statement: {}", e))
-        })
+        serde_json::to_string_pretty(self)
+            .map_err(|e| WSError::InternalError(format!("Failed to serialize statement: {}", e)))
     }
 }
 
 impl<P: for<'de> Deserialize<'de>> Statement<P> {
     /// Deserialize from JSON bytes
     pub fn from_json_bytes(bytes: &[u8]) -> Result<Self, WSError> {
-        serde_json::from_slice(bytes).map_err(|e| {
-            WSError::InternalError(format!("Failed to parse statement: {}", e))
-        })
+        serde_json::from_slice(bytes)
+            .map_err(|e| WSError::InternalError(format!("Failed to parse statement: {}", e)))
     }
 
     /// Deserialize from JSON string
     pub fn from_json(json: &str) -> Result<Self, WSError> {
-        serde_json::from_str(json).map_err(|e| {
-            WSError::InternalError(format!("Failed to parse statement: {}", e))
-        })
+        serde_json::from_str(json)
+            .map_err(|e| WSError::InternalError(format!("Failed to parse statement: {}", e)))
     }
 }
 
@@ -129,7 +124,7 @@ impl Subject {
 
     /// Create a subject from raw bytes (computes SHA256)
     pub fn from_bytes(name: impl Into<String>, bytes: &[u8]) -> Self {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let hash = Sha256::digest(bytes);
         Self::new(name, hex::encode(hash))
     }
@@ -263,7 +258,7 @@ impl ResourceDescriptor {
 
     /// Create from raw bytes (computes SHA256)
     pub fn from_bytes(name: impl Into<String>, bytes: &[u8]) -> Self {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let hash = Sha256::digest(bytes);
         Self::from_name(name, hex::encode(hash))
     }
@@ -376,7 +371,9 @@ mod tests {
         let original = Statement::new(
             vec![Subject::new("test.bin", "123456")],
             "https://example.com/predicate/v1",
-            TestPredicate { value: "test".to_string() },
+            TestPredicate {
+                value: "test".to_string(),
+            },
         );
 
         let json = original.to_json().unwrap();

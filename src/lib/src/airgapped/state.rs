@@ -222,10 +222,7 @@ mod tests {
         assert!(state.check_module_version("my-module", 1000));
 
         // Update with version info
-        state.update_module_version(
-            "my-module",
-            ModuleVersionInfo::new(1000, &[0u8; 32]),
-        );
+        state.update_module_version("my-module", ModuleVersionInfo::new(1000, &[0u8; 32]));
 
         // Same or newer is OK
         assert!(state.check_module_version("my-module", 1000));

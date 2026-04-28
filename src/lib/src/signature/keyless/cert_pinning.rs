@@ -295,10 +295,12 @@ impl PinningConfig {
         }
 
         // Parse the X.509 certificate to extract SPKI
-        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
-            .map_err(|e| WSError::CertificatePinningError(format!(
-                "Failed to parse certificate for SPKI extraction: {:?}", e
-            )))?;
+        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref()).map_err(|e| {
+            WSError::CertificatePinningError(format!(
+                "Failed to parse certificate for SPKI extraction: {:?}",
+                e
+            ))
+        })?;
 
         // Hash the raw SubjectPublicKeyInfo DER bytes
         let spki_der = cert.public_key().raw;

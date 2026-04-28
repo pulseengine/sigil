@@ -116,10 +116,7 @@ pub trait SignableArtifact: Sized {
 ///
 /// Used when both --format flag and file content are available (SC-15).
 /// Returns error if they disagree, preventing polyglot attacks (AS-17).
-pub fn validate_format_consistency(
-    declared: FormatType,
-    data: &[u8],
-) -> Result<(), WSError> {
+pub fn validate_format_consistency(declared: FormatType, data: &[u8]) -> Result<(), WSError> {
     if let Some(detected) = FormatType::detect(data) {
         if detected != declared {
             return Err(WSError::InternalError(format!(
@@ -151,7 +148,10 @@ mod tests {
     #[test]
     fn test_format_detection_mcuboot() {
         let mcuboot_magic = [0x3d, 0xb8, 0xf3, 0x96];
-        assert_eq!(FormatType::detect(&mcuboot_magic), Some(FormatType::Mcuboot));
+        assert_eq!(
+            FormatType::detect(&mcuboot_magic),
+            Some(FormatType::Mcuboot)
+        );
     }
 
     #[test]
@@ -171,7 +171,10 @@ mod tests {
         assert_eq!(FormatType::from_str("wasm").unwrap(), FormatType::Wasm);
         assert_eq!(FormatType::from_str("elf").unwrap(), FormatType::Elf);
         assert_eq!(FormatType::from_str("ELF").unwrap(), FormatType::Elf);
-        assert_eq!(FormatType::from_str("mcuboot").unwrap(), FormatType::Mcuboot);
+        assert_eq!(
+            FormatType::from_str("mcuboot").unwrap(),
+            FormatType::Mcuboot
+        );
         assert!(FormatType::from_str("unknown").is_err());
     }
 

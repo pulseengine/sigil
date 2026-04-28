@@ -165,7 +165,8 @@ pub trait HardwareVerifier: Send + Sync {
     ///
     /// - `Ok(())` if signature is valid
     /// - `Err(HardwareError::VerificationFailed)` if invalid
-    fn verify(&self, data: &[u8], signature: &[u8], public_key: &[u8]) -> Result<(), HardwareError>;
+    fn verify(&self, data: &[u8], signature: &[u8], public_key: &[u8])
+    -> Result<(), HardwareError>;
 
     /// Get supported algorithms.
     fn supported_algorithms(&self) -> Vec<SigningAlgorithm>;
@@ -278,7 +279,12 @@ impl Default for SoftwareEd25519Verifier {
 }
 
 impl HardwareVerifier for SoftwareEd25519Verifier {
-    fn verify(&self, data: &[u8], signature: &[u8], public_key: &[u8]) -> Result<(), HardwareError> {
+    fn verify(
+        &self,
+        data: &[u8],
+        signature: &[u8],
+        public_key: &[u8],
+    ) -> Result<(), HardwareError> {
         if signature.len() != 64 {
             return Err(HardwareError::VerificationFailed(
                 "Invalid signature length (expected 64 bytes)".to_string(),
@@ -298,8 +304,9 @@ impl HardwareVerifier for SoftwareEd25519Verifier {
             HardwareError::VerificationFailed(format!("Invalid public key format: {:?}", e))
         })?;
 
-        pk.verify(data, &sig)
-            .map_err(|_| HardwareError::VerificationFailed("Signature verification failed".to_string()))
+        pk.verify(data, &sig).map_err(|_| {
+            HardwareError::VerificationFailed("Signature verification failed".to_string())
+        })
     }
 
     fn supported_algorithms(&self) -> Vec<SigningAlgorithm> {
@@ -729,7 +736,11 @@ mod tests {
 
         // Test public key extraction
         let public_key = signer.public_key().expect("public key should be available");
-        assert_eq!(public_key.len(), 32, "Ed25519 public key should be 32 bytes");
+        assert_eq!(
+            public_key.len(),
+            32,
+            "Ed25519 public key should be 32 bytes"
+        );
 
         // Test key ID
         assert_eq!(signer.key_id(), Some("test-key".to_string()));
@@ -755,7 +766,11 @@ mod tests {
         assert!(verifier.verify(data, &signature, &public_key).is_ok());
 
         // Test failed verification with wrong data
-        assert!(verifier.verify(b"wrong data", &signature, &public_key).is_err());
+        assert!(
+            verifier
+                .verify(b"wrong data", &signature, &public_key)
+                .is_err()
+        );
 
         // Test failed verification with corrupted signature
         let mut bad_sig = signature.clone();

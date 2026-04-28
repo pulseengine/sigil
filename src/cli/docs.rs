@@ -6,12 +6,36 @@
 
 /// Available documentation topics
 pub const TOPICS: &[(&str, &str, &str)] = &[
-    ("security", "Security policy and vulnerability reporting", include_str!("../../SECURITY.md")),
-    ("threat-model", "STPA-Sec threat model overview", include_str!("../../docs/THREAT_MODEL.md")),
-    ("integration", "Integration guidance for embedders", include_str!("../../docs/security/INTEGRATION_GUIDANCE.md")),
-    ("slsa", "SLSA compliance documentation", include_str!("../../docs/slsa-compliance.md")),
-    ("agents", "Agent context for AI-assisted development", include_str!("../../AGENTS.md")),
-    ("risk", "Risk assessment summary", include_str!("../../docs/security/RISK_ASSESSMENT.md")),
+    (
+        "security",
+        "Security policy and vulnerability reporting",
+        include_str!("../../SECURITY.md"),
+    ),
+    (
+        "threat-model",
+        "STPA-Sec threat model overview",
+        include_str!("../../docs/THREAT_MODEL.md"),
+    ),
+    (
+        "integration",
+        "Integration guidance for embedders",
+        include_str!("../../docs/security/INTEGRATION_GUIDANCE.md"),
+    ),
+    (
+        "slsa",
+        "SLSA compliance documentation",
+        include_str!("../../docs/slsa-compliance.md"),
+    ),
+    (
+        "agents",
+        "Agent context for AI-assisted development",
+        include_str!("../../AGENTS.md"),
+    ),
+    (
+        "risk",
+        "Risk assessment summary",
+        include_str!("../../docs/security/RISK_ASSESSMENT.md"),
+    ),
 ];
 
 pub fn list_topics() {

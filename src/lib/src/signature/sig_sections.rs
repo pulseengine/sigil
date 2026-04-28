@@ -61,9 +61,9 @@ impl SignatureForHashes {
             varint::put(&mut writer, 0)?; // No certificate chain
         }
 
-        writer
-            .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+        writer.into_inner().map_err(|e| {
+            WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e)))
+        })
     }
 
     pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
@@ -149,9 +149,9 @@ impl SignedHashes {
         for signature in &self.signatures {
             varint::put_slice(&mut writer, &signature.serialize()?)?;
         }
-        writer
-            .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+        writer.into_inner().map_err(|e| {
+            WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e)))
+        })
     }
 
     pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
@@ -204,9 +204,9 @@ impl SignatureData {
         for signed_hashes in &self.signed_hashes_set {
             varint::put_slice(&mut writer, &signed_hashes.serialize()?)?;
         }
-        writer
-            .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+        writer.into_inner().map_err(|e| {
+            WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e)))
+        })
     }
 
     pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
@@ -515,10 +515,10 @@ mod tests {
     #[test]
     fn test_malformed_cert_count_is_rejected() {
         let mut buf = Vec::new();
-        varint::put(&mut buf, 0u64).unwrap();                   // key_id = empty
-        buf.push(ED25519_PK_ID);                                 // alg_id
-        varint::put_slice(&mut buf, &[1, 2, 3, 4]).unwrap();     // signature
-        buf.extend_from_slice(&[0x80, 0x80, 0x80, 0x80, 0x80]);  // malformed cert_count
+        varint::put(&mut buf, 0u64).unwrap(); // key_id = empty
+        buf.push(ED25519_PK_ID); // alg_id
+        varint::put_slice(&mut buf, &[1, 2, 3, 4]).unwrap(); // signature
+        buf.extend_from_slice(&[0x80, 0x80, 0x80, 0x80, 0x80]); // malformed cert_count
 
         let result = SignatureForHashes::deserialize(&buf);
         assert!(

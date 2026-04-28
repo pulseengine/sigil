@@ -206,9 +206,7 @@ impl SigstoreBundle {
 }
 
 /// Build a `TransparencyLogEntry` from a wsc `RekorEntry`.
-fn build_tlog_entry(
-    rekor: &crate::signature::keyless::rekor::RekorEntry,
-) -> TransparencyLogEntry {
+fn build_tlog_entry(rekor: &crate::signature::keyless::rekor::RekorEntry) -> TransparencyLogEntry {
     // Parse inclusion proof from the serialized bytes if available.
     let inclusion_proof = if rekor.inclusion_proof.is_empty() {
         None
@@ -277,7 +275,9 @@ fn pem_to_der(pem_str: &str) -> Vec<u8> {
         .join("");
 
     // Decode base64
-    BASE64.decode(&b64).unwrap_or_else(|_| pem_str.as_bytes().to_vec())
+    BASE64
+        .decode(&b64)
+        .unwrap_or_else(|_| pem_str.as_bytes().to_vec())
 }
 
 #[cfg(test)]
@@ -330,7 +330,11 @@ mod tests {
 
         assert_eq!(bundle.media_type, BUNDLE_MEDIA_TYPE);
         assert_eq!(
-            bundle.verification_material.x509_certificate_chain.certificates.len(),
+            bundle
+                .verification_material
+                .x509_certificate_chain
+                .certificates
+                .len(),
             2
         );
         assert_eq!(bundle.verification_material.tlog_entries.len(), 1);
@@ -340,7 +344,10 @@ mod tests {
         assert_eq!(bundle.message_signature.signature, expected_sig_b64);
 
         // Check digest
-        assert_eq!(bundle.message_signature.message_digest.algorithm, "SHA2_256");
+        assert_eq!(
+            bundle.message_signature.message_digest.algorithm,
+            "SHA2_256"
+        );
         assert_eq!(bundle.message_signature.message_digest.digest, "deadbeef");
     }
 
@@ -397,8 +404,16 @@ mod tests {
 
         assert_eq!(parsed.media_type, bundle.media_type);
         assert_eq!(
-            parsed.verification_material.x509_certificate_chain.certificates.len(),
-            bundle.verification_material.x509_certificate_chain.certificates.len()
+            parsed
+                .verification_material
+                .x509_certificate_chain
+                .certificates
+                .len(),
+            bundle
+                .verification_material
+                .x509_certificate_chain
+                .certificates
+                .len()
         );
         assert_eq!(
             parsed.verification_material.tlog_entries.len(),

@@ -11,9 +11,8 @@
 use wsc::{
     Module,
     airgapped::{
-        AirGappedConfig, AirGappedVerifier, SignedTrustBundle, TrustBundle,
-        MemoryTrustStore, MemoryKeyStore,
-        fetch_sigstore_trusted_root, trusted_root_to_bundle,
+        AirGappedConfig, AirGappedVerifier, MemoryKeyStore, MemoryTrustStore, SignedTrustBundle,
+        TrustBundle, fetch_sigstore_trusted_root, trusted_root_to_bundle,
     },
     keyless::{KeylessConfig, KeylessSigner},
 };
@@ -47,10 +46,16 @@ fn test_bundle_fetch_and_parse() {
     match result {
         Ok(root) => {
             println!("Successfully fetched Sigstore trusted root:");
-            println!("  Certificate Authorities: {}", root.certificate_authorities.len());
+            println!(
+                "  Certificate Authorities: {}",
+                root.certificate_authorities.len()
+            );
             println!("  Transparency Logs: {}", root.tlogs.len());
 
-            assert!(!root.certificate_authorities.is_empty(), "Should have at least one CA");
+            assert!(
+                !root.certificate_authorities.is_empty(),
+                "Should have at least one CA"
+            );
             assert!(!root.tlogs.is_empty(), "Should have at least one tlog");
 
             // Convert to bundle
@@ -123,16 +128,17 @@ fn test_full_airgapped_flow_with_sigstore() {
 
     // Step 1: Fetch trust bundle from Sigstore TUF
     println!("1. Fetching trust bundle from Sigstore TUF...");
-    let trusted_root = fetch_sigstore_trusted_root()
-        .expect("Failed to fetch Sigstore trusted root");
+    let trusted_root =
+        fetch_sigstore_trusted_root().expect("Failed to fetch Sigstore trusted root");
 
-    println!("   Found {} CAs, {} transparency logs",
+    println!(
+        "   Found {} CAs, {} transparency logs",
         trusted_root.certificate_authorities.len(),
         trusted_root.tlogs.len()
     );
 
-    let bundle = trusted_root_to_bundle(&trusted_root, 1, 90)
-        .expect("Failed to create trust bundle");
+    let bundle =
+        trusted_root_to_bundle(&trusted_root, 1, 90).expect("Failed to create trust bundle");
 
     println!("   Bundle ID: {}", &bundle.bundle_id[..16]);
 
@@ -140,8 +146,8 @@ fn test_full_airgapped_flow_with_sigstore() {
     use ed25519_compact::KeyPair;
     let bundle_keypair = KeyPair::generate();
     let seed = bundle_keypair.sk.seed();
-    let signed_bundle = SignedTrustBundle::sign(bundle, seed.as_ref())
-        .expect("Failed to sign bundle");
+    let signed_bundle =
+        SignedTrustBundle::sign(bundle, seed.as_ref()).expect("Failed to sign bundle");
 
     println!("   Bundle signed with test key");
 
@@ -149,15 +155,19 @@ fn test_full_airgapped_flow_with_sigstore() {
     println!("\n2. Signing WASM module with keyless signing...");
 
     let config = KeylessConfig::default();
-    let signer = KeylessSigner::with_config(config)
-        .expect("Failed to create keyless signer");
+    let signer = KeylessSigner::with_config(config).expect("Failed to create keyless signer");
 
     let module = create_test_module();
-    let (signed_module, keyless_sig) = signer.sign_module(module)
-        .expect("Failed to sign module");
+    let (signed_module, keyless_sig) = signer.sign_module(module).expect("Failed to sign module");
 
-    println!("   Identity: {}", keyless_sig.get_identity().unwrap_or_default());
-    println!("   Issuer: {}", keyless_sig.get_issuer().unwrap_or_default());
+    println!(
+        "   Identity: {}",
+        keyless_sig.get_identity().unwrap_or_default()
+    );
+    println!(
+        "   Issuer: {}",
+        keyless_sig.get_issuer().unwrap_or_default()
+    );
     println!("   Rekor entry: {}", keyless_sig.rekor_entry.uuid);
 
     // Step 3: Verify using air-gapped verifier
@@ -167,7 +177,8 @@ fn test_full_airgapped_flow_with_sigstore() {
         &signed_bundle,
         bundle_keypair.pk.as_ref(),
         AirGappedConfig::default(),
-    ).expect("Failed to create air-gapped verifier");
+    )
+    .expect("Failed to create air-gapped verifier");
 
     // Compute module hash
     let mut module_bytes = Vec::new();
@@ -193,8 +204,14 @@ fn test_full_airgapped_flow_with_sigstore() {
             println!("\n❌ Verification failed: {}", e);
             println!("\n📋 Debug info:");
             println!("   Cert chain length: {}", keyless_sig.cert_chain.len());
-            println!("   Bundle CAs: {}", signed_bundle.bundle.certificate_authorities.len());
-            println!("   Bundle logs: {}", signed_bundle.bundle.transparency_logs.len());
+            println!(
+                "   Bundle CAs: {}",
+                signed_bundle.bundle.certificate_authorities.len()
+            );
+            println!(
+                "   Bundle logs: {}",
+                signed_bundle.bundle.transparency_logs.len()
+            );
 
             // This is expected to fail initially - certificate chain verification
             // against the bundle's root certs needs the full implementation
@@ -217,11 +234,13 @@ fn test_keyless_sign_then_airgapped_verify() {
 
     // Sign test module
     let module = create_test_module();
-    let (_signed_module, keyless_sig) = signer.sign_module(module)
-        .expect("Failed to sign module");
+    let (_signed_module, keyless_sig) = signer.sign_module(module).expect("Failed to sign module");
 
     println!("Keyless signature created:");
-    println!("  Identity: {}", keyless_sig.get_identity().unwrap_or_default());
+    println!(
+        "  Identity: {}",
+        keyless_sig.get_identity().unwrap_or_default()
+    );
     println!("  Rekor UUID: {}", keyless_sig.rekor_entry.uuid);
     println!("  Rekor index: {}", keyless_sig.rekor_entry.log_index);
 
@@ -247,15 +266,16 @@ fn test_bundle_anti_rollback() {
     // Try to create verifier with older bundle (version 1)
     let config = AirGappedConfig::default().with_rollback_protection();
 
-    let verifier = AirGappedVerifier::<wsc::time::BuildTimeSource>::new(
-        &signed_bundle,
-        &public_key,
-        config,
-    ).unwrap();
+    let verifier =
+        AirGappedVerifier::<wsc::time::BuildTimeSource>::new(&signed_bundle, &public_key, config)
+            .unwrap();
 
     // Adding state should fail due to rollback protection
     let result = verifier.with_device_state(state);
-    assert!(result.is_err(), "Should reject bundle older than device state");
+    assert!(
+        result.is_err(),
+        "Should reject bundle older than device state"
+    );
 
     println!("Anti-rollback protection working correctly");
 }

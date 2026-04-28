@@ -127,9 +127,7 @@ pub struct Histogram {
 impl Histogram {
     /// Create a histogram with the given bucket boundaries
     pub fn new(boundaries: Vec<u64>) -> Self {
-        let buckets = (0..=boundaries.len())
-            .map(|_| AtomicU64::new(0))
-            .collect();
+        let buckets = (0..=boundaries.len()).map(|_| AtomicU64::new(0)).collect();
 
         Self {
             boundaries,
@@ -434,8 +432,14 @@ mod tests {
         metrics.record_signing_failure(SigningFailure::TokenInvalid);
         metrics.record_signing_failure(SigningFailure::NetworkError);
 
-        assert_eq!(metrics.signing_failures.get(&SigningFailure::TokenInvalid), 2);
-        assert_eq!(metrics.signing_failures.get(&SigningFailure::NetworkError), 1);
+        assert_eq!(
+            metrics.signing_failures.get(&SigningFailure::TokenInvalid),
+            2
+        );
+        assert_eq!(
+            metrics.signing_failures.get(&SigningFailure::NetworkError),
+            1
+        );
         assert_eq!(metrics.signing_failures.total(), 3);
     }
 
@@ -443,19 +447,19 @@ mod tests {
     fn test_histogram() {
         let hist = Histogram::new(vec![10, 50, 100]);
 
-        hist.record(5);   // bucket 0 (<=10)
-        hist.record(25);  // bucket 1 (<=50)
-        hist.record(75);  // bucket 2 (<=100)
+        hist.record(5); // bucket 0 (<=10)
+        hist.record(25); // bucket 1 (<=50)
+        hist.record(75); // bucket 2 (<=100)
         hist.record(200); // bucket 3 (+Inf)
 
         assert_eq!(hist.count(), 4);
         assert_eq!(hist.sum(), 305);
 
         let snapshot = hist.snapshot();
-        assert_eq!(snapshot[0], (10, 1));  // <=10: 1
-        assert_eq!(snapshot[1], (50, 1));  // <=50: 1
+        assert_eq!(snapshot[0], (10, 1)); // <=10: 1
+        assert_eq!(snapshot[1], (50, 1)); // <=50: 1
         assert_eq!(snapshot[2], (100, 1)); // <=100: 1
-        assert_eq!(snapshot[3].1, 1);      // +Inf: 1
+        assert_eq!(snapshot[3].1, 1); // +Inf: 1
     }
 
     #[test]

@@ -75,7 +75,7 @@ impl ElfArtifact {
             _ => {
                 return Err(WSError::InternalError(
                     "Invalid ELF class (expected 32-bit or 64-bit)".into(),
-                ))
+                ));
             }
         };
 
@@ -86,7 +86,7 @@ impl ElfArtifact {
             _ => {
                 return Err(WSError::InternalError(
                     "Invalid ELF data encoding (expected LE or BE)".into(),
-                ))
+                ));
             }
         };
 
@@ -219,9 +219,7 @@ impl ElfArtifact {
             }
 
             // Check section is within file bounds
-            let sh_end = sh_offset
-                .checked_add(sh_size)
-                .ok_or(WSError::ParseError)?;
+            let sh_end = sh_offset.checked_add(sh_size).ok_or(WSError::ParseError)?;
             if sh_end > data.len() {
                 return Err(WSError::InternalError(format!(
                     "ELF section {} extends beyond file (offset: {}, size: {})",

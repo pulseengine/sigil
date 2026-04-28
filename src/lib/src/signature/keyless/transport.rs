@@ -34,7 +34,7 @@
 use crate::error::WSError;
 
 #[cfg(not(target_os = "wasi"))]
-use crate::signature::keyless::cert_pinning::{create_pinned_rustls_config, PinningConfig};
+use crate::signature::keyless::cert_pinning::{PinningConfig, create_pinned_rustls_config};
 #[cfg(not(target_os = "wasi"))]
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 #[cfg(not(target_os = "wasi"))]
@@ -223,9 +223,7 @@ pub fn create_pinned_agent(pinning: PinningConfig) -> Result<ureq::Agent, WSErro
     use ureq::unversioned::resolver::DefaultResolver;
 
     // Create custom connector chain: TCP -> Pinned TLS
-    let connector = ()
-        .chain(TcpConnector::default())
-        .chain(PinnedRustlsConnector::new(pinning)?);
+    let connector = ().chain(TcpConnector::default()).chain(PinnedRustlsConnector::new(pinning)?);
 
     // Build agent with custom connector
     let config = ureq::config::Config::builder()
@@ -274,24 +272,23 @@ pub fn create_standard_agent() -> ureq::Agent {
 pub fn create_agent_with_optional_pinning(
     pinning: Option<PinningConfig>,
 ) -> Result<ureq::Agent, WSError> {
-    let require_pinning = std::env::var("WSC_REQUIRE_CERT_PINNING")
-        .unwrap_or_default()
-        == "1";
+    let require_pinning = std::env::var("WSC_REQUIRE_CERT_PINNING").unwrap_or_default() == "1";
 
     match pinning {
-        Some(config) if config.is_enabled() => {
-            match create_pinned_agent(config) {
-                Ok(agent) => Ok(agent),
-                Err(e) => {
-                    if require_pinning {
-                        Err(e)
-                    } else {
-                        log::warn!("Failed to enable certificate pinning: {}. Falling back to standard TLS.", e);
-                        Ok(create_standard_agent())
-                    }
+        Some(config) if config.is_enabled() => match create_pinned_agent(config) {
+            Ok(agent) => Ok(agent),
+            Err(e) => {
+                if require_pinning {
+                    Err(e)
+                } else {
+                    log::warn!(
+                        "Failed to enable certificate pinning: {}. Falling back to standard TLS.",
+                        e
+                    );
+                    Ok(create_standard_agent())
                 }
             }
-        }
+        },
         _ => {
             if require_pinning {
                 Err(WSError::CertificatePinningError(

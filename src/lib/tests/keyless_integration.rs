@@ -214,10 +214,7 @@ fn test_keyless_signing_without_oidc_fails() {
                 "No OIDC provider detected (expected in dev environment): {}",
                 e
             );
-            assert!(
-                matches!(e, WSError::NoOidcProvider)
-                    || matches!(e, WSError::OidcError(_))
-            );
+            assert!(matches!(e, WSError::NoOidcProvider) || matches!(e, WSError::OidcError(_)));
         }
     }
 }

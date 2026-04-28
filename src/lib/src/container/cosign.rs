@@ -217,9 +217,9 @@ impl CosignDelegator {
             }
         }
 
-        let output = cmd.output().map_err(|e| {
-            WSError::InternalError(format!("Failed to execute cosign: {}", e))
-        })?;
+        let output = cmd
+            .output()
+            .map_err(|e| WSError::InternalError(format!("Failed to execute cosign: {}", e)))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -255,7 +255,9 @@ impl CosignDelegator {
 
         // Use digest reference if available (preferred), otherwise full reference
         let reference = if image.has_digest() {
-            image.digest_reference().unwrap_or_else(|_| image.full_reference())
+            image
+                .digest_reference()
+                .unwrap_or_else(|_| image.full_reference())
         } else {
             image.full_reference()
         };

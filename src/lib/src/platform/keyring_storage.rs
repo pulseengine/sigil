@@ -51,7 +51,6 @@
 /// // Key persists across restarts
 /// let handle2 = provider.load_key("key-123")?;
 /// ```
-
 use super::{Attestation, KeyHandle, SecureKeyProvider, SecurityLevel};
 use crate::error::WSError;
 use crate::signature::{KeyPair, PublicKey};
@@ -96,7 +95,9 @@ impl KeyCache {
     }
 
     fn get_by_id(&self, key_id: &str) -> Option<KeyHandle> {
-        self.id_to_handle.get(key_id).map(|&h| KeyHandle::from_raw(h))
+        self.id_to_handle
+            .get(key_id)
+            .map(|&h| KeyHandle::from_raw(h))
     }
 
     fn remove(&mut self, handle: KeyHandle) -> Option<(String, KeyPair)> {
@@ -166,20 +167,22 @@ impl KeyringProvider {
 
     /// Store a secret key in the keyring
     fn store_secret_key(&self, key_id: &str, secret_bytes: &[u8]) -> Result<(), WSError> {
-        let entry = keyring::Entry::new(&self.service_name(), key_id)
-            .map_err(|e| WSError::InternalError(format!("Failed to create keyring entry: {}", e)))?;
+        let entry = keyring::Entry::new(&self.service_name(), key_id).map_err(|e| {
+            WSError::InternalError(format!("Failed to create keyring entry: {}", e))
+        })?;
 
-        entry
-            .set_secret(secret_bytes)
-            .map_err(|e| WSError::InternalError(format!("Failed to store key in keyring: {}", e)))?;
+        entry.set_secret(secret_bytes).map_err(|e| {
+            WSError::InternalError(format!("Failed to store key in keyring: {}", e))
+        })?;
 
         Ok(())
     }
 
     /// Load a secret key from the keyring
     fn load_secret_key(&self, key_id: &str) -> Result<Zeroizing<Vec<u8>>, WSError> {
-        let entry = keyring::Entry::new(&self.service_name(), key_id)
-            .map_err(|e| WSError::InternalError(format!("Failed to create keyring entry: {}", e)))?;
+        let entry = keyring::Entry::new(&self.service_name(), key_id).map_err(|e| {
+            WSError::InternalError(format!("Failed to create keyring entry: {}", e))
+        })?;
 
         let secret = entry.get_secret().map_err(|e| match e {
             keyring::Error::NoEntry => {
@@ -193,8 +196,9 @@ impl KeyringProvider {
 
     /// Delete a secret key from the keyring
     fn delete_secret_key(&self, key_id: &str) -> Result<(), WSError> {
-        let entry = keyring::Entry::new(&self.service_name(), key_id)
-            .map_err(|e| WSError::InternalError(format!("Failed to create keyring entry: {}", e)))?;
+        let entry = keyring::Entry::new(&self.service_name(), key_id).map_err(|e| {
+            WSError::InternalError(format!("Failed to create keyring entry: {}", e))
+        })?;
 
         entry.delete_credential().map_err(|e| match e {
             keyring::Error::NoEntry => {

@@ -608,8 +608,8 @@ fn extract_public_key_from_certificate(cert_der: &[u8]) -> Result<PublicKey, WSE
     }
 
     // Create Ed25519 public key
-    let pk = ed25519_compact::PublicKey::from_slice(public_key_bytes)
-        .map_err(WSError::CryptoError)?;
+    let pk =
+        ed25519_compact::PublicKey::from_slice(public_key_bytes).map_err(WSError::CryptoError)?;
 
     Ok(PublicKey { pk, key_id: None })
 }
@@ -620,7 +620,9 @@ mod tests {
     use crate::platform::software::SoftwareProvider;
     use crate::provisioning::OfflineVerifierBuilder;
     use crate::provisioning::ca::{CAConfig, PrivateCA};
-    use crate::provisioning::{CertificateConfig, DeviceIdentity, ProvisioningResult, ProvisioningSession};
+    use crate::provisioning::{
+        CertificateConfig, DeviceIdentity, ProvisioningResult, ProvisioningSession,
+    };
 
     #[test]
     fn test_sign_and_verify_with_certificate() {
@@ -639,8 +641,11 @@ mod tests {
         // Borrow keypair for certificate creation (key stays in store)
         let device_cert = provider
             .with_keypair(key_handle, |device_keypair| {
-                root_ca
-                    .sign_device_certificate_with_keypair(device_keypair, &device_id, &cert_config)
+                root_ca.sign_device_certificate_with_keypair(
+                    device_keypair,
+                    &device_id,
+                    &cert_config,
+                )
             })
             .unwrap()
             .unwrap();
@@ -697,8 +702,11 @@ mod tests {
 
         let owner_cert = owner_provider
             .with_keypair(owner_key, |owner_keypair| {
-                owner_ca
-                    .sign_device_certificate_with_keypair(owner_keypair, &owner_id, &owner_config)
+                owner_ca.sign_device_certificate_with_keypair(
+                    owner_keypair,
+                    &owner_id,
+                    &owner_config,
+                )
             })
             .unwrap()
             .unwrap();

@@ -7,8 +7,6 @@ pub mod cert_pinning;
 pub mod cert_verifier;
 /// Rekor checkpoint (Signed Tree Head) consistency verification (Phase 4.3)
 pub mod checkpoint;
-/// Rate limiting for Sigstore API endpoints (Issue #6)
-pub mod rate_limit;
 /// Keyless signing support for wsc
 ///
 /// This module implements keyless (ephemeral key) signing using:
@@ -20,6 +18,8 @@ pub mod fulcio;
 pub mod merkle;
 pub mod oidc;
 pub mod proof_cache;
+/// Rate limiting for Sigstore API endpoints (Issue #6)
+pub mod rate_limit;
 pub mod rekor;
 pub mod rekor_verifier;
 pub mod signer;
@@ -43,4 +43,4 @@ pub use oidc::{
 };
 pub use rekor::{RekorClient, RekorEntry};
 pub use rekor_verifier::RekorKeyring;
-pub use signer::{KeylessConfig, KeylessSigner, KeylessVerifier, KeylessVerificationResult};
+pub use signer::{KeylessConfig, KeylessSigner, KeylessVerificationResult, KeylessVerifier};
