@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 pub const PAYLOAD_TYPE_INTOTO: &str = "application/vnd.in-toto+json";
 
 /// DSSE payload type for SLSA provenance
-pub const PAYLOAD_TYPE_SLSA: &str = "application/vnd.in-toto+json";
+pub const PAYLOAD_TYPE_SLSA: &str = "application/vnd.slsa.provenance+json";
 
 /// Dead Simple Signing Envelope
 ///

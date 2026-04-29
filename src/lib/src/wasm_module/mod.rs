@@ -24,6 +24,13 @@ const WASM_HEADER: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
 const WASM_COMPONENT_HEADER: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
 pub type Header = [u8; 8];
 
+/// Maximum number of sections accepted by `SectionsIterator` before the parser
+/// aborts with `WSError::TooManySections`. 4096 is generous for any legitimate
+/// module (the wasm-tools spec recommends ~100 typical sections; the Component
+/// Model adds a handful more) while bounding worst-case work for adversarial
+/// inputs that declare millions of empty sections.
+pub const MAX_SECTIONS: usize = 4096;
+
 /// A section identifier.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[repr(u8)]
@@ -452,14 +459,17 @@ impl Module {
         Ok(ModuleStreamReader { reader, header })
     }
 
-    /// Return an iterator over the sections of a WebAssembly module.    
+    /// Return an iterator over the sections of a WebAssembly module.
     ///
     /// The module is read in a streaming fashion, and doesn't have to be fully loaded into memory.
+    /// The iterator caps total emitted sections at [`MAX_SECTIONS`] to prevent
+    /// adversarial modules from causing unbounded work.
     pub fn iterate<T: Read>(
         module_stream: ModuleStreamReader<T>,
     ) -> Result<SectionsIterator<T>, WSError> {
         Ok(SectionsIterator {
             reader: module_stream.reader,
+            count: 0,
         })
     }
 }
@@ -470,18 +480,31 @@ pub struct ModuleStreamReader<'t, T: Read> {
 }
 
 /// An iterator over the sections of a WebAssembly module.
+///
+/// Yields at most [`MAX_SECTIONS`] sections; the next call after the cap is
+/// reached returns `Some(Err(WSError::TooManySections(MAX_SECTIONS)))` and the
+/// iterator subsequently terminates.
 pub struct SectionsIterator<'t, T: Read> {
     reader: &'t mut T,
+    count: usize,
 }
 
 impl<'t, T: Read> Iterator for SectionsIterator<'t, T> {
     type Item = Result<Section, WSError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.count >= MAX_SECTIONS {
+            // Bound iteration so a malformed module declaring millions of
+            // empty sections cannot loop the parser indefinitely.
+            return Some(Err(WSError::TooManySections(MAX_SECTIONS)));
+        }
         match Section::deserialize(self.reader) {
             Err(e) => Some(Err(e)),
             Ok(None) => None,
-            Ok(Some(section)) => Some(Ok(section)),
+            Ok(Some(section)) => {
+                self.count += 1;
+                Some(Ok(section))
+            }
         }
     }
 }
@@ -964,6 +987,39 @@ mod tests {
             kp.pk.verify(&mut tampered_reader, None).is_err(),
             "tampered component must fail verification"
         );
+    }
+
+    #[test]
+    fn test_sections_iterator_max_sections_cap() {
+        // Construct a WASM module: header + (MAX_SECTIONS + 1) empty Type sections.
+        // Each empty section is two bytes: id=1 (Type), len=0.
+        // The iterator must reject once it has yielded MAX_SECTIONS sections.
+        let mut bytes = Vec::with_capacity(8 + 2 * (MAX_SECTIONS + 1));
+        bytes.extend_from_slice(&WASM_HEADER);
+        for _ in 0..(MAX_SECTIONS + 1) {
+            bytes.push(0x01); // SectionId::Type
+            bytes.push(0x00); // payload length 0
+        }
+
+        let mut reader = io::Cursor::new(&bytes);
+        let stream = Module::init_from_reader(&mut reader).expect("header parses");
+        let it = Module::iterate(stream).expect("iterator constructs");
+
+        let mut seen = 0usize;
+        let mut hit_cap = false;
+        for item in it {
+            match item {
+                Ok(_) => seen += 1,
+                Err(WSError::TooManySections(max)) => {
+                    assert_eq!(max, MAX_SECTIONS);
+                    hit_cap = true;
+                    break;
+                }
+                Err(e) => panic!("unexpected error before cap: {:?}", e),
+            }
+        }
+        assert_eq!(seen, MAX_SECTIONS, "should yield exactly MAX_SECTIONS first");
+        assert!(hit_cap, "iterator must error with TooManySections after the cap");
     }
 }
 
