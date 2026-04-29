@@ -34,13 +34,14 @@ jobs:
         disk-cache: ${{ github.workflow }}
         repository-cache: true
 
+    # Audit 2026-04-30 finding C-7: continue-on-error removed —
+    # the last 5 runs of this workflow are green, so a regression here
+    # should block the merge instead of being silently masked.
     - name: Verify Merkle proofs (CV-20, CV-21)
       run: bazel build //src/lib/src/verus_proofs:wsc_merkle_proofs
-      continue-on-error: true
 
     - name: Run Verus tests
       run: bazel test //src/lib/src/verus_proofs:wsc_merkle_verify
-      continue-on-error: true
 
   kani-proofs:
     name: Kani ${{ matrix.module }}
@@ -72,12 +73,13 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
+    # Audit 2026-04-30 finding C-7: continue-on-error removed —
+    # Kani matrix jobs have been green in the last 5 workflow runs.
     - name: Run Kani ${{ matrix.module }} proofs
       env:
         HARNESS: ${{ matrix.harness }}
       run: cargo kani -p wsc --default-unwind 4 --output-format terse --harness "$HARNESS"
       timeout-minutes: 60
-      continue-on-error: true
 
   rocq-proofs:
     name: Rocq/coq-of-rust Translation
@@ -102,4 +104,7 @@ jobs:
       timeout-minutes: 30
       # coq-of-rust needs Rust nightly with LLVM internals — Nix provides
       # this locally but CI may need LIBRARY_PATH configuration.
+      # WIP — see audit C-3: verification/rocq/ is a translation-pipeline
+      # stub, not a real Rocq proof. continue-on-error stays until a `.v`
+      # file is wired in.
       continue-on-error: true

@@ -43,7 +43,17 @@ pub open spec fn spec_pae(
 
 // ── LE64 injectivity ────────────────────────────────────────────────
 
-/// LEMMA: le64 encoding is injective.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1.
+///
+/// LEMMA (intended): le64 encoding is injective.
+///
+/// To actually discharge: case-split on `a != b` to obtain a bit position
+/// where the two u64s differ; show that bit lives in one of the eight
+/// `spec_le64` byte slots; conclude the corresponding byte differs, so
+/// the resulting `Seq<u8>` differs by `Seq` extensionality. Requires
+/// Verus' bit-vector mode (`assert(...) by(bit_vector)`) plus a `Seq`
+/// extensionality lemma from `vstd`.
 pub proof fn lemma_le64_injective(a: u64, b: u64)
     requires a != b,
     ensures spec_le64(a) != spec_le64(b),
@@ -53,12 +63,24 @@ pub proof fn lemma_le64_injective(a: u64, b: u64)
     // produce different byte sequences.
     // NOTE: Z3 needs help with Seq inequality — use assume for now.
     // The property is trivially true by construction of spec_le64.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
 // ── PAE injectivity ─────────────────────────────────────────────────
 
-/// THEOREM (CV-22, part 1): PAE is injective over payload types.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1. Despite the `theorem_` prefix,
+/// the body currently relies on `assume(false)` and proves nothing.
+///
+/// SPEC (intended) — CV-22, part 1: PAE is injective over payload types.
+///
+/// To actually discharge: case-split on `type1.len() == type2.len()`.
+/// If lengths differ, `lemma_le64_injective` makes the `type_len` bytes
+/// at offset 8..16 differ. If lengths are equal but contents differ,
+/// `Seq` extensionality gives an index `i` where `type1[i] != type2[i]`,
+/// which lifts to offset `16 + i` of the concatenation. Requires `Seq::add`
+/// indexing lemmas from `vstd::seq_lib`.
 pub proof fn theorem_pae_injective_on_types(
     type1: Seq<u8>,
     type2: Seq<u8>,
@@ -72,10 +94,18 @@ pub proof fn theorem_pae_injective_on_types(
     // If types have equal length but different content, the type
     // bytes at offset 16..16+len differ.
     // NOTE: Requires Seq::add injectivity lemmas from vstd.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
-/// THEOREM (CV-22, part 2): PAE is injective over payloads.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1.
+///
+/// SPEC (intended) — CV-22, part 2: PAE is injective over payloads.
+///
+/// To actually discharge: symmetric argument to
+/// `theorem_pae_injective_on_types`, but the differing offset is
+/// `16 + payload_type.len() + 8 + i`. Same `vstd` lemmas required.
 pub proof fn theorem_pae_injective_on_payloads(
     payload_type: Seq<u8>,
     payload1: Seq<u8>,
@@ -85,10 +115,18 @@ pub proof fn theorem_pae_injective_on_payloads(
     ensures spec_pae(payload_type, payload1) != spec_pae(payload_type, payload2),
 {
     // Symmetric argument to theorem_pae_injective_on_types.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
-/// COROLLARY: PAE is fully injective.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1. Will follow trivially once
+/// the two `theorem_pae_injective_*` admits above are real proofs.
+///
+/// SPEC (intended): PAE is fully injective.
+///
+/// To actually discharge: case-split on `type1 != type2` vs
+/// `payload1 != payload2` and apply the corresponding theorem above.
 pub proof fn corollary_pae_fully_injective(
     type1: Seq<u8>,
     payload1: Seq<u8>,
@@ -99,6 +137,7 @@ pub proof fn corollary_pae_fully_injective(
     ensures spec_pae(type1, payload1) != spec_pae(type2, payload2),
 {
     // Follows from the two injectivity theorems above.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
@@ -117,7 +156,16 @@ pub open spec fn spec_signing_message(
         .add(artifact_hash)
 }
 
-/// THEOREM: Different domains produce different signing messages.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1.
+///
+/// SPEC (intended): Different domains produce different signing messages.
+///
+/// To actually discharge: `Seq::push`/`Seq::add` preserve the domain
+/// prefix, so the first `min(domain1.len(), domain2.len())` bytes of
+/// each result equal the corresponding domain. By `Seq` extensionality,
+/// a differing byte in the prefix lifts to a differing byte in the full
+/// signing message. Requires `vstd::seq_lib` push/add indexing lemmas.
 pub proof fn theorem_domain_separation(
     domain1: Seq<u8>,
     domain2: Seq<u8>,
@@ -135,10 +183,20 @@ pub proof fn theorem_domain_separation(
 {
     // Different domain prefixes produce different total messages.
     // NOTE: Requires Seq::push/add extensionality lemmas.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
-/// THEOREM: Different content types produce different signing messages.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
+/// See `audit/2026-04-30/findings.md` C-1.
+///
+/// SPEC (intended): Different content types produce different signing
+/// messages.
+///
+/// To actually discharge: the content-type byte sits at index
+/// `domain.len()` of both encodings. `Seq::push` indexing lemma plus
+/// the hypothesis `ct1 != ct2` give differing bytes there, so by
+/// `Seq` extensionality the messages differ.
 pub proof fn theorem_content_type_separation(
     domain: Seq<u8>,
     ct1: u8,
@@ -153,6 +211,7 @@ pub proof fn theorem_content_type_separation(
 {
     // Content type byte at position domain.len() differs.
     // NOTE: Requires Seq::push indexing lemma.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 

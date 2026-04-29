@@ -2,9 +2,22 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'BUILD.bazel'
+      - 'MODULE.bazel'
+      - '.github/workflows/rust.yml'
   pull_request:
-    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'BUILD.bazel'
+      - 'MODULE.bazel'
+      - '.github/workflows/rust.yml'
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,6 +88,15 @@ jobs:
     - name: Build CLI Component (Bazel)
       if: matrix.build-system == 'bazel'
       run: bazel build //src/cli:wasmsign_cli
+
+    # Audit 2026-04-30 finding C-7: Bazel CI must run tests, not only
+    # validate that targets compile. Use --build_tests_only to keep the
+    # job under the previous compile-only timing and skip targets that
+    # have no test wrappers in this matrix's available toolchain.
+    # NOT continue-on-error: a real test failure should block the merge.
+    - name: Test (Bazel)
+      if: matrix.build-system == 'bazel'
+      run: bazel test --build_tests_only --test_output=errors //src/...
 
     - name: Validate Build Outputs (Bazel)
       if: matrix.build-system == 'bazel'
