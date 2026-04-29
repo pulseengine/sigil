@@ -147,9 +147,9 @@ mod sync_impl {
                 request = request.header(key, value);
             }
 
-            let response = request.call().map_err(|e| {
-                WSError::InternalError(format!("HTTP GET failed: {}", e))
-            })?;
+            let response = request
+                .call()
+                .map_err(|e| WSError::InternalError(format!("HTTP GET failed: {}", e)))?;
 
             let status = response.status().as_u16();
             let mut response_headers = HashMap::new();
@@ -159,10 +159,9 @@ mod sync_impl {
                 }
             }
 
-            let body = response
-                .into_body()
-                .read_to_vec()
-                .map_err(|e| WSError::InternalError(format!("Failed to read response body: {}", e)))?;
+            let body = response.into_body().read_to_vec().map_err(|e| {
+                WSError::InternalError(format!("Failed to read response body: {}", e))
+            })?;
 
             Ok(HttpResponse {
                 status,
@@ -192,9 +191,9 @@ mod sync_impl {
                 request = request.header(key, value);
             }
 
-            let response = request.send(body).map_err(|e| {
-                WSError::InternalError(format!("HTTP POST failed: {}", e))
-            })?;
+            let response = request
+                .send(body)
+                .map_err(|e| WSError::InternalError(format!("HTTP POST failed: {}", e)))?;
 
             let status = response.status().as_u16();
             let mut response_headers = HashMap::new();
@@ -204,10 +203,9 @@ mod sync_impl {
                 }
             }
 
-            let body = response
-                .into_body()
-                .read_to_vec()
-                .map_err(|e| WSError::InternalError(format!("Failed to read response body: {}", e)))?;
+            let body = response.into_body().read_to_vec().map_err(|e| {
+                WSError::InternalError(format!("Failed to read response body: {}", e))
+            })?;
 
             Ok(HttpResponse {
                 status,
@@ -234,7 +232,9 @@ mod async_impl {
                 .user_agent(&self.user_agent)
                 .timeout(std::time::Duration::from_secs(self.timeout_secs))
                 .build()
-                .map_err(|e| WSError::InternalError(format!("Failed to create HTTP client: {}", e)))?;
+                .map_err(|e| {
+                    WSError::InternalError(format!("Failed to create HTTP client: {}", e))
+                })?;
 
             let mut request = client.get(url);
 
@@ -242,9 +242,10 @@ mod async_impl {
                 request = request.header(key, value);
             }
 
-            let response = request.send().await.map_err(|e| {
-                WSError::InternalError(format!("HTTP GET failed: {}", e))
-            })?;
+            let response = request
+                .send()
+                .await
+                .map_err(|e| WSError::InternalError(format!("HTTP GET failed: {}", e)))?;
 
             let status = response.status().as_u16();
             let response_headers: HashMap<String, String> = response
@@ -275,7 +276,9 @@ mod async_impl {
                 .user_agent(&self.user_agent)
                 .timeout(std::time::Duration::from_secs(self.timeout_secs))
                 .build()
-                .map_err(|e| WSError::InternalError(format!("Failed to create HTTP client: {}", e)))?;
+                .map_err(|e| {
+                    WSError::InternalError(format!("Failed to create HTTP client: {}", e))
+                })?;
 
             let mut request = client
                 .post(url)
@@ -286,9 +289,10 @@ mod async_impl {
                 request = request.header(key, value);
             }
 
-            let response = request.send().await.map_err(|e| {
-                WSError::InternalError(format!("HTTP POST failed: {}", e))
-            })?;
+            let response = request
+                .send()
+                .await
+                .map_err(|e| WSError::InternalError(format!("HTTP POST failed: {}", e)))?;
 
             let status = response.status().as_u16();
             let response_headers: HashMap<String, String> = response
@@ -429,20 +433,24 @@ mod pinned_sync_impl {
             // Create connector chain with our pinned TLS config
             let pinned_connector = PinnedRustlsConnectorFromConfig::new(self.tls_config.clone());
 
-            let connector = ()
-                .chain(TcpConnector::default())
-                .chain(pinned_connector);
+            let connector = ().chain(TcpConnector::default()).chain(pinned_connector);
 
             let config = ureq::config::Config::builder()
                 .http_status_as_error(false)
                 .timeout_global(Some(std::time::Duration::from_secs(self.timeout_secs)))
                 .build();
 
-            Ok(ureq::Agent::with_parts(config, connector, DefaultResolver::default()))
+            Ok(ureq::Agent::with_parts(
+                config,
+                connector,
+                DefaultResolver::default(),
+            ))
         }
     }
 
-    fn convert_ureq_response(response: http::Response<ureq::Body>) -> Result<HttpResponse, WSError> {
+    fn convert_ureq_response(
+        response: http::Response<ureq::Body>,
+    ) -> Result<HttpResponse, WSError> {
         let status = response.status().as_u16();
         let mut response_headers = HashMap::new();
         for (name, value) in response.headers() {
@@ -482,8 +490,8 @@ mod pinned_sync_impl {
         }
     }
 
-    impl<In: ureq::unversioned::transport::Transport>
-        ureq::unversioned::transport::Connector<In> for PinnedRustlsConnectorFromConfig
+    impl<In: ureq::unversioned::transport::Transport> ureq::unversioned::transport::Connector<In>
+        for PinnedRustlsConnectorFromConfig
     {
         type Out = ureq::unversioned::transport::Either<
             In,
@@ -609,10 +617,9 @@ mod pinned_async_impl {
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
 
-            let body = response
-                .bytes()
-                .await
-                .map_err(|e| WSError::InternalError(format!("Failed to read response body: {}", e)))?;
+            let body = response.bytes().await.map_err(|e| {
+                WSError::InternalError(format!("Failed to read response body: {}", e))
+            })?;
 
             Ok(HttpResponse {
                 status,

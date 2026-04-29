@@ -76,14 +76,12 @@ impl McubootArtifact {
         let is_little_endian = true;
 
         // Read ih_img_size from header (offset 12, 4 bytes LE)
-        let header_img_size = u32::from_le_bytes(
-            data[12..16].try_into().map_err(|_| WSError::ParseError)?,
-        );
+        let header_img_size =
+            u32::from_le_bytes(data[12..16].try_into().map_err(|_| WSError::ParseError)?);
 
         // Read ih_hdr_size from header (offset 8, 2 bytes LE)
-        let hdr_size = u16::from_le_bytes(
-            data[8..10].try_into().map_err(|_| WSError::ParseError)?,
-        ) as u32;
+        let hdr_size =
+            u16::from_le_bytes(data[8..10].try_into().map_err(|_| WSError::ParseError)?) as u32;
 
         // The total image content = header + payload
         // ih_img_size is the payload size (after header)
@@ -116,9 +114,7 @@ impl McubootArtifact {
                  Maximum expected TLV trailer is {} bytes. This may indicate a \
                  partial-image attack where ih_img_size was reduced to exclude \
                  payload from signing (SC-36 / H-38)",
-                trailing_bytes,
-                declared_total,
-                MAX_TLV_OVERHEAD,
+                trailing_bytes, declared_total, MAX_TLV_OVERHEAD,
             )));
         }
 
@@ -141,9 +137,7 @@ impl McubootArtifact {
 
     /// Get the image payload (header + image content, excluding TLV).
     pub fn payload(&self) -> &[u8] {
-        let hdr_size = u16::from_le_bytes(
-            self.data[8..10].try_into().unwrap_or([0; 2]),
-        ) as usize;
+        let hdr_size = u16::from_le_bytes(self.data[8..10].try_into().unwrap_or([0; 2])) as usize;
         let end = hdr_size + self.verified_img_size as usize;
         &self.data[..end.min(self.data.len())]
     }

@@ -3,9 +3,9 @@
 //! This module provides the core policy evaluation logic that checks
 //! transformation attestations against supply chain policies.
 
+use super::slsa::{SlsaLevel, SlsaLevelAnalysis, detect_slsa_level_detailed};
 use super::{Enforcement, Policy, SlsaPolicy};
-use super::slsa::{SlsaLevel, detect_slsa_level_detailed, SlsaLevelAnalysis};
-use wsc_attestation::{TransformationAttestation, SignatureStatus};
+use wsc_attestation::{SignatureStatus, TransformationAttestation};
 
 // ============================================================================
 // Evaluation Result Types
@@ -119,12 +119,15 @@ impl PolicyEvaluationResult {
 
     /// Get only report failures (warnings that didn't fail the policy).
     pub fn report_failures(&self) -> impl Iterator<Item = &RuleResult> {
-        self.rules.iter().filter(|r| !r.passed && r.enforcement == Enforcement::Report)
+        self.rules
+            .iter()
+            .filter(|r| !r.passed && r.enforcement == Enforcement::Report)
     }
 
     /// Get suggestions for improving SLSA level.
     pub fn slsa_suggestions(&self) -> Vec<String> {
-        self.summary.slsa_analysis
+        self.summary
+            .slsa_analysis
             .as_ref()
             .map(|a| a.suggestions_for_next_level())
             .unwrap_or_default()
@@ -200,7 +203,10 @@ pub fn evaluate_policy(
     let total_rules = rules.len();
     let passed_count = rules.iter().filter(|r| r.passed).count();
     let failed_strict = rules.iter().filter(|r| r.causes_failure()).count();
-    let failed_report = rules.iter().filter(|r| !r.passed && r.enforcement == Enforcement::Report).count();
+    let failed_report = rules
+        .iter()
+        .filter(|r| !r.passed && r.enforcement == Enforcement::Report)
+        .count();
 
     let summary = PolicySummary {
         total_rules,
@@ -241,21 +247,23 @@ fn check_slsa_level(
             "slsa.minimum_level",
             enforcement,
             format!("Detected {} meets requirement of {}", detected, required),
-        ).with_details(analysis.reasons.join("; "))
+        )
+        .with_details(analysis.reasons.join("; "))
     } else {
         RuleResult::fail(
             "slsa.minimum_level",
             enforcement,
-            format!("Detected {} does not meet requirement of {}", detected, required),
-        ).with_details(analysis.reasons.join("; "))
+            format!(
+                "Detected {} does not meet requirement of {}",
+                detected, required
+            ),
+        )
+        .with_details(analysis.reasons.join("; "))
     }
 }
 
 /// Check signature requirements.
-fn check_signatures(
-    attestation: &TransformationAttestation,
-    policy: &Policy,
-) -> Vec<RuleResult> {
+fn check_signatures(attestation: &TransformationAttestation, policy: &Policy) -> Vec<RuleResult> {
     let mut results = Vec::new();
     let enforcement = policy.effective_enforcement(policy.signatures.enforcement);
 
@@ -266,12 +274,18 @@ fn check_signatures(
 
         if is_signed {
             let algo = &attestation.attestation_signature.algorithm;
-            let key_info = attestation.attestation_signature.key_id
+            let key_info = attestation
+                .attestation_signature
+                .key_id
                 .as_ref()
                 .map(|k| format!(" (key: {})", k))
-                .or_else(|| attestation.attestation_signature.signer_identity
-                    .as_ref()
-                    .map(|s| format!(" (identity: {})", s)))
+                .or_else(|| {
+                    attestation
+                        .attestation_signature
+                        .signer_identity
+                        .as_ref()
+                        .map(|s| format!(" (identity: {})", s))
+                })
                 .unwrap_or_default();
 
             results.push(RuleResult::pass(
@@ -290,26 +304,38 @@ fn check_signatures(
 
     // Check root signature requirement
     if policy.signatures.require_root_signatures {
-        let all_verified = attestation.inputs.iter()
+        let all_verified = attestation
+            .inputs
+            .iter()
             .all(|i| i.signature_status == SignatureStatus::Verified);
-        let any_verified = attestation.inputs.iter()
+        let any_verified = attestation
+            .inputs
+            .iter()
             .any(|i| i.signature_status == SignatureStatus::Verified);
 
         if all_verified && !attestation.inputs.is_empty() {
             results.push(RuleResult::pass(
                 "signatures.root",
                 enforcement,
-                format!("All {} input(s) have verified signatures", attestation.inputs.len()),
+                format!(
+                    "All {} input(s) have verified signatures",
+                    attestation.inputs.len()
+                ),
             ));
         } else if any_verified {
-            let verified_count = attestation.inputs.iter()
+            let verified_count = attestation
+                .inputs
+                .iter()
                 .filter(|i| i.signature_status == SignatureStatus::Verified)
                 .count();
             results.push(RuleResult::fail(
                 "signatures.root",
                 enforcement,
-                format!("Only {} of {} inputs have verified signatures",
-                    verified_count, attestation.inputs.len()),
+                format!(
+                    "Only {} of {} inputs have verified signatures",
+                    verified_count,
+                    attestation.inputs.len()
+                ),
             ));
         } else {
             results.push(RuleResult::fail(
@@ -346,8 +372,10 @@ fn check_trusted_tool(
                 return Some(RuleResult::fail(
                     format!("trusted_tools.{}.version", tool_name),
                     enforcement,
-                    format!("Tool version {} does not meet minimum {}",
-                        attestation.tool.version, min_version),
+                    format!(
+                        "Tool version {} does not meet minimum {}",
+                        attestation.tool.version, min_version
+                    ),
                 ));
             }
         }
@@ -357,8 +385,10 @@ fn check_trusted_tool(
                 return Some(RuleResult::fail(
                     format!("trusted_tools.{}.version", tool_name),
                     enforcement,
-                    format!("Tool version {} exceeds maximum {}",
-                        attestation.tool.version, max_version),
+                    format!(
+                        "Tool version {} exceeds maximum {}",
+                        attestation.tool.version, max_version
+                    ),
                 ));
             }
         }
@@ -373,8 +403,10 @@ fn check_trusted_tool(
                     return Some(RuleResult::fail(
                         format!("trusted_tools.{}.hash", tool_name),
                         enforcement,
-                        format!("Tool hash {} does not match required {}",
-                            actual_hash, required_hash),
+                        format!(
+                            "Tool hash {} does not match required {}",
+                            actual_hash, required_hash
+                        ),
                     ));
                 }
                 None => {
@@ -390,7 +422,10 @@ fn check_trusted_tool(
         Some(RuleResult::pass(
             format!("trusted_tools.{}", tool_name),
             enforcement,
-            format!("Tool '{}' version {} is trusted", tool_name, attestation.tool.version),
+            format!(
+                "Tool '{}' version {} is trusted",
+                tool_name, attestation.tool.version
+            ),
         ))
     } else {
         // Tool not in trusted list - this is a failure
@@ -412,8 +447,7 @@ fn check_attestation_age(
     let enforcement = policy.effective_enforcement(policy.signatures.enforcement);
 
     // Parse the attestation timestamp
-    let attestation_time = chrono::DateTime::parse_from_rfc3339(&attestation.timestamp)
-        .ok()?;
+    let attestation_time = chrono::DateTime::parse_from_rfc3339(&attestation.timestamp).ok()?;
     let now = chrono::Utc::now();
     let age = now.signed_duration_since(attestation_time);
 
@@ -433,14 +467,21 @@ fn check_attestation_age(
         Some(RuleResult::fail(
             "signatures.attestation_age",
             enforcement,
-            format!("Attestation is {} days old, maximum allowed is {} days", days, max_days),
+            format!(
+                "Attestation is {} days old, maximum allowed is {} days",
+                days, max_days
+            ),
         ))
     } else {
         let days = age.num_days();
         Some(RuleResult::pass(
             "signatures.attestation_age",
             enforcement,
-            format!("Attestation is {} days old (max: {} days)", days, max_age.as_secs() / (24 * 60 * 60)),
+            format!(
+                "Attestation is {} days old (max: {} days)",
+                days,
+                max_age.as_secs() / (24 * 60 * 60)
+            ),
         ))
     }
 }
@@ -517,7 +558,10 @@ mod tests {
         let result = evaluate_policy(&attestation, &policy);
 
         // Strict policy should fail for unsigned attestation
-        assert!(!result.passed, "Strict policy should fail for unsigned attestation");
+        assert!(
+            !result.passed,
+            "Strict policy should fail for unsigned attestation"
+        );
         assert!(result.summary.failed_strict > 0);
     }
 
@@ -531,13 +575,21 @@ mod tests {
         policy.slsa.enforcement = Some(Enforcement::Strict);
 
         let result = evaluate_policy(&attestation, &policy);
-        let slsa_rule = result.rules.iter().find(|r| r.rule == "slsa.minimum_level").unwrap();
+        let slsa_rule = result
+            .rules
+            .iter()
+            .find(|r| r.rule == "slsa.minimum_level")
+            .unwrap();
         assert!(slsa_rule.passed);
 
         // Policy requiring L2 should fail
         policy.slsa.minimum_level = 2;
         let result = evaluate_policy(&attestation, &policy);
-        let slsa_rule = result.rules.iter().find(|r| r.rule == "slsa.minimum_level").unwrap();
+        let slsa_rule = result
+            .rules
+            .iter()
+            .find(|r| r.rule == "slsa.minimum_level")
+            .unwrap();
         assert!(!slsa_rule.passed);
     }
 
@@ -547,17 +599,24 @@ mod tests {
         let mut policy = Policy::permissive();
 
         // Add loom to trusted tools
-        policy.add_trusted_tool("loom", crate::policy::TrustedToolPolicy {
-            min_version: Some("0.1.0".to_string()),
-            max_version: None,
-            required_hash: None,
-            public_keys: vec![],
-            keyless: None,
-            enforcement: Some(Enforcement::Strict),
-        });
+        policy.add_trusted_tool(
+            "loom",
+            crate::policy::TrustedToolPolicy {
+                min_version: Some("0.1.0".to_string()),
+                max_version: None,
+                required_hash: None,
+                public_keys: vec![],
+                keyless: None,
+                enforcement: Some(Enforcement::Strict),
+            },
+        );
 
         let result = evaluate_policy(&attestation, &policy);
-        let tool_rule = result.rules.iter().find(|r| r.rule.starts_with("trusted_tools")).unwrap();
+        let tool_rule = result
+            .rules
+            .iter()
+            .find(|r| r.rule.starts_with("trusted_tools"))
+            .unwrap();
         assert!(tool_rule.passed);
         assert!(result.summary.tools_verified.contains(&"loom".to_string()));
     }
@@ -572,7 +631,11 @@ mod tests {
         policy.add_trusted_tool("wac", crate::policy::TrustedToolPolicy::default());
 
         let result = evaluate_policy(&attestation, &policy);
-        let tool_rule = result.rules.iter().find(|r| r.rule == "trusted_tools").unwrap();
+        let tool_rule = result
+            .rules
+            .iter()
+            .find(|r| r.rule == "trusted_tools")
+            .unwrap();
         assert!(!tool_rule.passed);
         assert!(tool_rule.message.contains("not in the trusted tools list"));
     }
@@ -594,10 +657,13 @@ mod tests {
         let attestation = create_test_attestation(); // loom 0.2.0
         let mut policy = Policy::permissive();
 
-        policy.add_trusted_tool("loom", crate::policy::TrustedToolPolicy {
-            min_version: Some("0.3.0".to_string()), // Higher than 0.2.0
-            ..Default::default()
-        });
+        policy.add_trusted_tool(
+            "loom",
+            crate::policy::TrustedToolPolicy {
+                min_version: Some("0.3.0".to_string()), // Higher than 0.2.0
+                ..Default::default()
+            },
+        );
         policy.policy.enforcement = Enforcement::Strict;
 
         let result = evaluate_policy(&attestation, &policy);

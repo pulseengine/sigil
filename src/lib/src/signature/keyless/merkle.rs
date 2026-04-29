@@ -479,11 +479,20 @@ mod proofs {
         let result = largest_power_of_two_less_than(n);
 
         // Must be a power of 2
-        assert!(result.is_power_of_two(), "Result {} is not a power of 2", result);
+        assert!(
+            result.is_power_of_two(),
+            "Result {} is not a power of 2",
+            result
+        );
         // Must be less than n
         assert!(result < n, "Result {} is not less than n={}", result, n);
         // Must be the largest such power (next power would be >= n)
-        assert!(result * 2 >= n, "Result {} is not the largest power < n={}", result, n);
+        assert!(
+            result * 2 >= n,
+            "Result {} is not the largest power < n={}",
+            result,
+            n
+        );
     }
 
     /// Prove: largest_power_of_two_less_than handles edge cases.
@@ -519,8 +528,10 @@ mod proofs {
         let node_hash = compute_node_hash(&left, &right);
 
         // Leaf hash and node hash must differ (domain separation)
-        assert_ne!(leaf_hash, node_hash,
-            "Leaf hash and node hash collided — domain separation broken");
+        assert_ne!(
+            leaf_hash, node_hash,
+            "Leaf hash and node hash collided — domain separation broken"
+        );
     }
 
     /// Prove: compute_leaf_hash is deterministic.

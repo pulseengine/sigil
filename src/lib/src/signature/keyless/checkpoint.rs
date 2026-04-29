@@ -212,11 +212,7 @@ impl ConsistencyVerifier {
     ///
     /// Returns `Err` if `new.tree_size < old.tree_size`, indicating a
     /// potential log truncation or rollback attack.
-    pub fn check_monotonic(
-        &self,
-        old: &Checkpoint,
-        new: &Checkpoint,
-    ) -> Result<(), WSError> {
+    pub fn check_monotonic(&self, old: &Checkpoint, new: &Checkpoint) -> Result<(), WSError> {
         if new.tree_size < old.tree_size {
             return Err(WSError::RekorError(format!(
                 "Log rollback detected: tree size decreased from {} to {}",
@@ -264,12 +260,9 @@ impl CheckpointStore for FileCheckpointStore {
     fn load(&self) -> Result<Option<SignedCheckpoint>, WSError> {
         match std::fs::read_to_string(&self.path) {
             Ok(contents) => {
-                let checkpoint: SignedCheckpoint = serde_json::from_str(&contents)
-                    .map_err(|e| {
-                        WSError::RekorError(format!(
-                            "Failed to parse stored checkpoint: {}",
-                            e
-                        ))
+                let checkpoint: SignedCheckpoint =
+                    serde_json::from_str(&contents).map_err(|e| {
+                        WSError::RekorError(format!("Failed to parse stored checkpoint: {}", e))
                     })?;
                 Ok(Some(checkpoint))
             }
@@ -283,9 +276,8 @@ impl CheckpointStore for FileCheckpointStore {
     }
 
     fn save(&self, checkpoint: &SignedCheckpoint) -> Result<(), WSError> {
-        let json = serde_json::to_string_pretty(checkpoint).map_err(|e| {
-            WSError::RekorError(format!("Failed to serialize checkpoint: {}", e))
-        })?;
+        let json = serde_json::to_string_pretty(checkpoint)
+            .map_err(|e| WSError::RekorError(format!("Failed to serialize checkpoint: {}", e)))?;
 
         // Write to a temporary file next to the target, then rename for
         // atomic replacement.
@@ -298,12 +290,8 @@ impl CheckpointStore for FileCheckpointStore {
             ))
         })?;
 
-        std::fs::rename(&tmp_path, &self.path).map_err(|e| {
-            WSError::RekorError(format!(
-                "Failed to rename checkpoint file: {}",
-                e
-            ))
-        })?;
+        std::fs::rename(&tmp_path, &self.path)
+            .map_err(|e| WSError::RekorError(format!("Failed to rename checkpoint file: {}", e)))?;
 
         Ok(())
     }
@@ -382,10 +370,7 @@ pub fn parse_checkpoint(text: &str) -> Result<SignedCheckpoint, WSError> {
     root_hash.copy_from_slice(&root_hash_bytes);
 
     // Collect any additional extension lines (between root hash and blank line)
-    let other_content: Vec<String> = body_lines[3..]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let other_content: Vec<String> = body_lines[3..].iter().map(|s| s.to_string()).collect();
 
     // Parse signatures
     let mut signatures = Vec::new();
@@ -433,12 +418,7 @@ pub fn parse_checkpoint(text: &str) -> Result<SignedCheckpoint, WSError> {
             ));
         }
 
-        let key_hash = u32::from_be_bytes([
-            sig_bytes[0],
-            sig_bytes[1],
-            sig_bytes[2],
-            sig_bytes[3],
-        ]);
+        let key_hash = u32::from_be_bytes([sig_bytes[0], sig_bytes[1], sig_bytes[2], sig_bytes[3]]);
         let signature = sig_bytes[4..].to_vec();
 
         signatures.push(CheckpointSignature {
@@ -651,10 +631,7 @@ mod tests {
         let root_b64 = BASE64.encode([0u8; 32]);
         // Only 3 bytes — needs at least 5 (4 key_hash + 1 sig)
         let sig_b64 = BASE64.encode([0u8; 3]);
-        let note = format!(
-            "origin\n1\n{}\n\n\u{2014} signer {}",
-            root_b64, sig_b64
-        );
+        let note = format!("origin\n1\n{}\n\n\u{2014} signer {}", root_b64, sig_b64);
         let err = parse_checkpoint(&note).unwrap_err();
         assert!(
             err.to_string().contains("too short"),
@@ -934,14 +911,25 @@ mod tests {
 
         let json = serde_json::to_string(&cp).expect("serialize");
         // Verify camelCase field names
-        assert!(json.contains("treeSize"), "expected camelCase treeSize in JSON");
-        assert!(json.contains("rootHash"), "expected camelCase rootHash in JSON");
-        assert!(json.contains("otherContent"), "expected camelCase otherContent in JSON");
-        assert!(json.contains("keyHash"), "expected camelCase keyHash in JSON");
+        assert!(
+            json.contains("treeSize"),
+            "expected camelCase treeSize in JSON"
+        );
+        assert!(
+            json.contains("rootHash"),
+            "expected camelCase rootHash in JSON"
+        );
+        assert!(
+            json.contains("otherContent"),
+            "expected camelCase otherContent in JSON"
+        );
+        assert!(
+            json.contains("keyHash"),
+            "expected camelCase keyHash in JSON"
+        );
 
         // Round-trip
-        let parsed: SignedCheckpoint =
-            serde_json::from_str(&json).expect("deserialize");
+        let parsed: SignedCheckpoint = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed, cp);
     }
 

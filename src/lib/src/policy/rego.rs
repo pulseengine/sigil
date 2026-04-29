@@ -218,8 +218,8 @@ impl RegoEngine {
     pub fn set_data_file(&mut self, path: &str) -> Result<(), RegoError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| RegoError::IoError(format!("{}: {}", path, e)))?;
-        let data: serde_json::Value = serde_json::from_str(&content)
-            .map_err(|e| RegoError::SerdeError(e.to_string()))?;
+        let data: serde_json::Value =
+            serde_json::from_str(&content).map_err(|e| RegoError::SerdeError(e.to_string()))?;
         self.set_data(data)
     }
 
@@ -235,8 +235,8 @@ impl RegoEngine {
         }
 
         // Set input
-        let input_json = serde_json::to_value(input)
-            .map_err(|e| RegoError::SerdeError(e.to_string()))?;
+        let input_json =
+            serde_json::to_value(input).map_err(|e| RegoError::SerdeError(e.to_string()))?;
         let input_regorus = json_to_regorus(&input_json)?;
         self.engine.set_input(input_regorus);
 
@@ -264,14 +264,20 @@ impl RegoEngine {
         }
 
         // Evaluate violations rule
-        if let Ok(value) = self.engine.eval_rule("data.wsc.policy.violations".to_string()) {
+        if let Ok(value) = self
+            .engine
+            .eval_rule("data.wsc.policy.violations".to_string())
+        {
             result.violations = regorus_to_string_set(&value);
         } else if let Ok(value) = self.engine.eval_rule("data.policy.violations".to_string()) {
             result.violations = regorus_to_string_set(&value);
         }
 
         // Evaluate warnings rule
-        if let Ok(value) = self.engine.eval_rule("data.wsc.policy.warnings".to_string()) {
+        if let Ok(value) = self
+            .engine
+            .eval_rule("data.wsc.policy.warnings".to_string())
+        {
             result.warnings = regorus_to_string_set(&value);
         } else if let Ok(value) = self.engine.eval_rule("data.policy.warnings".to_string()) {
             result.warnings = regorus_to_string_set(&value);
@@ -312,8 +318,7 @@ impl RegoInput {
     /// * `attestation` - The attestation to evaluate
     /// * `slsa_level` - Detected SLSA level (0-4)
     pub fn from_attestation(attestation: &TransformationAttestation, slsa_level: u8) -> Self {
-        let attestation_json = serde_json::to_value(attestation)
-            .unwrap_or(serde_json::Value::Null);
+        let attestation_json = serde_json::to_value(attestation).unwrap_or(serde_json::Value::Null);
 
         Self {
             attestation: attestation_json,
@@ -380,8 +385,9 @@ fn regorus_to_json(value: &regorus::Value) -> Result<serde_json::Value, RegoErro
         regorus::Value::Number(n) => {
             // regorus Number can be i64 or f64
             if let Some(f) = n.as_f64() {
-                let json_num = serde_json::Number::from_f64(f)
-                    .ok_or_else(|| RegoError::SerdeError("Invalid number conversion".to_string()))?;
+                let json_num = serde_json::Number::from_f64(f).ok_or_else(|| {
+                    RegoError::SerdeError("Invalid number conversion".to_string())
+                })?;
                 Ok(serde_json::Value::Number(json_num))
             } else if let Some(i) = n.as_i64() {
                 Ok(serde_json::Value::Number(i.into()))
@@ -426,22 +432,20 @@ fn regorus_to_bool(value: &regorus::Value) -> bool {
 /// Extract string set from regorus::Value (for violations/warnings)
 fn regorus_to_string_set(value: &regorus::Value) -> Vec<String> {
     match value {
-        regorus::Value::Set(set) => {
-            set.iter()
-                .filter_map(|v| match v {
-                    regorus::Value::String(s) => Some(s.to_string()),
-                    _ => Some(v.to_string()),
-                })
-                .collect()
-        }
-        regorus::Value::Array(arr) => {
-            arr.iter()
-                .filter_map(|v| match v {
-                    regorus::Value::String(s) => Some(s.to_string()),
-                    _ => Some(v.to_string()),
-                })
-                .collect()
-        }
+        regorus::Value::Set(set) => set
+            .iter()
+            .filter_map(|v| match v {
+                regorus::Value::String(s) => Some(s.to_string()),
+                _ => Some(v.to_string()),
+            })
+            .collect(),
+        regorus::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| match v {
+                regorus::Value::String(s) => Some(s.to_string()),
+                _ => Some(v.to_string()),
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }
@@ -518,12 +522,14 @@ mod tests {
         "#;
 
         engine.add_policy("test.rego", policy).unwrap();
-        engine.set_data(serde_json::json!({
-            "trusted_tools": {
-                "loom": true,
-                "wac": true
-            }
-        })).unwrap();
+        engine
+            .set_data(serde_json::json!({
+                "trusted_tools": {
+                    "loom": true,
+                    "wac": true
+                }
+            }))
+            .unwrap();
 
         // Test with trusted tool
         let input = RegoInput {

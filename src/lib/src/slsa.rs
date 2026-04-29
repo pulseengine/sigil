@@ -391,15 +391,9 @@ mod tests {
 
     #[test]
     fn test_wasm_build_provenance() {
-        let deps = vec![
-            ResourceDescriptor::new("pkg:cargo/serde@1.0", "abc123"),
-        ];
+        let deps = vec![ResourceDescriptor::new("pkg:cargo/serde@1.0", "abc123")];
 
-        let prov = Provenance::wasm_build(
-            "wasm32-wasip2",
-            Builder::github_actions().id,
-            deps,
-        );
+        let prov = Provenance::wasm_build("wasm32-wasip2", Builder::github_actions().id, deps);
 
         assert!(prov.build_definition.build_type.contains("WasmBuild"));
         assert_eq!(prov.build_definition.resolved_dependencies.len(), 1);
@@ -408,16 +402,9 @@ mod tests {
 
     #[test]
     fn test_transformation_provenance() {
-        let inputs = vec![
-            ResourceDescriptor::from_name("input.wasm", "deadbeef"),
-        ];
+        let inputs = vec![ResourceDescriptor::from_name("input.wasm", "deadbeef")];
 
-        let prov = Provenance::transformation(
-            "optimization",
-            "loom",
-            "0.1.0",
-            inputs,
-        );
+        let prov = Provenance::transformation("optimization", "loom", "0.1.0", inputs);
 
         assert!(prov.build_definition.build_type.contains("Transformation"));
         assert!(prov.build_definition.build_type.contains("optimization"));
@@ -441,7 +428,10 @@ mod tests {
 
         // Roundtrip
         let parsed: Provenance = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.build_definition.build_type, prov.build_definition.build_type);
+        assert_eq!(
+            parsed.build_definition.build_type,
+            prov.build_definition.build_type
+        );
     }
 
     #[test]
@@ -452,9 +442,11 @@ mod tests {
         let local = Builder::local();
         assert!(local.id.contains("local"));
 
-        let custom = Builder::new("https://my-builder.com")
-            .with_version("runner", "2.0");
-        assert_eq!(custom.version.as_ref().unwrap().get("runner"), Some(&"2.0".to_string()));
+        let custom = Builder::new("https://my-builder.com").with_version("runner", "2.0");
+        assert_eq!(
+            custom.version.as_ref().unwrap().get("runner"),
+            Some(&"2.0".to_string())
+        );
     }
 
     #[test]

@@ -15,7 +15,6 @@ pub(crate) use hash::*;
 
 // Re-export signature data structures for fuzzing and advanced use cases
 pub use sig_sections::{
-    SignatureData, SignedHashes, SignatureForHashes,
-    SIGNATURE_SECTION_HEADER_NAME, SIGNATURE_SECTION_DELIMITER_NAME,
-    MAX_HASHES, MAX_SIGNATURES, new_delimiter_section,
+    MAX_HASHES, MAX_SIGNATURES, SIGNATURE_SECTION_DELIMITER_NAME, SIGNATURE_SECTION_HEADER_NAME,
+    SignatureData, SignatureForHashes, SignedHashes, new_delimiter_section,
 };

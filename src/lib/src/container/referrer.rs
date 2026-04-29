@@ -42,12 +42,8 @@ impl ArtifactType {
     /// Return the media type string for this artifact type.
     pub fn as_str(&self) -> &str {
         match self {
-            ArtifactType::SigstoreBundleV03 => {
-                "application/vnd.dev.sigstore.bundle.v0.3+json"
-            }
-            ArtifactType::CosignSimpleSigning => {
-                "application/vnd.dev.cosign.simplesigning.v1+json"
-            }
+            ArtifactType::SigstoreBundleV03 => "application/vnd.dev.sigstore.bundle.v0.3+json",
+            ArtifactType::CosignSimpleSigning => "application/vnd.dev.cosign.simplesigning.v1+json",
             ArtifactType::Custom(s) => s.as_str(),
         }
     }
@@ -56,9 +52,7 @@ impl ArtifactType {
     pub fn from_str(s: &str) -> Self {
         match s {
             "application/vnd.dev.sigstore.bundle.v0.3+json" => ArtifactType::SigstoreBundleV03,
-            "application/vnd.dev.cosign.simplesigning.v1+json" => {
-                ArtifactType::CosignSimpleSigning
-            }
+            "application/vnd.dev.cosign.simplesigning.v1+json" => ArtifactType::CosignSimpleSigning,
             other => ArtifactType::Custom(other.to_string()),
         }
     }
@@ -267,7 +261,10 @@ fn probe_with_crane(registry: &str) -> Option<bool> {
     // crane does not have a direct referrers command, but we can try
     // to list the manifest and check the response headers/errors.
     let output = Command::new("crane")
-        .args(["manifest", &format!("{}/oci-conformance/test:latest", registry)])
+        .args([
+            "manifest",
+            &format!("{}/oci-conformance/test:latest", registry),
+        ])
         .output()
         .ok()?;
 
@@ -346,11 +343,7 @@ fn store_with_oras(
     file_path: &std::path::Path,
     artifact_type: &str,
 ) -> Option<SignatureReference> {
-    let file_arg = format!(
-        "{}:{}",
-        file_path.display(),
-        artifact_type
-    );
+    let file_arg = format!("{}:{}", file_path.display(), artifact_type);
 
     let output = Command::new("oras")
         .args([
@@ -402,7 +395,10 @@ mod tests {
     fn test_artifact_type_sigstore_bundle() {
         let at = ArtifactType::SigstoreBundleV03;
         assert_eq!(at.as_str(), "application/vnd.dev.sigstore.bundle.v0.3+json");
-        assert_eq!(at.to_string(), "application/vnd.dev.sigstore.bundle.v0.3+json");
+        assert_eq!(
+            at.to_string(),
+            "application/vnd.dev.sigstore.bundle.v0.3+json"
+        );
     }
 
     #[test]
@@ -585,8 +581,14 @@ mod tests {
 
     #[test]
     fn test_artifact_type_equality() {
-        assert_eq!(ArtifactType::SigstoreBundleV03, ArtifactType::SigstoreBundleV03);
-        assert_ne!(ArtifactType::SigstoreBundleV03, ArtifactType::CosignSimpleSigning);
+        assert_eq!(
+            ArtifactType::SigstoreBundleV03,
+            ArtifactType::SigstoreBundleV03
+        );
+        assert_ne!(
+            ArtifactType::SigstoreBundleV03,
+            ArtifactType::CosignSimpleSigning
+        );
         assert_ne!(
             ArtifactType::SigstoreBundleV03,
             ArtifactType::Custom("application/vnd.dev.sigstore.bundle.v0.3+json".to_string())

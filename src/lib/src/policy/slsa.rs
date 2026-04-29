@@ -187,7 +187,9 @@ pub fn detect_slsa_level_detailed(attestation: &TransformationAttestation) -> Sl
     };
 
     // L1: Provenance exists (we have an attestation)
-    analysis.reasons.push("Attestation present → L1".to_string());
+    analysis
+        .reasons
+        .push("Attestation present → L1".to_string());
     analysis.level = SlsaLevel::L1;
 
     // L2: Signed provenance from hosted build
@@ -195,17 +197,24 @@ pub fn detect_slsa_level_detailed(attestation: &TransformationAttestation) -> Sl
         && !attestation.attestation_signature.signature.is_empty();
 
     let has_builder_identity = attestation.attestation_signature.signer_identity.is_some()
-        || attestation.attestation_signature.certificate_chain.is_some()
+        || attestation
+            .attestation_signature
+            .certificate_chain
+            .is_some()
         || attestation.attestation_signature.public_key.is_some();
 
     analysis.is_signed = is_signed;
     analysis.has_builder_identity = has_builder_identity;
 
     if is_signed && has_builder_identity {
-        analysis.reasons.push("Signed with builder identity → L2".to_string());
+        analysis
+            .reasons
+            .push("Signed with builder identity → L2".to_string());
         analysis.level = SlsaLevel::L2;
     } else if is_signed {
-        analysis.reasons.push("Signed but no builder identity → L1".to_string());
+        analysis
+            .reasons
+            .push("Signed but no builder identity → L1".to_string());
     }
 
     // L3: Hardened build (non-forgeable provenance via transparency log)
@@ -213,20 +222,25 @@ pub fn detect_slsa_level_detailed(attestation: &TransformationAttestation) -> Sl
     analysis.has_transparency_log = has_rekor;
 
     if has_rekor && is_signed {
-        analysis.reasons.push("Logged to Rekor transparency log → L3".to_string());
+        analysis
+            .reasons
+            .push("Logged to Rekor transparency log → L3".to_string());
         analysis.level = SlsaLevel::L3;
     }
 
     // L4: Hermetic build (all inputs verified)
     let all_inputs_verified = !attestation.inputs.is_empty()
-        && attestation.inputs.iter().all(|input| {
-            input.signature_status == SignatureStatus::Verified
-        });
+        && attestation
+            .inputs
+            .iter()
+            .all(|input| input.signature_status == SignatureStatus::Verified);
 
     analysis.all_inputs_pinned = all_inputs_verified;
 
     if all_inputs_verified && has_rekor && is_signed {
-        analysis.reasons.push("All inputs verified → L4".to_string());
+        analysis
+            .reasons
+            .push("All inputs verified → L4".to_string());
         analysis.level = SlsaLevel::L4;
     } else if !attestation.inputs.is_empty() && !all_inputs_verified {
         let unverified_count = attestation

@@ -113,4 +113,7 @@ pub use storage::*;
 pub use verifier::*;
 
 // Re-export key TUF types
-pub use tuf::{fetch_sigstore_trusted_root, parse_trusted_root, trusted_root_to_bundle, SigstoreTrustedRoot, SIGSTORE_TRUSTED_ROOT_URL};
+pub use tuf::{
+    SIGSTORE_TRUSTED_ROOT_URL, SigstoreTrustedRoot, fetch_sigstore_trusted_root,
+    parse_trusted_root, trusted_root_to_bundle,
+};

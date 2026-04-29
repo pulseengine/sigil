@@ -288,7 +288,10 @@ pub struct TimeValidationConfig {
 impl std::fmt::Debug for TimeValidationConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TimeValidationConfig")
-            .field("time_source", &self.time_source.as_ref().map(|_| "<TimeSource>"))
+            .field(
+                "time_source",
+                &self.time_source.as_ref().map(|_| "<TimeSource>"),
+            )
             .field("max_signature_age", &self.max_signature_age)
             .field("clock_skew_tolerance", &self.clock_skew_tolerance)
             .finish()
@@ -367,7 +370,10 @@ impl Clone for TimeValidationConfig {
 /// * `Ok(true)` - Timestamp is valid
 /// * `Ok(false)` - Timestamp fails validation (but not an error)
 /// * `Err(_)` - Validation could not be performed
-pub fn validate_timestamp(timestamp_secs: u64, config: &TimeValidationConfig) -> Result<bool, WSError> {
+pub fn validate_timestamp(
+    timestamp_secs: u64,
+    config: &TimeValidationConfig,
+) -> Result<bool, WSError> {
     // Check against minimum (build time)
     if timestamp_secs < BUILD_TIMESTAMP {
         log::warn!(
@@ -432,19 +438,36 @@ pub fn parse_timestamp(timestamp: &str) -> Result<u64, WSError> {
     // Simple parser for common format
     if timestamp.len() >= 20 && timestamp.ends_with('Z') {
         // Parse: 2024-01-15T12:30:45Z or 2024-01-15T12:30:45.123Z
-        let parts: Vec<&str> = timestamp[..19].split(|c| c == '-' || c == 'T' || c == ':').collect();
+        let parts: Vec<&str> = timestamp[..19]
+            .split(|c| c == '-' || c == 'T' || c == ':')
+            .collect();
         if parts.len() == 6 {
-            let year: i32 = parts[0].parse().map_err(|_| WSError::TimeError("Invalid year".into()))?;
-            let month: u32 = parts[1].parse().map_err(|_| WSError::TimeError("Invalid month".into()))?;
-            let day: u32 = parts[2].parse().map_err(|_| WSError::TimeError("Invalid day".into()))?;
-            let hour: u32 = parts[3].parse().map_err(|_| WSError::TimeError("Invalid hour".into()))?;
-            let minute: u32 = parts[4].parse().map_err(|_| WSError::TimeError("Invalid minute".into()))?;
-            let second: u32 = parts[5].parse().map_err(|_| WSError::TimeError("Invalid second".into()))?;
+            let year: i32 = parts[0]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid year".into()))?;
+            let month: u32 = parts[1]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid month".into()))?;
+            let day: u32 = parts[2]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid day".into()))?;
+            let hour: u32 = parts[3]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid hour".into()))?;
+            let minute: u32 = parts[4]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid minute".into()))?;
+            let second: u32 = parts[5]
+                .parse()
+                .map_err(|_| WSError::TimeError("Invalid second".into()))?;
 
             // Convert to Unix timestamp using simplified calculation
             // (accurate for dates 1970-2100)
             let days = days_since_epoch(year, month, day)?;
-            let secs = (days as u64) * 86400 + (hour as u64) * 3600 + (minute as u64) * 60 + (second as u64);
+            let secs = (days as u64) * 86400
+                + (hour as u64) * 3600
+                + (minute as u64) * 60
+                + (second as u64);
             return Ok(secs);
         }
     }
@@ -576,8 +599,7 @@ mod tests {
 
     #[test]
     fn test_validate_timestamp_with_max_age() {
-        let config = TimeValidationConfig::with_system_time()
-            .max_age(Duration::from_secs(3600)); // 1 hour max age
+        let config = TimeValidationConfig::with_system_time().max_age(Duration::from_secs(3600)); // 1 hour max age
 
         let now = SystemTimeSource.now_unix().unwrap();
 
@@ -604,8 +626,7 @@ mod tests {
 
     #[test]
     fn test_validate_timestamp_future_with_skew() {
-        let config = TimeValidationConfig::with_system_time()
-            .clock_skew(Duration::from_secs(300)); // 5 min tolerance
+        let config = TimeValidationConfig::with_system_time().clock_skew(Duration::from_secs(300)); // 5 min tolerance
 
         let now = SystemTimeSource.now_unix().unwrap();
 

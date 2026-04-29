@@ -683,7 +683,11 @@ impl TransformationAttestationBuilder {
     ///
     /// Returns the attestation structure. The attestation_signature field
     /// will have algorithm="unsigned" and empty signature.
-    pub fn build(self, output_bytes: &[u8], output_name: impl Into<String>) -> TransformationAttestation {
+    pub fn build(
+        self,
+        output_bytes: &[u8],
+        output_name: impl Into<String>,
+    ) -> TransformationAttestation {
         let output_hash = compute_sha256_hash(output_bytes);
         let timestamp = chrono::Utc::now().to_rfc3339();
         let attestation_id = generate_uuid_v4();
@@ -789,7 +793,7 @@ impl TransformationAttestationBuilder {
 
 /// Compute SHA-256 hash of bytes and return as hex string
 fn compute_sha256_hash(bytes: &[u8]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     let result = hasher.finalize();
@@ -811,7 +815,9 @@ fn generate_uuid_v4() -> String {
         u16::from_be_bytes([bytes[4], bytes[5]]),
         u16::from_be_bytes([bytes[6], bytes[7]]),
         u16::from_be_bytes([bytes[8], bytes[9]]),
-        u64::from_be_bytes([0, 0, bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]])
+        u64::from_be_bytes([
+            0, 0, bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ])
     )
 }
 
@@ -830,11 +836,17 @@ mod tests {
             .build(output, "output.wasm");
 
         assert_eq!(attestation.version, "1.0");
-        assert_eq!(attestation.transformation_type, TransformationType::Optimization);
+        assert_eq!(
+            attestation.transformation_type,
+            TransformationType::Optimization
+        );
         assert_eq!(attestation.tool.name, "loom");
         assert_eq!(attestation.tool.version, "0.1.0");
         assert_eq!(attestation.inputs.len(), 1);
-        assert_eq!(attestation.inputs[0].signature_status, SignatureStatus::Unsigned);
+        assert_eq!(
+            attestation.inputs[0].signature_status,
+            SignatureStatus::Unsigned
+        );
     }
 
     #[test]
@@ -855,8 +867,14 @@ mod tests {
 
     #[test]
     fn test_section_names() {
-        assert_eq!(TRANSFORMATION_ATTESTATION_SECTION, "wsc.transformation.attestation");
-        assert_eq!(TRANSFORMATION_AUDIT_TRAIL_SECTION, "wsc.transformation.audit_trail");
+        assert_eq!(
+            TRANSFORMATION_ATTESTATION_SECTION,
+            "wsc.transformation.attestation"
+        );
+        assert_eq!(
+            TRANSFORMATION_AUDIT_TRAIL_SECTION,
+            "wsc.transformation.audit_trail"
+        );
     }
 
     #[test]
@@ -886,7 +904,10 @@ mod tests {
         assert_eq!(attestation.attestation_signature.algorithm, "ed25519");
         assert!(!attestation.attestation_signature.signature.is_empty());
         assert!(attestation.attestation_signature.public_key.is_some());
-        assert_eq!(attestation.attestation_signature.key_id, Some("test-key-id".to_string()));
+        assert_eq!(
+            attestation.attestation_signature.key_id,
+            Some("test-key-id".to_string())
+        );
 
         // Verify it can be serialized and deserialized
         let json = attestation.to_json().unwrap();
@@ -905,12 +926,7 @@ mod tests {
 
         let result = TransformationAttestationBuilder::new_optimization("loom", "0.1.0")
             .add_input_unsigned(input, "input.wasm")
-            .build_and_sign_ed25519(
-                output,
-                "output.wasm",
-                invalid_key,
-                None,
-            );
+            .build_and_sign_ed25519(output, "output.wasm", invalid_key, None);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid Ed25519 secret key"));

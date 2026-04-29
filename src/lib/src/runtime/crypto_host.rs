@@ -44,8 +44,12 @@ fn to_wit_security_level(level: SecurityLevel) -> wsc::crypto::hardware_signing:
     match level {
         SecurityLevel::Software => wsc::crypto::hardware_signing::SecurityLevel::Software,
         SecurityLevel::HardwareBasic => wsc::crypto::hardware_signing::SecurityLevel::HardwareBasic,
-        SecurityLevel::HardwareBacked => wsc::crypto::hardware_signing::SecurityLevel::HardwareBacked,
-        SecurityLevel::HardwareCertified => wsc::crypto::hardware_signing::SecurityLevel::HardwareCertified,
+        SecurityLevel::HardwareBacked => {
+            wsc::crypto::hardware_signing::SecurityLevel::HardwareBacked
+        }
+        SecurityLevel::HardwareCertified => {
+            wsc::crypto::hardware_signing::SecurityLevel::HardwareCertified
+        }
     }
 }
 
@@ -55,7 +59,12 @@ impl<P: SecureKeyProvider + 'static> wsc::crypto::hardware_signing::Host for Cry
         self.provider.health_check().is_ok()
     }
 
-    fn get_backend_info(&mut self) -> Result<wsc::crypto::hardware_signing::BackendInfo, wsc::crypto::hardware_signing::HardwareError> {
+    fn get_backend_info(
+        &mut self,
+    ) -> Result<
+        wsc::crypto::hardware_signing::BackendInfo,
+        wsc::crypto::hardware_signing::HardwareError,
+    > {
         Ok(wsc::crypto::hardware_signing::BackendInfo {
             name: self.provider.name().to_string(),
             level: to_wit_security_level(self.provider.security_level()),
@@ -77,15 +86,20 @@ impl<P: SecureKeyProvider + 'static> wsc::crypto::hardware_signing::Host for Cry
     ) -> Result<u64, wsc::crypto::hardware_signing::HardwareError> {
         // Currently we only support Ed25519
         if algorithm != wsc::crypto::hardware_signing::SigningAlgorithm::Ed25519 {
-            return Err(wsc::crypto::hardware_signing::HardwareError::UnsupportedAlgorithm(
-                format!("Only Ed25519 is currently supported, got {:?}", algorithm)
-            ));
+            return Err(
+                wsc::crypto::hardware_signing::HardwareError::UnsupportedAlgorithm(format!(
+                    "Only Ed25519 is currently supported, got {:?}",
+                    algorithm
+                )),
+            );
         }
 
         self.provider
             .generate_key()
             .map(|h| h.as_raw())
-            .map_err(|e| wsc::crypto::hardware_signing::HardwareError::GenerationFailed(e.to_string()))
+            .map_err(|e| {
+                wsc::crypto::hardware_signing::HardwareError::GenerationFailed(e.to_string())
+            })
     }
 
     fn sign(
@@ -103,12 +117,15 @@ impl<P: SecureKeyProvider + 'static> wsc::crypto::hardware_signing::Host for Cry
     fn get_public_key(
         &mut self,
         handle: u64,
-    ) -> Result<wsc::crypto::hardware_signing::PublicKeyInfo, wsc::crypto::hardware_signing::HardwareError> {
+    ) -> Result<
+        wsc::crypto::hardware_signing::PublicKeyInfo,
+        wsc::crypto::hardware_signing::HardwareError,
+    > {
         let key_handle = KeyHandle::from_raw(handle);
 
-        let public_key = self.provider
-            .get_public_key(key_handle)
-            .map_err(|e| wsc::crypto::hardware_signing::HardwareError::KeyNotFound(e.to_string()))?;
+        let public_key = self.provider.get_public_key(key_handle).map_err(|e| {
+            wsc::crypto::hardware_signing::HardwareError::KeyNotFound(e.to_string())
+        })?;
 
         // Get raw public key bytes (32 bytes for Ed25519)
         let public_key_der = public_key.pk.as_ref().to_vec();
@@ -118,7 +135,9 @@ impl<P: SecureKeyProvider + 'static> wsc::crypto::hardware_signing::Host for Cry
             algorithm: wsc::crypto::hardware_signing::SigningAlgorithm::Ed25519,
             public_key_der,
             // Convert key_id from Option<Vec<u8>> to Option<String>
-            key_id: public_key.key_id.and_then(|bytes| String::from_utf8(bytes).ok()),
+            key_id: public_key
+                .key_id
+                .and_then(|bytes| String::from_utf8(bytes).ok()),
         })
     }
 
@@ -130,28 +149,38 @@ impl<P: SecureKeyProvider + 'static> wsc::crypto::hardware_signing::Host for Cry
         signature: Vec<u8>,
     ) -> Result<bool, wsc::crypto::hardware_signing::HardwareError> {
         if algorithm != wsc::crypto::hardware_signing::SigningAlgorithm::Ed25519 {
-            return Err(wsc::crypto::hardware_signing::HardwareError::UnsupportedAlgorithm(
-                format!("Only Ed25519 is currently supported, got {:?}", algorithm)
-            ));
+            return Err(
+                wsc::crypto::hardware_signing::HardwareError::UnsupportedAlgorithm(format!(
+                    "Only Ed25519 is currently supported, got {:?}",
+                    algorithm
+                )),
+            );
         }
 
         // Parse public key
-        let pk = ed25519_compact::PublicKey::from_slice(&public_key_der)
-            .map_err(|e| wsc::crypto::hardware_signing::HardwareError::InvalidHandle(
-                format!("Invalid public key: {}", e)
-            ))?;
+        let pk = ed25519_compact::PublicKey::from_slice(&public_key_der).map_err(|e| {
+            wsc::crypto::hardware_signing::HardwareError::InvalidHandle(format!(
+                "Invalid public key: {}",
+                e
+            ))
+        })?;
 
         // Parse signature
-        let sig = ed25519_compact::Signature::from_slice(&signature)
-            .map_err(|e| wsc::crypto::hardware_signing::HardwareError::InvalidHandle(
-                format!("Invalid signature: {}", e)
-            ))?;
+        let sig = ed25519_compact::Signature::from_slice(&signature).map_err(|e| {
+            wsc::crypto::hardware_signing::HardwareError::InvalidHandle(format!(
+                "Invalid signature: {}",
+                e
+            ))
+        })?;
 
         // Verify
         Ok(pk.verify(&data, &sig).is_ok())
     }
 
-    fn delete_key(&mut self, handle: u64) -> Result<(), wsc::crypto::hardware_signing::HardwareError> {
+    fn delete_key(
+        &mut self,
+        handle: u64,
+    ) -> Result<(), wsc::crypto::hardware_signing::HardwareError> {
         let key_handle = KeyHandle::from_raw(handle);
 
         self.provider
@@ -183,16 +212,17 @@ impl<P: SecureKeyProvider + Send + Sync + 'static> WscRuntime<P> {
         let mut config = Config::new();
         config.wasm_component_model(true);
 
-        let engine = Engine::new(&config)
-            .map_err(|e| WSError::InternalError(format!("Failed to create wasmtime engine: {}", e)))?;
+        let engine = Engine::new(&config).map_err(|e| {
+            WSError::InternalError(format!("Failed to create wasmtime engine: {}", e))
+        })?;
 
         let mut linker = Linker::new(&engine);
 
         // Add wsc:crypto imports to the linker
-        CryptoGuest::add_to_linker::<CryptoHostState<P>, wasmtime::component::HasSelf<CryptoHostState<P>>>(
-            &mut linker,
-            |state| state,
-        )
+        CryptoGuest::add_to_linker::<
+            CryptoHostState<P>,
+            wasmtime::component::HasSelf<CryptoHostState<P>>,
+        >(&mut linker, |state| state)
         .map_err(|e| WSError::InternalError(format!("Failed to add crypto bindings: {}", e)))?;
 
         Ok(Self { engine, linker })
@@ -249,11 +279,16 @@ mod tests {
         let mut state = CryptoHostState::new(provider);
 
         // Test is_available
-        assert!(wsc::crypto::hardware_signing::Host::is_available(&mut state));
+        assert!(wsc::crypto::hardware_signing::Host::is_available(
+            &mut state
+        ));
 
         // Test get_security_level
         let level = wsc::crypto::hardware_signing::Host::get_security_level(&mut state);
-        assert_eq!(level, wsc::crypto::hardware_signing::SecurityLevel::Software);
+        assert_eq!(
+            level,
+            wsc::crypto::hardware_signing::SecurityLevel::Software
+        );
 
         // Test generate_key
         let handle = wsc::crypto::hardware_signing::Host::generate_key(
@@ -261,16 +296,19 @@ mod tests {
             wsc::crypto::hardware_signing::SigningAlgorithm::Ed25519,
             0x01, // sign usage
             Some("test-key".to_string()),
-        ).unwrap();
+        )
+        .unwrap();
         assert!(handle > 0);
 
         // Test sign
         let data = b"test data to sign".to_vec();
-        let signature = wsc::crypto::hardware_signing::Host::sign(&mut state, handle, data.clone()).unwrap();
+        let signature =
+            wsc::crypto::hardware_signing::Host::sign(&mut state, handle, data.clone()).unwrap();
         assert_eq!(signature.len(), 64); // Ed25519 signature is 64 bytes
 
         // Test get_public_key
-        let pk_info = wsc::crypto::hardware_signing::Host::get_public_key(&mut state, handle).unwrap();
+        let pk_info =
+            wsc::crypto::hardware_signing::Host::get_public_key(&mut state, handle).unwrap();
         assert_eq!(pk_info.handle, handle);
         assert_eq!(pk_info.public_key_der.len(), 32); // Ed25519 public key is 32 bytes
 
@@ -281,7 +319,8 @@ mod tests {
             wsc::crypto::hardware_signing::SigningAlgorithm::Ed25519,
             data,
             signature,
-        ).unwrap();
+        )
+        .unwrap();
         assert!(verified);
 
         // Test list_keys

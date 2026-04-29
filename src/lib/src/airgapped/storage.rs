@@ -61,7 +61,9 @@ pub trait TrustStore: Send + Sync {
     /// Returns `Err` if saving is not supported or fails.
     fn save_bundle(&self, bundle: &SignedTrustBundle) -> Result<(), WSError> {
         let _ = bundle;
-        Err(WSError::InternalError("Bundle saving not supported".to_string()))
+        Err(WSError::InternalError(
+            "Bundle saving not supported".to_string(),
+        ))
     }
 
     /// Check if storage is available and accessible
@@ -157,7 +159,9 @@ impl MemoryTrustStore {
 
     /// Create with pre-loaded bundle
     pub fn with_bundle(bundle: SignedTrustBundle) -> Self {
-        Self { bundle: Some(bundle) }
+        Self {
+            bundle: Some(bundle),
+        }
     }
 }
 
@@ -176,7 +180,9 @@ impl TrustStore for MemoryTrustStore {
 
     fn save_bundle(&self, _bundle: &SignedTrustBundle) -> Result<(), WSError> {
         // Can't mutate through shared reference; use interior mutability if needed
-        Err(WSError::InternalError("MemoryTrustStore is immutable".to_string()))
+        Err(WSError::InternalError(
+            "MemoryTrustStore is immutable".to_string(),
+        ))
     }
 
     fn metadata(&self) -> StorageMetadata {
@@ -235,17 +241,15 @@ impl FileTrustStore {
 #[cfg(not(target_os = "wasi"))]
 impl TrustStore for FileTrustStore {
     fn load_bundle(&self) -> Result<SignedTrustBundle, WSError> {
-        let data = std::fs::read(&self.path).map_err(|e| {
-            WSError::InternalError(format!("Failed to read bundle file: {}", e))
-        })?;
+        let data = std::fs::read(&self.path)
+            .map_err(|e| WSError::InternalError(format!("Failed to read bundle file: {}", e)))?;
         SignedTrustBundle::from_json(&data)
     }
 
     fn save_bundle(&self, bundle: &SignedTrustBundle) -> Result<(), WSError> {
         let data = bundle.to_json()?;
-        std::fs::write(&self.path, data).map_err(|e| {
-            WSError::InternalError(format!("Failed to write bundle file: {}", e))
-        })
+        std::fs::write(&self.path, data)
+            .map_err(|e| WSError::InternalError(format!("Failed to write bundle file: {}", e)))
     }
 
     fn metadata(&self) -> StorageMetadata {
@@ -276,9 +280,8 @@ impl FileKeyStore {
 #[cfg(not(target_os = "wasi"))]
 impl KeyStore for FileKeyStore {
     fn load_verifier_key(&self) -> Result<Vec<u8>, WSError> {
-        let data = std::fs::read(&self.path).map_err(|e| {
-            WSError::InternalError(format!("Failed to read key file: {}", e))
-        })?;
+        let data = std::fs::read(&self.path)
+            .map_err(|e| WSError::InternalError(format!("Failed to read key file: {}", e)))?;
 
         // Handle wsc key format (1-byte prefix + 32-byte key)
         if data.len() == 33 {

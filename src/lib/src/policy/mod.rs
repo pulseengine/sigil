@@ -51,14 +51,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub mod slsa;
 pub mod eval;
+pub mod slsa;
 
 #[cfg(feature = "rego")]
 pub mod rego;
 
+pub use eval::{PolicyEvaluationResult, PolicySummary, RuleResult, evaluate_policy};
 pub use slsa::{SlsaLevel, detect_slsa_level};
-pub use eval::{evaluate_policy, PolicyEvaluationResult, RuleResult, PolicySummary};
 
 // ============================================================================
 // Core Policy Types
@@ -485,10 +485,7 @@ allowed_repos = ["pulseengine/*"]
         policy.policy.enforcement = Enforcement::Report;
 
         // Section without override uses default
-        assert_eq!(
-            policy.effective_enforcement(None),
-            Enforcement::Report
-        );
+        assert_eq!(policy.effective_enforcement(None), Enforcement::Report);
 
         // Section with override uses override
         assert_eq!(

@@ -11,7 +11,7 @@ use super::{
     FulcioClient, KeylessSignature, OidcProvider, RekorClient, RekorEntry, RekorKeyring,
     detect_oidc_provider, rekor,
 };
-use crate::{Module, WSError, SectionLike, audit};
+use crate::{Module, SectionLike, WSError, audit};
 use ecdsa::SigningKey;
 use p256::ecdsa::Signature;
 use sha2::{Digest, Sha256};
@@ -71,7 +71,6 @@ pub struct KeylessConfig {
     /// When set, verified proofs are cached for availability resilience.
     pub proof_cache: Option<std::sync::Arc<dyn super::proof_cache::ProofCacheBackend>>,
 }
-
 
 /// Main keyless signing interface
 pub struct KeylessSigner {
@@ -253,7 +252,9 @@ impl KeylessSigner {
 
         // Step 2b: Validate OIDC issuer if expected issuer is configured (UCA-12 defense)
         let expected_issuer = self.config.expected_issuer.clone().or_else(|| {
-            std::env::var("WSC_EXPECTED_OIDC_ISSUER").ok().filter(|s| !s.is_empty())
+            std::env::var("WSC_EXPECTED_OIDC_ISSUER")
+                .ok()
+                .filter(|s| !s.is_empty())
         });
         if let Some(ref expected) = expected_issuer {
             // Normalize trailing slashes for comparison (AS-13 defense)
@@ -316,11 +317,7 @@ impl KeylessSigner {
         let artifact_hash = format!("sha256:{}", hex::encode(&module_hash));
 
         // Log signing attempt (we now have identity and artifact hash)
-        audit::log_signing_attempt(
-            &correlation_id,
-            &artifact_hash,
-            Some(&oidc_token.identity),
-        );
+        audit::log_signing_attempt(&correlation_id, &artifact_hash, Some(&oidc_token.identity));
 
         // Step 7: Upload to Rekor (if not skipped)
         let rekor_entry = if self.config.skip_rekor {
@@ -390,7 +387,10 @@ impl KeylessSigner {
         signature: &KeylessSignature,
     ) -> Result<Module, WSError> {
         let signature_bytes = signature.to_bytes()?;
-        log::debug!("Embedding keyless signature: {} bytes", signature_bytes.len());
+        log::debug!(
+            "Embedding keyless signature: {} bytes",
+            signature_bytes.len()
+        );
 
         // Use Module's existing attach_signature mechanism
         module.attach_signature(&signature_bytes)
@@ -530,7 +530,10 @@ impl KeylessVerifier {
                 // Cache hit — proof was already validated when it was cached.
                 // The certificate chain verification above still runs on every
                 // call, so we only skip the Rekor network round-trip.
-                log::info!("Using cached Rekor proof for {}", keyless_sig.rekor_entry.uuid);
+                log::info!(
+                    "Using cached Rekor proof for {}",
+                    keyless_sig.rekor_entry.uuid
+                );
                 cache_hit = true;
             }
         }

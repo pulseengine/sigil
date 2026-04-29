@@ -1,18 +1,18 @@
-use wsc::{BoxedPredicate, KeyPair, Module, PublicKey, PublicKeySet, SecretKey, Section, WSError};
 use wsc::airgapped::{
-    CertificateAuthority, SignedTrustBundle, TransparencyLog, TrustBundle,
-    TRUST_BUNDLE_FORMAT_VERSION,
-    fetch_sigstore_trusted_root, trusted_root_to_bundle, SIGSTORE_TRUSTED_ROOT_URL,
+    CertificateAuthority, SIGSTORE_TRUSTED_ROOT_URL, SignedTrustBundle,
+    TRUST_BUNDLE_FORMAT_VERSION, TransparencyLog, TrustBundle, fetch_sigstore_trusted_root,
+    trusted_root_to_bundle,
 };
 use wsc::audit::{self, AuditConfig, LogDestination};
 use wsc::composition::{
-    extract_transformation_attestation, extract_all_transformation_attestations,
-    extract_transformation_audit_trail, embed_transformation_attestation,
-    TransformationAttestation, TransformationAttestationBuilder, TransformationType,
-    ChainVerificationPolicy, ChainVerificationMode, TrustedToolInfo, TrustedPublicKey,
+    ChainVerificationMode, ChainVerificationPolicy, TransformationAttestation,
+    TransformationAttestationBuilder, TransformationType, TrustedPublicKey, TrustedToolInfo,
+    embed_transformation_attestation, extract_all_transformation_attestations,
+    extract_transformation_attestation, extract_transformation_audit_trail,
     verify_transformation_chain,
 };
-use wsc::policy::{Policy, Enforcement, evaluate_policy};
+use wsc::policy::{Enforcement, Policy, evaluate_policy};
+use wsc::{BoxedPredicate, KeyPair, Module, PublicKey, PublicKeySet, SecretKey, Section, WSError};
 
 use wsc::reexports::log;
 
@@ -754,7 +754,8 @@ fn start() -> Result<(), WSError> {
                 return Err(WSError::UsageError(
                     "Keyless signing is currently supported only for WASM format. \
                      Use key-based signing for ELF and MCUboot artifacts.",
-                ).into());
+                )
+                .into());
             }
 
             let sk_file = matches
@@ -796,7 +797,8 @@ fn start() -> Result<(), WSError> {
                     println!("  Signature: {}", sig_path);
                 }
                 wsc::format::FormatType::Mcuboot => {
-                    let mut artifact = wsc::format::mcuboot::McubootArtifact::from_file(input_file)?;
+                    let mut artifact =
+                        wsc::format::mcuboot::McubootArtifact::from_file(input_file)?;
                     let hash = artifact.compute_hash()?;
                     println!("Signing MCUboot firmware image...");
                     println!("  Hash: sha256:{}", hex_hash(&hash));
@@ -819,9 +821,7 @@ fn start() -> Result<(), WSError> {
             use wsc::keyless::{KeylessConfig, KeylessSigner};
 
             println!("Using keyless signing...");
-            let expected_issuer = matches
-                .get_one::<String>("expected_issuer")
-                .cloned();
+            let expected_issuer = matches.get_one::<String>("expected_issuer").cloned();
             let config = KeylessConfig {
                 expected_issuer,
                 ..Default::default()
@@ -879,8 +879,12 @@ fn start() -> Result<(), WSError> {
             // Keyless verification path
             use wsc::keyless::KeylessVerifier;
 
-            let cert_identity = matches.get_one::<String>("cert_identity").map(|s| s.as_str());
-            let cert_oidc_issuer = matches.get_one::<String>("cert_oidc_issuer").map(|s| s.as_str());
+            let cert_identity = matches
+                .get_one::<String>("cert_identity")
+                .map(|s| s.as_str());
+            let cert_oidc_issuer = matches
+                .get_one::<String>("cert_oidc_issuer")
+                .map(|s| s.as_str());
 
             println!("Verifying keyless signature...");
             let module = Module::deserialize_from_file(input_file)?;
@@ -1088,13 +1092,19 @@ fn start() -> Result<(), WSError> {
             }
         }
     } else if let Some(matches) = matches.subcommand_matches("docs") {
-        if matches.get_flag("list") || (matches.get_one::<String>("topic").is_none() && matches.get_one::<String>("search").is_none()) {
+        if matches.get_flag("list")
+            || (matches.get_one::<String>("topic").is_none()
+                && matches.get_one::<String>("search").is_none())
+        {
             docs::list_topics();
         } else if let Some(query) = matches.get_one::<String>("search") {
             docs::search_topics(query);
         } else if let Some(topic) = matches.get_one::<String>("topic") {
             if !docs::show_topic(topic) {
-                eprintln!("Unknown topic: '{}'. Use 'wsc docs --list' to see available topics.", topic);
+                eprintln!(
+                    "Unknown topic: '{}'. Use 'wsc docs --list' to see available topics.",
+                    topic
+                );
                 return Err(WSError::UsageError("Unknown documentation topic"));
             }
         }
@@ -1320,7 +1330,10 @@ fn handle_bundle_command(matches: &clap::ArgMatches, verbose: bool) -> Result<()
         println!();
 
         // Certificate Authorities
-        println!("Certificate Authorities ({}):", bundle.certificate_authorities.len());
+        println!(
+            "Certificate Authorities ({}):",
+            bundle.certificate_authorities.len()
+        );
         for (i, ca) in bundle.certificate_authorities.iter().enumerate() {
             println!("  [{}] {}", i + 1, ca.name);
             if !ca.uri.is_empty() {
@@ -1330,11 +1343,7 @@ fn handle_bundle_command(matches: &clap::ArgMatches, verbose: bool) -> Result<()
             if verbose {
                 for (j, pem) in ca.certificates_pem.iter().enumerate() {
                     let lines: Vec<&str> = pem.lines().collect();
-                    println!(
-                        "        [{}] {} lines",
-                        j + 1,
-                        lines.len()
-                    );
+                    println!("        [{}] {} lines", j + 1, lines.len());
                 }
             }
         }
@@ -1344,7 +1353,10 @@ fn handle_bundle_command(matches: &clap::ArgMatches, verbose: bool) -> Result<()
         println!("Transparency Logs ({}):", bundle.transparency_logs.len());
         for (i, log) in bundle.transparency_logs.iter().enumerate() {
             println!("  [{}] {}", i + 1, log.base_url);
-            println!("      Log ID: {}...", &log.log_id[..16.min(log.log_id.len())]);
+            println!(
+                "      Log ID: {}...",
+                &log.log_id[..16.min(log.log_id.len())]
+            );
             println!("      Algorithm: {}", log.hash_algorithm);
         }
         println!();
@@ -1383,7 +1395,10 @@ fn handle_bundle_command(matches: &clap::ArgMatches, verbose: bool) -> Result<()
         // Fetch trusted root
         let trusted_root = fetch_sigstore_trusted_root()?;
 
-        println!("  Found {} certificate authorities", trusted_root.certificate_authorities.len());
+        println!(
+            "  Found {} certificate authorities",
+            trusted_root.certificate_authorities.len()
+        );
         println!("  Found {} transparency logs", trusted_root.tlogs.len());
 
         // Convert to TrustBundle
@@ -1458,7 +1473,12 @@ fn handle_show_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError> 
             println!();
             println!("Transformations ({}):", audit_trail.transformations.len());
             for (i, attestation) in audit_trail.transformations.iter().enumerate() {
-                println!("  [{}] {} v{}", i + 1, attestation.tool.name, attestation.tool.version);
+                println!(
+                    "  [{}] {} v{}",
+                    i + 1,
+                    attestation.tool.name,
+                    attestation.tool.version
+                );
                 println!("      Type: {}", attestation.transformation_type);
                 println!("      Timestamp: {}", attestation.timestamp);
                 println!("      Inputs: {}", attestation.inputs.len());
@@ -1469,9 +1489,11 @@ fn handle_show_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError> 
             for (i, root) in audit_trail.root_components.iter().enumerate() {
                 println!("  [{}] {}", i + 1, root.artifact.name);
                 println!("      Hash: {}", root.artifact.hash);
-                println!("      Signature: {} ({})",
+                println!(
+                    "      Signature: {} ({})",
                     root.signature_info.key_id.as_deref().unwrap_or("unknown"),
-                    root.signature_info.algorithm);
+                    root.signature_info.algorithm
+                );
             }
         }
         return Ok(());
@@ -1494,13 +1516,23 @@ fn handle_show_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError> 
         println!("Transformation Attestations");
         println!("===========================");
         for (i, attestation) in attestations.iter().enumerate() {
-            println!("[{}] {} v{}", i + 1, attestation.tool.name, attestation.tool.version);
+            println!(
+                "[{}] {} v{}",
+                i + 1,
+                attestation.tool.name,
+                attestation.tool.version
+            );
             println!("    ID: {}", attestation.attestation_id);
             println!("    Type: {}", attestation.transformation_type);
             println!("    Timestamp: {}", attestation.timestamp);
             println!("    Inputs: {}", attestation.inputs.len());
             for (j, input) in attestation.inputs.iter().enumerate() {
-                println!("      [{}] {} ({})", j + 1, input.artifact.hash, input.signature_status);
+                println!(
+                    "      [{}] {} ({})",
+                    j + 1,
+                    input.artifact.hash,
+                    input.signature_status
+                );
             }
             println!("    Output: {}", attestation.output.hash);
             println!();
@@ -1518,20 +1550,24 @@ fn handle_verify_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError
         .ok_or(WSError::UsageError("Missing input file"))?;
 
     let policy_file = matches.get_one::<String>("policy").map(|s| s.as_str());
-    let trusted_tools_file = matches.get_one::<String>("trusted_tools").map(|s| s.as_str());
+    let trusted_tools_file = matches
+        .get_one::<String>("trusted_tools")
+        .map(|s| s.as_str());
     let require_signatures = matches.get_flag("require_signatures");
     let require_attestation_signatures = matches.get_flag("require_attestation_signatures");
     let strict_mode = matches.get_flag("strict");
     let report_only = matches.get_flag("report_only");
-    let max_age_days = matches.get_one::<String>("max_age")
+    let max_age_days = matches
+        .get_one::<String>("max_age")
         .and_then(|s| s.parse::<u64>().ok());
 
     // Read the module
     let module = Module::deserialize_from_file(input_file)?;
 
     // Extract attestation from module
-    let attestation = extract_transformation_attestation(&module)?
-        .ok_or(WSError::InternalError("No transformation attestation found in module".to_string()))?;
+    let attestation = extract_transformation_attestation(&module)?.ok_or(
+        WSError::InternalError("No transformation attestation found in module".to_string()),
+    )?;
 
     // If a policy file is provided, use the new policy engine
     if let Some(policy_path) = policy_file {
@@ -1558,28 +1594,35 @@ fn handle_verify_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError
     // Load trusted tools if specified
     if let Some(tools_file) = trusted_tools_file {
         let tools_data = std::fs::read_to_string(tools_file).map_err(|e| {
-            WSError::InternalError(format!("Failed to read trusted tools '{}': {}", tools_file, e))
+            WSError::InternalError(format!(
+                "Failed to read trusted tools '{}': {}",
+                tools_file, e
+            ))
         })?;
         // Parse as a map of tool name -> tool config with optional public keys
-        let tools_json: serde_json::Value = serde_json::from_str(&tools_data).map_err(|e| {
-            WSError::InternalError(format!("Failed to parse trusted tools: {}", e))
-        })?;
+        let tools_json: serde_json::Value = serde_json::from_str(&tools_data)
+            .map_err(|e| WSError::InternalError(format!("Failed to parse trusted tools: {}", e)))?;
 
         if let Some(obj) = tools_json.as_object() {
             for (name, value) in obj {
-                let mut info = if let Some(min_ver) = value.get("min_version").and_then(|v| v.as_str()) {
-                    TrustedToolInfo::min_version(min_ver)
-                } else {
-                    TrustedToolInfo::any_version()
-                };
+                let mut info =
+                    if let Some(min_ver) = value.get("min_version").and_then(|v| v.as_str()) {
+                        TrustedToolInfo::min_version(min_ver)
+                    } else {
+                        TrustedToolInfo::any_version()
+                    };
 
                 // Parse public keys if present
                 // Format: "public_keys": [{"algorithm": "ed25519", "key": "base64...", "key_id": "optional"}]
                 if let Some(public_keys) = value.get("public_keys").and_then(|v| v.as_array()) {
                     for pk in public_keys {
-                        let algorithm = pk.get("algorithm").and_then(|v| v.as_str()).unwrap_or("ed25519");
+                        let algorithm = pk
+                            .get("algorithm")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("ed25519");
                         if let Some(key) = pk.get("key").and_then(|v| v.as_str()) {
-                            let key_id = pk.get("key_id").and_then(|v| v.as_str()).map(String::from);
+                            let key_id =
+                                pk.get("key_id").and_then(|v| v.as_str()).map(String::from);
                             info.public_keys.push(TrustedPublicKey {
                                 algorithm: algorithm.to_string(),
                                 key: key.to_string(),
@@ -1704,13 +1747,14 @@ fn handle_attest_command(matches: &clap::ArgMatches) -> Result<(), WSError> {
     with_attestation.serialize_to_file(output_file)?;
 
     // Get output file size for reporting
-    let output_size = std::fs::metadata(output_file)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let output_size = std::fs::metadata(output_file).map(|m| m.len()).unwrap_or(0);
 
     println!("Transformation attestation recorded:");
     println!("  ID: {}", attestation.attestation_id);
-    println!("  Tool: {} v{}", attestation.tool.name, attestation.tool.version);
+    println!(
+        "  Tool: {} v{}",
+        attestation.tool.name, attestation.tool.version
+    );
     println!("  Type: {}", attestation.transformation_type);
     println!("  Input: {} ({} bytes)", input_file, input_bytes.len());
     println!("  Output: {} ({} bytes)", output_file, output_size);
@@ -1777,7 +1821,10 @@ fn handle_policy_verification(
         println!("  Warnings: {}", result.summary.failed_report);
     }
     if !result.summary.tools_verified.is_empty() {
-        println!("  Tools verified: {}", result.summary.tools_verified.join(", "));
+        println!(
+            "  Tools verified: {}",
+            result.summary.tools_verified.join(", ")
+        );
     }
 
     // SLSA improvement suggestions
@@ -1806,9 +1853,7 @@ fn chrono_format(timestamp: u64) -> String {
     use std::time::{Duration, UNIX_EPOCH};
     let dt = UNIX_EPOCH + Duration::from_secs(timestamp);
     // Format as ISO 8601 using stdlib
-    let duration = dt
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
+    let duration = dt.duration_since(UNIX_EPOCH).unwrap_or_default();
     let secs = duration.as_secs();
     let days = secs / 86400;
     // Approximate date from days since epoch

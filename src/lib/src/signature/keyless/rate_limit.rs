@@ -114,7 +114,8 @@ impl RetryPolicy {
             return Duration::ZERO;
         }
 
-        let delay_secs = self.initial_delay.as_secs_f64() * self.multiplier.powi(attempt as i32 - 1);
+        let delay_secs =
+            self.initial_delay.as_secs_f64() * self.multiplier.powi(attempt as i32 - 1);
         let delay = Duration::from_secs_f64(delay_secs);
 
         std::cmp::min(delay, self.max_delay)
@@ -216,7 +217,10 @@ mod tests {
 
         let result = limiter.check();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::RateLimitExceeded { .. }));
+        assert!(matches!(
+            result.unwrap_err(),
+            WSError::RateLimitExceeded { .. }
+        ));
     }
 
     #[test]

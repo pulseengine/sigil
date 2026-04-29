@@ -142,10 +142,7 @@ impl CertificateSigningRequest {
         rdns.push(encode_attribute_type_and_value(OID_CN, &cn));
 
         // O (Organization)
-        rdns.push(encode_attribute_type_and_value(
-            OID_O,
-            &config.organization,
-        ));
+        rdns.push(encode_attribute_type_and_value(OID_O, &config.organization));
 
         // OU (Organizational Unit) - optional
         if let Some(ou) = &config.organizational_unit {

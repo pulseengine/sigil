@@ -24,7 +24,7 @@
 //! let verified_payload = envelope.verify(&verifier)?;
 //! ```
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
 use crate::error::WSError;
@@ -148,9 +148,9 @@ impl DsseEnvelope {
         }
 
         // Decode payload
-        let payload = BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })?;
+        let payload = BASE64
+            .decode(&self.payload)
+            .map_err(|e| WSError::InternalError(format!("Invalid base64 payload: {}", e)))?;
 
         // Compute PAE
         let pae = compute_pae(&self.payload_type, &payload);
@@ -158,9 +158,9 @@ impl DsseEnvelope {
         // Verify at least one signature
         let mut verified = false;
         for sig in &self.signatures {
-            let sig_bytes = BASE64.decode(&sig.sig).map_err(|e| {
-                WSError::InternalError(format!("Invalid base64 signature: {}", e))
-            })?;
+            let sig_bytes = BASE64
+                .decode(&sig.sig)
+                .map_err(|e| WSError::InternalError(format!("Invalid base64 signature: {}", e)))?;
 
             if verifier.verify(&pae, &sig_bytes).is_ok() {
                 verified = true;
@@ -183,16 +183,16 @@ impl DsseEnvelope {
             return Err(WSError::VerificationFailed);
         }
 
-        let payload = BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })?;
+        let payload = BASE64
+            .decode(&self.payload)
+            .map_err(|e| WSError::InternalError(format!("Invalid base64 payload: {}", e)))?;
 
         let pae = compute_pae(&self.payload_type, &payload);
 
         for sig in &self.signatures {
-            let sig_bytes = BASE64.decode(&sig.sig).map_err(|e| {
-                WSError::InternalError(format!("Invalid base64 signature: {}", e))
-            })?;
+            let sig_bytes = BASE64
+                .decode(&sig.sig)
+                .map_err(|e| WSError::InternalError(format!("Invalid base64 signature: {}", e)))?;
 
             verifier.verify(&pae, &sig_bytes)?;
         }
@@ -207,9 +207,9 @@ impl DsseEnvelope {
     /// This does not verify signatures. Use only when verification
     /// is done separately or not required.
     pub fn payload_bytes(&self) -> Result<Vec<u8>, WSError> {
-        BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })
+        BASE64
+            .decode(&self.payload)
+            .map_err(|e| WSError::InternalError(format!("Invalid base64 payload: {}", e)))
     }
 
     /// Serialize to JSON
@@ -228,9 +228,8 @@ impl DsseEnvelope {
 
     /// Deserialize from JSON
     pub fn from_json(json: &str) -> Result<Self, WSError> {
-        serde_json::from_str(json).map_err(|e| {
-            WSError::InternalError(format!("Failed to parse DSSE envelope: {}", e))
-        })
+        serde_json::from_str(json)
+            .map_err(|e| WSError::InternalError(format!("Failed to parse DSSE envelope: {}", e)))
     }
 
     /// Create an unsigned envelope (for testing or deferred signing)
@@ -298,8 +297,8 @@ impl Ed25519DsseSigner {
 
     /// Create from raw secret key bytes
     pub fn from_bytes(bytes: &[u8], key_id: Option<String>) -> Result<Self, WSError> {
-        let secret_key = ed25519_compact::SecretKey::from_slice(bytes)
-            .map_err(|e| WSError::CryptoError(e))?;
+        let secret_key =
+            ed25519_compact::SecretKey::from_slice(bytes).map_err(|e| WSError::CryptoError(e))?;
         Ok(Self { secret_key, key_id })
     }
 }
@@ -328,8 +327,8 @@ impl Ed25519DsseVerifier {
 
     /// Create from raw public key bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, WSError> {
-        let public_key = ed25519_compact::PublicKey::from_slice(bytes)
-            .map_err(|e| WSError::CryptoError(e))?;
+        let public_key =
+            ed25519_compact::PublicKey::from_slice(bytes).map_err(|e| WSError::CryptoError(e))?;
         Ok(Self { public_key })
     }
 }
@@ -390,11 +389,7 @@ mod tests {
         let verifier = Ed25519DsseVerifier::new(pk);
 
         let payload = b"test payload";
-        let envelope = DsseEnvelope::sign(
-            payload,
-            payload_types::IN_TOTO,
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(payload, payload_types::IN_TOTO, &signer).unwrap();
 
         assert_eq!(envelope.payload_type, payload_types::IN_TOTO);
         assert_eq!(envelope.signatures.len(), 1);
@@ -409,11 +404,7 @@ mod tests {
         let (sk, _pk) = generate_test_keypair();
         let signer = Ed25519DsseSigner::new(sk, None);
 
-        let envelope = DsseEnvelope::sign(
-            b"test data",
-            "application/json",
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(b"test data", "application/json", &signer).unwrap();
 
         let json = envelope.to_json().unwrap();
         let parsed = DsseEnvelope::from_json(&json).unwrap();
@@ -437,7 +428,8 @@ mod tests {
             b"multi-signed payload",
             "application/json",
             &[&signer1, &signer2],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(envelope.signatures.len(), 2);
 
@@ -454,11 +446,7 @@ mod tests {
         let signer = Ed25519DsseSigner::new(sk, None);
         let wrong_verifier = Ed25519DsseVerifier::new(other_pk);
 
-        let envelope = DsseEnvelope::sign(
-            b"test",
-            "application/json",
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(b"test", "application/json", &signer).unwrap();
 
         assert!(envelope.verify(&wrong_verifier).is_err());
     }
@@ -595,6 +583,9 @@ mod proofs {
     fn proof_pae_length_prefix_prevents_ambiguity() {
         let pae_a = compute_pae("a", b"");
         let pae_b = compute_pae("", b"a");
-        assert_ne!(pae_a, pae_b, "PAE ambiguity: different type/payload split produced same encoding");
+        assert_ne!(
+            pae_a, pae_b,
+            "PAE ambiguity: different type/payload split produced same encoding"
+        );
     }
 }

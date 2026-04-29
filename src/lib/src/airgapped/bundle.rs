@@ -292,11 +292,8 @@ impl TransparencyLog {
             .filter(|line| !line.starts_with("-----"))
             .collect::<String>();
 
-        let der_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &der,
-        )
-        .map_err(|e| WSError::InternalError(format!("Invalid PEM encoding: {}", e)))?;
+        let der_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &der)
+            .map_err(|e| WSError::InternalError(format!("Invalid PEM encoding: {}", e)))?;
 
         let hash = hmac_sha256::Hash::hash(&der_bytes);
         Ok(hex::encode(hash))
@@ -334,8 +331,9 @@ impl SignedTrustBundle {
 
     /// Serialize to JSON
     pub fn to_json(&self) -> Result<Vec<u8>, WSError> {
-        serde_json::to_vec_pretty(self)
-            .map_err(|e| WSError::InternalError(format!("Failed to serialize signed bundle: {}", e)))
+        serde_json::to_vec_pretty(self).map_err(|e| {
+            WSError::InternalError(format!("Failed to serialize signed bundle: {}", e))
+        })
     }
 
     /// Deserialize from JSON
@@ -365,12 +363,10 @@ impl BundleSignature {
 
         // Create keypair from secret key bytes
         let seed = if secret_key.len() == 32 {
-            Seed::from_slice(secret_key)
-                .map_err(|e| WSError::CryptoError(e))?
+            Seed::from_slice(secret_key).map_err(|e| WSError::CryptoError(e))?
         } else if secret_key.len() == 64 {
             // Full keypair format - extract seed
-            Seed::from_slice(&secret_key[..32])
-                .map_err(|e| WSError::CryptoError(e))?
+            Seed::from_slice(&secret_key[..32]).map_err(|e| WSError::CryptoError(e))?
         } else {
             return Err(WSError::InvalidArgument);
         };
@@ -384,10 +380,8 @@ impl BundleSignature {
 
         // Sign
         let sig = keypair.sk.sign(data, None);
-        let signature = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            sig.as_ref(),
-        );
+        let signature =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, sig.as_ref());
 
         Ok(Self {
             key_id,
@@ -402,8 +396,7 @@ impl BundleSignature {
 
         match self.algorithm {
             SignatureAlgorithm::Ed25519 => {
-                let pk = PublicKey::from_slice(public_key)
-                    .map_err(|e| WSError::CryptoError(e))?;
+                let pk = PublicKey::from_slice(public_key).map_err(|e| WSError::CryptoError(e))?;
 
                 let sig_bytes = base64::Engine::decode(
                     &base64::engine::general_purpose::STANDARD,
@@ -411,13 +404,14 @@ impl BundleSignature {
                 )
                 .map_err(|_| WSError::InvalidArgument)?;
 
-                let sig = Signature::from_slice(&sig_bytes)
-                    .map_err(|e| WSError::CryptoError(e))?;
+                let sig = Signature::from_slice(&sig_bytes).map_err(|e| WSError::CryptoError(e))?;
 
-                pk.verify(data, &sig)
-                    .map_err(|e| WSError::CryptoError(e))
+                pk.verify(data, &sig).map_err(|e| WSError::CryptoError(e))
             }
-            _ => Err(WSError::UnsupportedAlgorithm(format!("{:?}", self.algorithm))),
+            _ => Err(WSError::UnsupportedAlgorithm(format!(
+                "{:?}",
+                self.algorithm
+            ))),
         }
     }
 }

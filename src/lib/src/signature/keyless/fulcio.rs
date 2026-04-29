@@ -108,8 +108,8 @@ impl FulcioClient {
     pub fn with_url(base_url: String) -> Self {
         #[cfg(not(target_os = "wasi"))]
         {
-            use super::transport::create_agent_with_optional_pinning;
             use super::cert_pinning::PinningConfig;
+            use super::transport::create_agent_with_optional_pinning;
 
             // Create pinning configuration for Fulcio
             let pinning = Some(PinningConfig::fulcio());
@@ -119,7 +119,10 @@ impl FulcioClient {
                 Ok(agent) => agent,
                 Err(e) => {
                     // Log error but don't panic - fall back to standard agent
-                    log::error!("Failed to create pinned agent for Fulcio: {}. Using standard TLS.", e);
+                    log::error!(
+                        "Failed to create pinned agent for Fulcio: {}. Using standard TLS.",
+                        e
+                    );
                     super::transport::create_standard_agent()
                 }
             };

@@ -44,9 +44,9 @@
 
 use std::sync::OnceLock;
 use tracing_subscriber::{
+    EnvFilter,
     fmt::{self, format::FmtSpan},
     prelude::*,
-    EnvFilter,
 };
 
 /// Global audit configuration state
@@ -352,7 +352,10 @@ fn sanitize_error_message(message: &str) -> String {
         // Remove anything that looks like a token
         .split_whitespace()
         .map(|word| {
-            if word.len() > 40 && word.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            if word.len() > 40
+                && word
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
             {
                 "[REDACTED]"
             } else {
@@ -390,7 +393,8 @@ mod tests {
         );
 
         // Long token-like strings should be redacted
-        let with_token = "Failed with token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9eyJzdWIiOiIxMjM0NTY3ODkwIn0";
+        let with_token =
+            "Failed with token eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9eyJzdWIiOiIxMjM0NTY3ODkwIn0";
         assert!(sanitize_error_message(with_token).contains("[REDACTED]"));
     }
 

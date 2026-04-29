@@ -2,7 +2,7 @@
 
 use crate::error::WSError;
 use crate::signature::keyless::{KeylessSignature, RekorEntry};
-use crate::time::{TimeSource, BUILD_TIMESTAMP};
+use crate::time::{BUILD_TIMESTAMP, TimeSource};
 
 use super::{
     AirGappedConfig, DeviceSecurityState, GracePeriodBehavior, KeyStore, SignedTrustBundle,
@@ -159,8 +159,7 @@ impl<T: TimeSource> AirGappedVerifier<T> {
 
         // Check if bundle is expired
         if current_time > self.trust_bundle.validity.not_after {
-            let days_overdue =
-                (current_time - self.trust_bundle.validity.not_after) / 86400;
+            let days_overdue = (current_time - self.trust_bundle.validity.not_after) / 86400;
 
             if self.trust_bundle.is_in_grace_period(current_time) {
                 warnings.push(VerificationWarning::BundleInGracePeriod {
@@ -173,8 +172,7 @@ impl<T: TimeSource> AirGappedVerifier<T> {
             }
         } else {
             // Check if bundle is expiring soon (within 30 days)
-            let days_remaining =
-                (self.trust_bundle.validity.not_after - current_time) / 86400;
+            let days_remaining = (self.trust_bundle.validity.not_after - current_time) / 86400;
             if days_remaining <= 30 {
                 warnings.push(VerificationWarning::BundleExpiringSoon {
                     days_remaining: days_remaining as u32,
@@ -205,15 +203,17 @@ impl<T: TimeSource> AirGappedVerifier<T> {
         // Get current time for bundle validity check
         // SECURITY: Fail closed when no time source is available. Without a reliable
         // clock, all time-based checks (expiry, freshness, grace period) are meaningless.
-        let current_time = self
-            .time_source
-            .as_ref()
-            .and_then(|ts| ts.now_unix().ok())
-            .ok_or_else(|| WSError::VerificationError(
+        let current_time =
+            self.time_source
+                .as_ref()
+                .and_then(|ts| ts.now_unix().ok())
+                .ok_or_else(|| {
+                    WSError::VerificationError(
                 "No time source available: air-gapped verification requires a reliable clock \
                  to enforce bundle expiry and signature freshness. Configure a time source \
                  via with_time_source() or use BuildTimeSource for development only.".to_string(),
-            ))?;
+            )
+                })?;
 
         // 1. Check bundle validity
         if !self.trust_bundle.is_valid(current_time) {
@@ -331,8 +331,12 @@ impl<T: TimeSource> AirGappedVerifier<T> {
 
     /// Extract identity from signature certificate
     fn extract_identity(&self, signature: &KeylessSignature) -> Result<SignerIdentity, WSError> {
-        let issuer = signature.get_issuer().unwrap_or_else(|_| "unknown".to_string());
-        let subject = signature.get_identity().unwrap_or_else(|_| "unknown".to_string());
+        let issuer = signature
+            .get_issuer()
+            .unwrap_or_else(|_| "unknown".to_string());
+        let subject = signature
+            .get_identity()
+            .unwrap_or_else(|_| "unknown".to_string());
 
         Ok(SignerIdentity {
             issuer,
@@ -344,7 +348,9 @@ impl<T: TimeSource> AirGappedVerifier<T> {
     /// Compute certificate fingerprint for revocation check
     fn compute_cert_fingerprint(&self, signature: &KeylessSignature) -> Result<String, WSError> {
         if signature.cert_chain.is_empty() {
-            return Err(WSError::CertificateError("No certificates in chain".to_string()));
+            return Err(WSError::CertificateError(
+                "No certificates in chain".to_string(),
+            ));
         }
 
         // Get leaf certificate (first in chain)
@@ -356,18 +362,19 @@ impl<T: TimeSource> AirGappedVerifier<T> {
             .filter(|line| !line.starts_with("-----"))
             .collect::<String>();
 
-        let der_bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &der,
-        )
-        .map_err(|e| WSError::CertificateError(format!("Invalid certificate PEM: {}", e)))?;
+        let der_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &der)
+            .map_err(|e| WSError::CertificateError(format!("Invalid certificate PEM: {}", e)))?;
 
         let hash = hmac_sha256::Hash::hash(&der_bytes);
         Ok(hex::encode(hash))
     }
 
     /// Verify cryptographic signature
-    fn verify_crypto(&self, signature: &KeylessSignature, module_hash: &[u8; 32]) -> Result<(), WSError> {
+    fn verify_crypto(
+        &self,
+        signature: &KeylessSignature,
+        module_hash: &[u8; 32],
+    ) -> Result<(), WSError> {
         // For now, delegate to the existing verification logic
         // In a full implementation, we would:
         // 1. Verify Rekor SET using bundle's Rekor key
@@ -376,7 +383,9 @@ impl<T: TimeSource> AirGappedVerifier<T> {
 
         // Extract public key from leaf certificate
         if signature.cert_chain.is_empty() {
-            return Err(WSError::CertificateError("No certificates in chain".to_string()));
+            return Err(WSError::CertificateError(
+                "No certificates in chain".to_string(),
+            ));
         }
 
         let leaf_pem = &signature.cert_chain[0];
@@ -384,11 +393,10 @@ impl<T: TimeSource> AirGappedVerifier<T> {
 
         use ed25519_compact::{PublicKey, Signature};
 
-        let pk = PublicKey::from_slice(&public_key)
-            .map_err(|e| WSError::CryptoError(e))?;
+        let pk = PublicKey::from_slice(&public_key).map_err(|e| WSError::CryptoError(e))?;
 
-        let sig = Signature::from_slice(&signature.signature)
-            .map_err(|e| WSError::CryptoError(e))?;
+        let sig =
+            Signature::from_slice(&signature.signature).map_err(|e| WSError::CryptoError(e))?;
 
         pk.verify(module_hash, &sig)
             .map_err(|e| WSError::CryptoError(e))
@@ -405,11 +413,8 @@ fn extract_public_key_from_cert(pem: &str) -> Result<Vec<u8>, WSError> {
         .filter(|line| !line.starts_with("-----"))
         .collect::<String>();
 
-    let der_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        &der,
-    )
-    .map_err(|e| WSError::CertificateError(format!("Invalid certificate PEM: {}", e)))?;
+    let der_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &der)
+        .map_err(|e| WSError::CertificateError(format!("Invalid certificate PEM: {}", e)))?;
 
     // Parse certificate
     let (_, cert) = X509Certificate::from_der(&der_bytes)
@@ -543,7 +548,11 @@ mod tests {
         .with_time_source(crate::time::SystemTimeSource);
 
         let warnings = verifier.check_bundle_health();
-        assert!(warnings.iter().any(|w| matches!(w, VerificationWarning::BundleExpiringSoon { .. })));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| matches!(w, VerificationWarning::BundleExpiringSoon { .. }))
+        );
     }
 
     #[test]

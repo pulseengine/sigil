@@ -8,8 +8,7 @@ use crate::error::WSError;
 use serde::Deserialize;
 
 /// Default URL for Sigstore's trusted_root.json
-pub const SIGSTORE_TRUSTED_ROOT_URL: &str =
-    "https://raw.githubusercontent.com/sigstore/root-signing/refs/heads/main/targets/trusted_root.json";
+pub const SIGSTORE_TRUSTED_ROOT_URL: &str = "https://raw.githubusercontent.com/sigstore/root-signing/refs/heads/main/targets/trusted_root.json";
 
 /// Sigstore TUF trusted root structure
 #[derive(Debug, Deserialize)]
@@ -199,7 +198,9 @@ pub fn trusted_root_to_bundle(
 }
 
 /// Convert a Sigstore CA entry to wsc CertificateAuthority
-fn convert_certificate_authority(entry: &CertificateAuthorityEntry) -> Result<CertificateAuthority, WSError> {
+fn convert_certificate_authority(
+    entry: &CertificateAuthorityEntry,
+) -> Result<CertificateAuthority, WSError> {
     let mut pem_certs = Vec::new();
 
     for cert in &entry.cert_chain.certificates {
@@ -233,7 +234,10 @@ fn convert_certificate_authority(entry: &CertificateAuthorityEntry) -> Result<Ce
     };
 
     Ok(CertificateAuthority {
-        name: format!("{} - {}", entry.subject.organization, entry.subject.common_name),
+        name: format!(
+            "{} - {}",
+            entry.subject.organization, entry.subject.common_name
+        ),
         uri: entry.uri.clone(),
         certificates_pem: pem_certs,
         valid_for: ValidityPeriod {
@@ -296,11 +300,8 @@ fn convert_transparency_log(entry: &TlogEntry) -> Result<TransparencyLog, WSErro
 /// Convert base64-encoded DER to PEM format
 fn der_to_pem(base64_der: &str, label: &str) -> Result<String, WSError> {
     // Validate base64 by decoding
-    let _ = base64::Engine::decode(
-        &base64::engine::general_purpose::STANDARD,
-        base64_der,
-    )
-    .map_err(|e| WSError::InternalError(format!("Invalid base64: {}", e)))?;
+    let _ = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_der)
+        .map_err(|e| WSError::InternalError(format!("Invalid base64: {}", e)))?;
 
     // Format as PEM (wrap at 64 characters)
     let mut pem = format!("-----BEGIN {}-----\n", label);
@@ -331,14 +332,8 @@ fn parse_rfc3339(s: &str) -> Result<u64, WSError> {
         return Err(WSError::InternalError(format!("Invalid RFC 3339: {}", s)));
     }
 
-    let date_parts: Vec<u32> = parts[0]
-        .split('-')
-        .filter_map(|p| p.parse().ok())
-        .collect();
-    let time_parts: Vec<u32> = parts[1]
-        .split(':')
-        .filter_map(|p| p.parse().ok())
-        .collect();
+    let date_parts: Vec<u32> = parts[0].split('-').filter_map(|p| p.parse().ok()).collect();
+    let time_parts: Vec<u32> = parts[1].split(':').filter_map(|p| p.parse().ok()).collect();
 
     if date_parts.len() != 3 || time_parts.len() != 3 {
         return Err(WSError::InternalError(format!("Invalid RFC 3339: {}", s)));
@@ -436,8 +431,15 @@ mod tests {
         assert_eq!(bundle.version, 1);
         assert_eq!(bundle.transparency_logs.len(), 1);
         assert_eq!(bundle.certificate_authorities.len(), 1);
-        assert!(bundle.transparency_logs[0].public_key_pem.contains("-----BEGIN PUBLIC KEY-----"));
-        assert!(bundle.certificate_authorities[0].certificates_pem[0].contains("-----BEGIN CERTIFICATE-----"));
+        assert!(
+            bundle.transparency_logs[0]
+                .public_key_pem
+                .contains("-----BEGIN PUBLIC KEY-----")
+        );
+        assert!(
+            bundle.certificate_authorities[0].certificates_pem[0]
+                .contains("-----BEGIN CERTIFICATE-----")
+        );
     }
 
     #[test]

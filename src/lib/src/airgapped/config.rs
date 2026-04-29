@@ -209,7 +209,10 @@ mod tests {
         let config = AirGappedConfig::high_security();
         assert!(config.max_signature_age.is_some());
         assert!(config.enforce_rollback_protection);
-        assert!(matches!(config.grace_period_behavior, GracePeriodBehavior::Strict));
+        assert!(matches!(
+            config.grace_period_behavior,
+            GracePeriodBehavior::Strict
+        ));
     }
 
     #[test]
@@ -231,7 +234,9 @@ mod tests {
         let req = IdentityRequirements::github_actions("myorg");
 
         assert!(req.matches_issuer("https://token.actions.githubusercontent.com"));
-        assert!(req.matches_subject("https://github.com/myorg/repo/.github/workflows/ci.yml@refs/heads/main"));
+        assert!(req.matches_subject(
+            "https://github.com/myorg/repo/.github/workflows/ci.yml@refs/heads/main"
+        ));
         assert!(!req.matches_subject("https://github.com/otherorg/repo"));
     }
 

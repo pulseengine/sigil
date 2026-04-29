@@ -202,9 +202,8 @@ pub fn read_secure(path: &Path) -> Result<Vec<u8>, WSError> {
 /// See [`read_secure`] for details on the security guarantees.
 pub fn read_secure_string(path: &Path) -> Result<String, WSError> {
     let contents = read_secure(path)?;
-    String::from_utf8(contents).map_err(|e| {
-        WSError::InternalError(format!("Invalid UTF-8 in secure file: {}", e))
-    })
+    String::from_utf8(contents)
+        .map_err(|e| WSError::InternalError(format!("Invalid UTF-8 in secure file: {}", e)))
 }
 
 #[cfg(test)]

@@ -176,8 +176,8 @@ impl RekorClient {
     pub fn with_url(base_url: String) -> Self {
         #[cfg(not(target_os = "wasi"))]
         {
-            use super::transport::create_agent_with_optional_pinning;
             use super::cert_pinning::PinningConfig;
+            use super::transport::create_agent_with_optional_pinning;
 
             // Create pinning configuration for Rekor
             let pinning = Some(PinningConfig::rekor());
@@ -187,7 +187,10 @@ impl RekorClient {
                 Ok(agent) => agent,
                 Err(e) => {
                     // Log error but don't panic - fall back to standard agent
-                    log::error!("Failed to create pinned agent for Rekor: {}. Using standard TLS.", e);
+                    log::error!(
+                        "Failed to create pinned agent for Rekor: {}. Using standard TLS.",
+                        e
+                    );
                     super::transport::create_standard_agent()
                 }
             };
@@ -322,12 +325,10 @@ impl RekorClient {
             .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
 
         // Extract verification data
-        let verification = entry_data
-            .verification
-            .unwrap_or(RekorVerification {
-                inclusion_proof: None,
-                signed_entry_timestamp: None,
-            });
+        let verification = entry_data.verification.unwrap_or(RekorVerification {
+            inclusion_proof: None,
+            signed_entry_timestamp: None,
+        });
 
         // Extract inclusion proof if available
         let inclusion_proof = verification

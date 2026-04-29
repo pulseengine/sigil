@@ -2,7 +2,7 @@ use crate::signature::*;
 use crate::wasm_module::*;
 use crate::*;
 
-use ct_codecs::{verify as ct_eq, Encoder, Hex};
+use ct_codecs::{Encoder, Hex, verify as ct_eq};
 use log::*;
 use std::collections::HashSet;
 use std::io::Read;
@@ -134,12 +134,16 @@ impl SecretKey {
             SIGNATURE_VERSION,
             SIGNATURE_WASM_MODULE_CONTENT_TYPE,
             SIGNATURE_HASH_FUNCTION,
-            Hex::encode_to_string(&msg[SIGNATURE_WASM_DOMAIN.len() + 2..]).unwrap_or_else(|_| "<hex error>".to_string())
+            Hex::encode_to_string(&msg[SIGNATURE_WASM_DOMAIN.len() + 2..])
+                .unwrap_or_else(|_| "<hex error>".to_string())
         );
 
         let signature = sk.sk.sign(msg.to_vec(), None).to_vec();
 
-        debug!("    = {}\n\n", Hex::encode_to_string(&signature).unwrap_or_else(|_| "<hex error>".to_string()));
+        debug!(
+            "    = {}\n\n",
+            Hex::encode_to_string(&signature).unwrap_or_else(|_| "<hex error>".to_string())
+        );
 
         let signature_for_hashes = SignatureForHashes {
             key_id: key_id.cloned(),
@@ -253,7 +257,10 @@ impl PublicKey {
         }
         debug!("Hashes matching the signature:");
         for valid_hash in &valid_hashes {
-            debug!("  - [{}]", Hex::encode_to_string(valid_hash).unwrap_or_else(|_| "<hex error>".to_string()));
+            debug!(
+                "  - [{}]",
+                Hex::encode_to_string(valid_hash).unwrap_or_else(|_| "<hex error>".to_string())
+            );
         }
         let mut hasher = Hash::new();
         let mut matching_section_ranges = vec![];
@@ -268,7 +275,10 @@ impl PublicKey {
                     continue;
                 }
                 let h = hasher.finalize().to_vec();
-                debug!("  - [{}]", Hex::encode_to_string(&h).unwrap_or_else(|_| "<hex error>".to_string()));
+                debug!(
+                    "  - [{}]",
+                    Hex::encode_to_string(&h).unwrap_or_else(|_| "<hex error>".to_string())
+                );
                 if !valid_hashes.contains(&h) {
                     return Err(WSError::VerificationFailedForPredicates);
                 }

@@ -174,7 +174,12 @@ fn resolve_with_crane(reference: &str) -> Option<String> {
 
 fn resolve_with_skopeo(reference: &str) -> Option<String> {
     Command::new("skopeo")
-        .args(["inspect", "--format", "{{.Digest}}", &format!("docker://{}", reference)])
+        .args([
+            "inspect",
+            "--format",
+            "{{.Digest}}",
+            &format!("docker://{}", reference),
+        ])
         .output()
         .ok()
         .filter(|o| o.status.success())
