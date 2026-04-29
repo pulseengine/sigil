@@ -13,9 +13,9 @@ load("@rules_rust//rust:defs.bzl", "rust_binary")
 
 package(default_visibility = ["//visibility:public"])
 
-# Version info - keep in sync with Cargo.toml
-# TODO: When version changes in Cargo.toml, update these values
-VERSION = "0.2.7"
+# Version info - keep in sync with [workspace.package].version in Cargo.toml
+# and with the `version` field in MODULE.bazel.
+VERSION = "0.8.0"
 
 rust_binary(
     name = "wasmsign_cli",

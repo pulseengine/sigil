@@ -11,7 +11,7 @@ on:
 
 jobs:
   publish:
-    if: github.repository == 'pulseengine/wsc'
+    if: github.repository == 'pulseengine/sigil'
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for trusted publishing

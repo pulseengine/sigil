@@ -30,7 +30,7 @@ jobs:
 
     - name: Generate compliance report
       id: report
-      uses: pulseengine/rivet/.github/actions/compliance@main
+      uses: pulseengine/rivet/.github/actions/compliance@v0.6.0
       with:
         theme: dark
         rivet-version: v0.3.0
@@ -130,27 +130,8 @@ jobs:
         path: artifacts/*
         retention-days: 1
 
-  publish-crates:
-    # Only publish on tag pushes to prevent race condition with main branch
-    if: github.repository == 'pulseengine/sigil' && github.ref_type == 'tag'
-    name: Publish Rust Crates
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # Required for trusted publishing
-      contents: read
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Rust
-      run: rustup update stable && rustup default stable
-    
-    - name: Build publish script
-      run: rustc scripts/publish.rs
-    
-    - name: Publish crates to crates.io
-      run: ./publish publish
-      env:
-        CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+  # NOTE: crates.io publishing lives in `.github/workflows/publish-to-crates-io.yml`
+  # to keep tag-push publication single-sourced (avoids the dual-publish race).
 
   build-and-release:
     name: Build & Release WASM Component
@@ -159,7 +140,7 @@ jobs:
       contents: write
       packages: write
       id-token: write  # For Cosign keyless signing
-    needs: [publish-crates, build-native-cli]
+    needs: [build-native-cli]
     if: always() && needs.build-native-cli.result == 'success'
 
     steps:

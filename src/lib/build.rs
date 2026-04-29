@@ -15,4 +15,9 @@ fn main() {
     // Set as environment variable for compile-time access
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rustc-env=WSC_BUILD_TIMESTAMP={}", timestamp);
+
+    // Declare the `kani` cfg used by Kani harnesses so rustc does not warn
+    // under non-Kani builds. See Kani docs:
+    // https://model-checking.github.io/kani/cargo-features.html
+    println!("cargo::rustc-check-cfg=cfg(kani)");
 }

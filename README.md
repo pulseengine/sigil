@@ -37,6 +37,25 @@ The cryptographic backbone of the PulseEngine pipeline. Sigil signs WebAssembly 
 
 Built on the [WebAssembly modules signatures proposal](https://github.com/wasm-signatures/design) and extended with Sigstore keyless signing, SLSA policy enforcement, and hardware security via TPM 2.0. All signatures are embedded directly in WebAssembly modules — no external registry required.
 
+## Quick Try (no WASM artifact required)
+
+Don't have a `.wasm` module to play with? The eight-byte minimal WebAssembly
+module is enough to exercise the full sign-and-verify round-trip locally.
+
+```bash
+git clone https://github.com/pulseengine/sigil.git
+cd sigil
+cargo build --release
+
+./target/release/sigil keygen -k secret.key -K public.key
+printf '\x00\x61\x73\x6d\x01\x00\x00\x00' > test.wasm
+./target/release/sigil sign -k secret.key -i test.wasm -o signed.wasm
+./target/release/sigil verify -K public.key -i signed.wasm
+```
+
+Keyless signing (`--keyless`) needs an OIDC provider such as GitHub Actions —
+see [`docs/keyless.md`](docs/keyless.md) for the setup.
+
 ## Quick Start
 
 ```bash

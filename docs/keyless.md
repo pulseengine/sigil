@@ -25,14 +25,14 @@ jobs:
       id-token: write  # Required for OIDC
     steps:
       - uses: actions/checkout@v4
-      - run: wasmsign2 sign --keyless -i module.wasm -o signed.wasm
+      - run: sigil sign --keyless -i module.wasm -o signed.wasm
 ```
 
 ### Command Line
 
 ```bash
 # Auto-detects OIDC provider from environment
-wasmsign2 sign --keyless -i module.wasm -o signed.wasm
+sigil sign --keyless -i module.wasm -o signed.wasm
 ```
 
 ## Signature Format
@@ -66,10 +66,10 @@ Size overhead: ~2-3KB per signature
 - Signature logged in Rekor transparency log
 - Certificate validity: ~10 minutes (enforced by Fulcio)
 
-## Verification (Coming Soon)
+## Verification
 
 ```bash
-wasmsign2 verify --keyless \
+sigil verify --keyless \
   --identity-regexp "https://github.com/owner/repo" \
   --issuer "https://token.actions.githubusercontent.com" \
   -i signed.wasm
