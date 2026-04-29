@@ -1783,3 +1783,33 @@ artifacts:
     links:
       - type: satisfies
         target: CR-25
+
+  - id: CV-25
+    type: cybersecurity-verification
+    title: Mechanised sister logic for compositional attestation-chain trust
+    status: draft
+    tags: [rocq, iris, sister-logic, attestation-chain, research-stage]
+    description: >
+      Mechanise the sister logic of CD-28 in Iris on top of Rocq, mirroring
+      Cerisier's own mechanisation pattern. Verification consists of (a)
+      stating the time-indexed trust predicates and the content-addressed
+      artefact-store points-to relation, (b) proving the frame-rule
+      analogue for stage composition, (c) discharging a universal-contract
+      lemma for opaque stages, and (d) showing that the resulting
+      end-to-end trust judgement composes the per-stage proofs without
+      re-walking the chain. Worked example: an Ed25519 → SLH-DSA
+      mid-pipeline transition (mitigates TS-019, TS-020). Status draft;
+      verification approach is committed but the sister logic does not
+      yet exist — the predocument under
+      docs/security/attestation-trust-formalization.md must be developed
+      into a sketched logic before harnesses can be written. Alternatives
+      considered (Lean4+Mathlib; pen-and-paper-then-mechanise) are
+      recorded in the formalisation doc and may supersede this CV if the
+      Rocq onramp turns out to be the wrong shape.
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-25
+      - type: verifies
+        target: CD-28
