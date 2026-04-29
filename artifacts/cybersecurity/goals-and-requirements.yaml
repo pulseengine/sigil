@@ -1702,3 +1702,114 @@ artifacts:
     links:
       - type: verifies
         target: CD-27
+
+  # ──────────────────────────────────────────────
+  # Attestation-Trust Formalisation (predocument)
+  # See docs/security/attestation-trust-formalization.md
+  # ──────────────────────────────────────────────
+
+  - id: CG-14
+    type: cybersecurity-goal
+    title: Compositional Trust Across Multi-Stage Attestation Under Cryptographic Transition
+    status: draft
+    description: >
+      Verifiers of sigil-produced artefacts shall be able to reason
+      compositionally about how trust properties evolve across the
+      multi-stage transformation pipeline (meld → loom → synth → kiln)
+      and across signature-scheme transitions (Ed25519 → SLH-DSA /
+      FIPS 205), without re-walking the entire attestation chain for
+      each new question. The current flat verification model cannot
+      answer questions of the form "given stage N signed under scheme
+      A at time t1 and stage N+1 signed under scheme B at time t2,
+      what trust properties hold of the final artefact?"
+    fields:
+      cal: "2"
+    links:
+      - type: mitigates
+        target: TS-019
+      - type: mitigates
+        target: TS-020
+      - type: mitigates
+        target: TS-012
+      - type: mitigates
+        target: TS-021
+
+  - id: CR-25
+    type: cybersecurity-req
+    title: Modular formal reasoning over attestation-chain trust evolution
+    status: draft
+    description: >
+      Sigil shall provide a formal logic for compositional reasoning
+      about trust evolution across the attestation chain. The logic
+      shall (a) admit local proofs about a single transformation stage
+      that compose into end-to-end claims via a frame-rule analogue,
+      (b) carry a time index so that signature-scheme transitions and
+      key rotations are first-class, and (c) supply a universal
+      contract for stages whose internals cannot be inspected, giving
+      a worst-case trust property the verifier can still rely on.
+      Pre-document; subject to revision as the sister logic is
+      sketched. See docs/security/attestation-trust-formalization.md.
+    fields:
+      req-type: integrity
+      priority: should
+    links:
+      - type: derives-from
+        target: CG-14
+
+  - id: CD-28
+    type: cybersecurity-design
+    title: Cerisier-derived sister logic for sigil's attestation chain
+    status: draft
+    description: >
+      Adopt the structural pattern of Cerisier (Rousseau, Carnier,
+      Van Strydonck, Keuchel, Devriese, Birkedal — arXiv 2604.13638,
+      April 2026) — sealing-predicate-with-identity, universal contract
+      for untrusted code, frame-rule modular reasoning, mechanised in
+      Iris and Rocq — as a TEMPLATE for a sister logic over content-
+      addressed artefact stores with time-indexed trust predicates.
+      Cerisier itself formalises only LOCAL attestation in a single
+      capability machine and explicitly leaves remote attestation
+      unformalised, so this is not a port: WIT-as-capability holds for
+      runtime composition but not for the build-time chain, and Iris
+      points-to predicates over machine memory must be lifted to a
+      content-addressed artefact store. Predocument; the sister logic
+      does not yet exist. The full gap analysis, including primitive
+      mapping, three concrete operational gaps, and a re-prioritised
+      action plan, lives in
+      docs/security/attestation-trust-formalization.md.
+    fields:
+      mechanism: modular-separation-logic
+      algorithm: cerisier-derived-sister-logic-tbd
+    links:
+      - type: satisfies
+        target: CR-25
+
+  - id: CV-25
+    type: cybersecurity-verification
+    title: Mechanised sister logic for compositional attestation-chain trust
+    status: draft
+    tags: [rocq, iris, sister-logic, attestation-chain, research-stage]
+    description: >
+      Mechanise the sister logic of CD-28 in Iris on top of Rocq, mirroring
+      Cerisier's own mechanisation pattern. Verification consists of (a)
+      stating the time-indexed trust predicates and the content-addressed
+      artefact-store points-to relation, (b) proving the frame-rule
+      analogue for stage composition, (c) discharging a universal-contract
+      lemma for opaque stages, and (d) showing that the resulting
+      end-to-end trust judgement composes the per-stage proofs without
+      re-walking the chain. Worked example: an Ed25519 → SLH-DSA
+      mid-pipeline transition (mitigates TS-019, TS-020). Status draft;
+      verification approach is committed but the sister logic does not
+      yet exist — the predocument under
+      docs/security/attestation-trust-formalization.md must be developed
+      into a sketched logic before harnesses can be written. Alternatives
+      considered (Lean4+Mathlib; pen-and-paper-then-mechanise) are
+      recorded in the formalisation doc and may supersede this CV if the
+      Rocq onramp turns out to be the wrong shape.
+    fields:
+      method: formal-verification
+    links:
+      - type: verifies
+        target: CR-25
+      - type: verifies
+        target: CD-28
