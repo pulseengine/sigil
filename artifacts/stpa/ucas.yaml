@@ -496,6 +496,10 @@ artifacts:
       expected provider before requesting identity tokens.
     fields:
       constraint: "Pipeline signing workflows must validate OIDC issuer URL matches expected provider before requesting identity tokens"
+      # Honesty marker: status `approved` covers the design intent only.
+      # The CI workflow does not yet inspect the OIDC issuer URL before
+      # requesting tokens; CTRL-7 (CI pipeline) implementation is design-only.
+      implementation-status: design-only
     links:
       - type: constrains-controller
         target: CTRL-7

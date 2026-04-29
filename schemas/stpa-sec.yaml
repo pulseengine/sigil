@@ -44,6 +44,29 @@ schema:
     scenarios to the base STPA control structure model.
 
 # ──────────────────────────────────────────────────────────────────────────
+# Convention: optional `implementation-status` field on constraints/reqs
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Across system-constraint, controller-constraint, and cybersecurity-req
+# artifacts, an optional `implementation-status` field MAY be set under
+# `fields:` to disambiguate `status: approved` (design vetted) from actual
+# code-landing state.  Allowed values:
+#
+#   design-only   The constraint is approved as design but no code,
+#                 test, or other implementation evidence exists yet.
+#   in-progress   Implementation has begun (a PR or branch exists)
+#                 but is not merged or not feature-complete.
+#   implemented   Code lands on main and is exercised; verification
+#                 evidence may or may not yet exist.
+#   verified      Implementation lands AND a verification artifact
+#                 (test, fuzz target, formal proof) demonstrates it.
+#
+# This field is informational only — rivet does not enforce its values.
+# It exists to surface the audit-honesty distinction the bare `status:`
+# field cannot make.  Untagged entries should be assumed `unknown`; do
+# not infer `implemented` from their absence of the marker.
+
+# ──────────────────────────────────────────────────────────────────────────
 # Artifact types
 # ──────────────────────────────────────────────────────────────────────────
 artifact-types:

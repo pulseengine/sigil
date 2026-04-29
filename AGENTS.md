@@ -329,3 +329,8 @@ bazel build //src/cli:wasmsign_cli
 - `wasm-signing.yml` - End-to-end signing demonstration
 - `fuzz.yml` - Fuzz testing
 - `memory.yml` - Memory profiling
+
+> **Memory profiling reproducibility note:** Memory profiling via
+> `Dockerfile.bytehound` is **not in the hermetic build path**. The
+> bytehound image clones upstream and builds with `cargo +nightly`, so
+> reproducibility is best-effort, not bit-exact (unlike the Nix flake).
