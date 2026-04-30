@@ -958,6 +958,12 @@ artifacts:
       Signed Certificate Timestamp signatures MUST be verified against
       a trusted set of CT log public keys, rejecting SCTs signed by
       unknown or untrusted logs.
+    fields:
+      # Honesty marker (see schemas/stpa-sec.yaml note on implementation-status):
+      # SC-26 is named in the 2026-04-30 audit as the canonical example of
+      # an approved-design constraint that has not yet landed in code.
+      # The cryptographic SCT-against-trusted-log-keys check is design-only.
+      implementation-status: design-only
     links:
       - type: prevents
         target: H-27

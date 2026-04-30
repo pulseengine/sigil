@@ -656,6 +656,31 @@ For automotive (ISO/SAE 21434) and industrial IoT (IEC 62443) deployments, see:
 - [docs/KEY_LIFECYCLE.md](docs/KEY_LIFECYCLE.md) - Key management procedures (covers [[CD-1]] through [[CD-9]])
 - [docs/INCIDENT_RESPONSE.md](docs/INCIDENT_RESPONSE.md) - Security incident runbook
 
+### Scope of Compliance Mapping
+
+The following compliance frames **ARE** modelled in the artifact graph
+(under `artifacts/cybersecurity/` and `artifacts/stpa/`) with traceable
+links from threats to goals to requirements to designs and verifications:
+
+- **ISO/SAE 21434** (Road vehicle cybersecurity engineering) — TARA, CAL ratings, Annex H attack-feasibility scoring.
+- **IEC 62443** (Industrial automation and control systems security) — referenced for SL3+ gaps in HSM integration and OCSP/CRL revocation.
+- **EU Cyber Resilience Act (CRA)** and **UNECE R155 / R156** (vehicle type-approval cybersecurity / software updates) — see [docs/automotive-regulatory-compliance.md](docs/automotive-regulatory-compliance.md).
+
+The following compliance frames are **RELEVANT TARGETS** for sigil's
+roadmap but are **NOT YET modelled** in the artifact graph — no
+artifact carries a `do-178c-objective:` or `iso-26262-table:` field, and
+no traceability rule cross-references their objective tables:
+
+- **DO-178C** (Software considerations in airborne systems and equipment certification, civil aviation).
+- **ISO 26262** (Road vehicles — functional safety).
+
+These two standards are mentioned in passing in design discussions
+(see `artifacts/dev/features.yaml` for the Lean4/Coq proof-pipeline
+roadmap) but **do not yet have artifact-graph trace coverage**. Adding
+that mapping is tracked as a follow-up; until then, any claim of
+DO-178C / ISO 26262 alignment in this repository should be read as
+"potential mapping; not yet modelled in `artifacts/`."
+
 ---
 
 ## Reporting Security Issues

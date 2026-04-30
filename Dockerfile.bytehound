@@ -1,3 +1,19 @@
+# =============================================================================
+# NOTE: This image is intentionally OUTSIDE the Nix flake's hermeticity
+# guarantee. It uses `cargo +nightly` and clones bytehound from upstream
+# (a moving HEAD), and pulls a debian:bookworm rust toolchain image whose
+# apt-package set is not pinned. Reproducibility is best-effort, not
+# bit-exact.
+#
+# This is acceptable because the image is used only for memory profiling
+# (developer-facing diagnostics), never for producing release artifacts
+# or signing material. Anything that ships to users goes through the
+# `flake.nix` hermetic build path.
+#
+# If you need a reproducible memory-profiling environment, pin both the
+# base image digest and the bytehound git revision below.
+# =============================================================================
+
 FROM rust:1.90-bookworm
 
 # Install dependencies

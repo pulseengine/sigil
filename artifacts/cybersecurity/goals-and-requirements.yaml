@@ -1466,6 +1466,10 @@ artifacts:
       verification-criteria: >
         Verification rejects modules with only classical or only PQC
         signature when hybrid mode is configured.
+      # Honesty marker: Phase 3 PQC roadmap; hybrid Ed25519+SLH-DSA
+      # verification pipeline (CD-24) is still in draft. No hybrid
+      # verifier code path exists in src/lib yet.
+      implementation-status: design-only
     links:
       - type: derives-from
         target: CG-1
@@ -1484,6 +1488,11 @@ artifacts:
       verification-criteria: >
         Cache lookup returns miss for entries whose signing key has been
         revoked; revocation triggers immediate cache invalidation.
+      # Honesty marker: revocation-aware proof cache is design-only.
+      # No code exists today that wires key-revocation events to the
+      # proof cache; CR-20 has neither cybersecurity-design nor
+      # cybersecurity-verification linked.
+      implementation-status: design-only
     links:
       - type: derives-from
         target: CG-8
@@ -1502,6 +1511,10 @@ artifacts:
       verification-criteria: >
         Verification rejects Fulcio certificates missing SCTs or containing
         SCTs from untrusted CT logs.
+      # Honesty marker: paired with SC-26. Cryptographic verification of
+      # SCT signatures against trusted CT log keys is design-only — see
+      # the SC-26 entry in artifacts/stpa/losses-and-hazards.yaml.
+      implementation-status: design-only
     links:
       - type: derives-from
         target: CG-7
@@ -1520,6 +1533,9 @@ artifacts:
       verification-criteria: >
         Checkpoint writes are atomic; partial writes do not corrupt existing
         checkpoints; integrity check detects tampered checkpoints on load.
+      # Honesty marker: atomic checkpoint store (SC-28) is design-only.
+      # No write-then-rename checkpoint persistence exists in code today.
+      implementation-status: design-only
     links:
       - type: derives-from
         target: CG-8
@@ -1556,6 +1572,11 @@ artifacts:
       verification-criteria: >
         Verification enforces configured threshold; rejects envelopes with
         fewer valid signatures than the threshold requires.
+      # Honesty marker: configurable N-of-M threshold policy is design-only.
+      # `src/lib/src/dsse.rs` exists but does not yet expose a runtime
+      # threshold-policy configuration surface; CR-24 has no
+      # cybersecurity-design or cybersecurity-verification artifact yet.
+      implementation-status: design-only
     links:
       - type: derives-from
         target: CG-1
