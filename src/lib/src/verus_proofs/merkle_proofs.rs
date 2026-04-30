@@ -35,13 +35,23 @@ pub open spec fn spec_largest_pow2_lt(n: int) -> int
 
 // ── Domain separation theorem ───────────────────────────────────────
 
-/// AXIOM: Leaf and node hashes are in disjoint domains.
+/// **SPECIFICATION ONLY** — assumed as a cryptographic axiom; not
+/// discharged inside Verus. See `audit/2026-04-30/findings.md` C-1.
+///
+/// SPEC (intended): Leaf and node hashes are in disjoint domains.
 ///
 /// Because leaf hashes are SHA-256(0x00 || data) and node hashes are
 /// SHA-256(0x01 || left || right), and SHA-256 is collision-resistant,
-/// no leaf hash can equal an interior node hash.
+/// no leaf hash can equal an interior node hash. This prevents
+/// second-preimage attacks on the Merkle tree.
 ///
-/// This prevents second-preimage attacks on the Merkle tree.
+/// To actually discharge: this is a statement about SHA-256, not about
+/// Verus' SMT-friendly fragment. The honest path is to model
+/// `spec_leaf_hash` and `spec_node_hash` as opaque uninterpreted spec
+/// functions and *postulate* the disjointness as a separate
+/// `#[verifier::external_body]` axiom (or equivalent in the pinned Verus
+/// version), making the cryptographic assumption explicit instead of
+/// hiding it inside `assume(false)`.
 pub proof fn lemma_leaf_node_domain_separation()
     ensures
         forall|d: Seq<u8>, l: Seq<u8>, r: Seq<u8>|
@@ -50,6 +60,7 @@ pub proof fn lemma_leaf_node_domain_separation()
     // AXIOM: This holds by construction of SHA-256 with different prefix bytes.
     // Cannot be proven in Verus (requires hash function internals).
     // Justified by: prefix 0x00 vs 0x01 guarantees different first input byte.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
@@ -85,13 +96,27 @@ pub open spec fn spec_walk_proof(
     }
 }
 
-/// THEOREM (CV-20): Inclusion proof soundness.
+/// **SPECIFICATION ONLY** — proof obligation not yet discharged, AND
+/// the `ensures` clause currently degrades to `true`, so the body
+/// proves nothing useful. See `audit/2026-04-30/findings.md` C-1.
+///
+/// SPEC (intended) — CV-20: Inclusion proof soundness.
 ///
 /// If the proof walk produces the expected root hash, then the leaf
 /// is authentically at the claimed index in a tree with that root.
+/// Formally: `verify_inclusion_proof(idx, size, leaf, proofs, root) = Ok`
+/// implies the leaf is at position `idx` in a tree with root hash `root`.
 ///
-/// Formally: verify_inclusion_proof(idx, size, leaf, proofs, root) = Ok
-///           implies leaf is at position idx in tree with root hash root.
+/// To actually discharge:
+///   1. Strengthen `ensures` from `true` to a real predicate, e.g. an
+///      inductive `MerkleTreeContains(root, leaf_hash, leaf_index)`
+///      relation defined over `spec_node_hash`.
+///   2. Postulate collision resistance of `spec_node_hash` as an
+///      explicit `#[verifier::external_body]` axiom (cf. C-1 fix on
+///      `lemma_leaf_node_domain_separation`).
+///   3. Induct on `proof_hashes.len() - step` using `spec_walk_proof`'s
+///      `decreases` clause; in the step case, use the postulated
+///      collision resistance to invert `spec_node_hash`.
 pub proof fn theorem_inclusion_proof_soundness(
     leaf_hash: Seq<u8>,
     leaf_index: int,
@@ -116,6 +141,7 @@ pub proof fn theorem_inclusion_proof_soundness(
     //       determines the child hashes, binding leaf to root.
     //
     // Full mechanization requires collision resistance assumption on spec_node_hash.
+    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
     assume(false);
 }
 
