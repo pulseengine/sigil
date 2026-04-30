@@ -81,6 +81,10 @@ fn start() -> Result<(), WSError> {
         .subcommand(
             Command::new("keygen")
                 .about("Generate a new key pair")
+                .after_help(
+                    "EXAMPLES:\n    \
+                     $ sigil keygen -k secret.key -K public.key\n",
+                )
                 .arg(
                     Arg::new("secret_key")
                         .value_name("secret_key_file")
@@ -140,6 +144,11 @@ fn start() -> Result<(), WSError> {
         .subcommand(
             Command::new("sign")
                 .about("Sign a module")
+                .after_help(
+                    "EXAMPLES:\n    \
+                     $ sigil sign -k secret.key -i module.wasm -o signed.wasm\n    \
+                     $ sigil sign --keyless -i module.wasm -o signed.wasm\n",
+                )
                 .arg(
                     Arg::new("in")
                         .value_name("input_file")
@@ -205,6 +214,13 @@ fn start() -> Result<(), WSError> {
         .subcommand(
             Command::new("verify")
                 .about("Verify a module's signature")
+                .after_help(
+                    "EXAMPLES:\n    \
+                     $ sigil verify -K public.key -i signed.wasm\n    \
+                     $ sigil verify --keyless -i signed.wasm \\\n        \
+                       --cert-identity user@example.com \\\n        \
+                       --cert-oidc-issuer https://token.actions.githubusercontent.com\n",
+                )
                 .arg(
                     Arg::new("format")
                         .value_name("format")
@@ -321,7 +337,7 @@ fn start() -> Result<(), WSError> {
                 ),
         )
         .subcommand(
-            Command::new("verify_matrix")
+            Command::new("verify-matrix")
                 .about("Batch verification against multiple public keys")
                 .arg(
                     Arg::new("in")
@@ -354,6 +370,11 @@ fn start() -> Result<(), WSError> {
                 .subcommand(
                     Command::new("create")
                         .about("Create a new trust bundle")
+                        .after_help(
+                            "EXAMPLES:\n    \
+                             $ sigil bundle create -o trust.json \\\n        \
+                               --ca-cert fulcio-root.pem --rekor-key rekor.pub\n",
+                        )
                         .arg(
                             Arg::new("out")
                                 .value_name("output_file")
@@ -971,7 +992,7 @@ fn start() -> Result<(), WSError> {
         module = module.attach_signature(&detached_signature)?;
         module.serialize_to_file(output_file)?;
         println!("Signature is now embedded as a custom section.");
-    } else if let Some(matches) = matches.subcommand_matches("verify_matrix") {
+    } else if let Some(matches) = matches.subcommand_matches("verify-matrix") {
         let input_file = matches.get_one::<String>("in").map(|s| s.as_str());
         let signature_file = matches
             .get_one::<String>("signature_file")

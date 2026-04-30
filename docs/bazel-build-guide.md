@@ -1,10 +1,10 @@
-# Building wasmsign2 with Bazel
+# Building sigil with Bazel
 
-This document describes how to build wasmsign2 as WebAssembly components using Bazel and `rules_wasm_component`.
+This document describes how to build sigil as WebAssembly components using Bazel and `rules_wasm_component`.
 
 ## Architecture
 
-The wasmsign2 project supports dual build systems:
+The sigil project supports dual build systems:
 
 - **Cargo (Native)**: Build native binaries with full features including GitHub key fetching
 - **Bazel (WASM)**: Build WebAssembly components for hermetic, cross-platform execution
@@ -12,7 +12,7 @@ The wasmsign2 project supports dual build systems:
 ### Component Structure
 
 ```
-wasmsign2/
+sigil/
 ├── src/lib/              # Core signing library (Rust)
 ├── src/component/        # WASM component exporting WIT interface
 ├── src/cli/              # Command-line interface (native and WASI)
@@ -23,7 +23,7 @@ wasmsign2/
 
 | Target | Output | Description |
 |--------|--------|-------------|
-| `//src/lib:wasmsign2` | Rust library | Core signing functionality |
+| `//src/lib:wsc` | Rust library | Core signing functionality |
 | `//wit:wasmsign_wit` | WIT interface | Component model interface |
 | `//src/component:signing_lib` | `signing-lib.wasm` | Reusable component exporting signing interface |
 | `//src/cli:wasmsign_cli` | `wasmsign-cli.wasm` | WASI CLI tool |
@@ -34,7 +34,7 @@ Build the native CLI with all features:
 
 ```bash
 cargo build --release
-./target/release/wasmsign2 --help
+./target/release/sigil --help
 ```
 
 This includes:
@@ -78,20 +78,20 @@ This produces:
 
 ## Integration with rules_wasm_component
 
-To use wasmsign2 components in `rules_wasm_component`:
+To use sigil components in `rules_wasm_component`:
 
-1. **Reference the wasmsign2 repository** in your MODULE.bazel:
+1. **Reference the sigil repository** in your MODULE.bazel:
    ```starlark
    git_override(
-       module_name = "wasmsign2",
-       remote = "https://github.com/wasm-signatures/wasmsign2.git",
+       module_name = "wsc",
+       remote = "https://github.com/pulseengine/sigil.git",
        commit = "<commit-hash>",
    )
    ```
 
 2. **Use the signing component** in your BUILD files:
    ```starlark
-   load("@wasmsign2//src/component:defs.bzl", "signing_lib")
+   load("@wsc//src/component:defs.bzl", "signing_lib")
 
    # Use the signing component in your workflow
    wasm_sign(
@@ -108,12 +108,12 @@ To use wasmsign2 components in `rules_wasm_component`:
        srcs = [":my_module.wasm"],
        outs = ["signed_module.wasm"],
        cmd = """
-           $(location @wasmsign2//src/cli:wasmsign_cli) sign \
+           $(location @wsc//src/cli:wasmsign_cli) sign \
                --input-file $(location :my_module.wasm) \
                --output-file $@ \
                --secret-key $(location :key.sec)
        """,
-       tools = ["@wasmsign2//src/cli:wasmsign_cli"],
+       tools = ["@wsc//src/cli:wasmsign_cli"],
    )
    ```
 

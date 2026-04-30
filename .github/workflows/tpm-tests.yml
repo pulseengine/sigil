@@ -1,17 +1,10 @@
 name: TPM2 Tests
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:  # Allow manual trigger
-
-# NOTE: Once verified working, can add path filters to only run when TPM code changes:
-# paths:
-#   - 'src/lib/src/platform/tpm2.rs'
-#   - 'src/lib/Cargo.toml'
-#   - '.github/workflows/tpm-tests.yml'
+  schedule:
+    # Nightly run at 03:17 UTC (TPM emulation is too heavy for every PR)
+    - cron: '17 3 * * *'
 
 env:
   CARGO_TERM_COLOR: always
