@@ -2,10 +2,73 @@ use crate::error::WSError;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use std::env;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
+
+/// Allowlist of acceptable JWT signing algorithms (audit C-6).
+///
+/// Only asymmetric algorithms used by real OIDC providers are accepted.
+/// HMAC variants (`HS*`) and the unsigned `none` algorithm are explicitly
+/// rejected to prevent algorithm-confusion attacks where an attacker swaps
+/// `alg: "HS256"` and signs with a known string.
+const ALLOWED_JWT_ALGS: &[&str] = &["RS256", "ES256", "RS384", "ES384", "RS512", "ES512"];
+
+/// Validate the `alg` field in a JWT header against the allowlist (audit C-6).
+///
+/// This MUST be called before parsing any payload claims so an attacker cannot
+/// forge a token using `alg: "none"` or `alg: "HS256"` and have downstream
+/// consumers trust its claims. Rejects:
+/// - missing/empty `alg` (treated as untyped, refuse)
+/// - `none` (no signature)
+/// - `HS256`, `HS384`, `HS512` (HMAC, vulnerable to alg-confusion)
+/// - any other value not in `ALLOWED_JWT_ALGS`
+fn validate_jwt_alg(token: &str) -> Result<(), WSError> {
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        return Err(WSError::OidcError("Invalid JWT token format".to_string()));
+    }
+
+    // Decode the JWT header (first part)
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(parts[0])
+        .or_else(|_| base64::prelude::BASE64_STANDARD.decode(parts[0]))
+        .map_err(|e| WSError::OidcError(format!("Failed to decode JWT header: {}", e)))?;
+
+    let header_str = Zeroizing::new(
+        String::from_utf8(header_bytes)
+            .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT header: {}", e)))?,
+    );
+
+    let header_json: serde_json::Value = serde_json::from_str(&header_str)
+        .map_err(|e| WSError::OidcError(format!("Failed to parse JWT header: {}", e)))?;
+
+    let alg = header_json
+        .get("alg")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| WSError::OidcError("JWT header missing 'alg' field".to_string()))?;
+
+    if alg.is_empty() {
+        return Err(WSError::OidcError(
+            "JWT header has empty 'alg' field".to_string(),
+        ));
+    }
+
+    if !ALLOWED_JWT_ALGS.contains(&alg) {
+        return Err(WSError::OidcError(format!(
+            "JWT 'alg' '{}' not in allowlist {:?} — rejected to prevent algorithm-confusion attacks",
+            alg, ALLOWED_JWT_ALGS
+        )));
+    }
+
+    Ok(())
+}
 
 /// OIDC token for identity verification
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// SECURITY: `Clone` is intentionally NOT derived (audit M-5). The `Drop`
+/// impl below zeroizes the JWT bytes to honor single-owner discipline; allowing
+/// `Clone` would let uncontrolled token copies live on after the original is
+/// zeroized. Pass `&OidcToken` (or `Arc<OidcToken>`) when sharing is required.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct OidcToken {
     /// JWT token string
     pub token: String,
@@ -32,6 +95,9 @@ impl OidcToken {
     ///
     /// This is needed for proof of possession in Fulcio requests
     pub fn get_sub_claim(&self) -> Result<String, WSError> {
+        // SECURITY (audit C-6): validate JWT `alg` before parsing payload
+        validate_jwt_alg(&self.token)?;
+
         // JWT tokens are base64-encoded and have three parts: header.payload.signature
         let parts: Vec<&str> = self.token.split('.').collect();
         if parts.len() != 3 {
@@ -45,8 +111,12 @@ impl OidcToken {
             .or_else(|_| base64::prelude::BASE64_STANDARD.decode(payload))
             .map_err(|e| WSError::OidcError(format!("Failed to decode JWT payload: {}", e)))?;
 
-        let payload_str = String::from_utf8(decoded)
-            .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?;
+        // SECURITY (audit M-6): wrap payload in Zeroizing<String> so it is
+        // zeroed when this function returns, even on the error path.
+        let payload_str = Zeroizing::new(
+            String::from_utf8(decoded)
+                .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?,
+        );
 
         // Parse JSON to extract sub claim
         let payload_json: serde_json::Value = serde_json::from_str(&payload_str)
@@ -109,6 +179,9 @@ impl GitHubOidcProvider {
 
     /// Parse identity from JWT token (extract email or subject)
     fn parse_identity(token: &str) -> Result<String, WSError> {
+        // SECURITY (audit C-6): validate JWT `alg` before parsing payload
+        validate_jwt_alg(token)?;
+
         // JWT tokens are base64-encoded and have three parts: header.payload.signature
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
@@ -122,8 +195,11 @@ impl GitHubOidcProvider {
             .or_else(|_| base64::prelude::BASE64_STANDARD.decode(payload))
             .map_err(|e| WSError::OidcError(format!("Failed to decode JWT payload: {}", e)))?;
 
-        let payload_str = String::from_utf8(decoded)
-            .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?;
+        // SECURITY (audit M-6): zeroize payload buffer when scope ends.
+        let payload_str = Zeroizing::new(
+            String::from_utf8(decoded)
+                .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?,
+        );
 
         // Parse JSON to extract identity fields
         let payload_json: serde_json::Value = serde_json::from_str(&payload_str)
@@ -145,6 +221,9 @@ impl GitHubOidcProvider {
 
     /// Parse issuer from JWT token
     fn parse_issuer(token: &str) -> Result<String, WSError> {
+        // SECURITY (audit C-6): validate JWT `alg` before parsing payload
+        validate_jwt_alg(token)?;
+
         // JWT tokens are base64-encoded and have three parts: header.payload.signature
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
@@ -158,8 +237,11 @@ impl GitHubOidcProvider {
             .or_else(|_| base64::prelude::BASE64_STANDARD.decode(payload))
             .map_err(|e| WSError::OidcError(format!("Failed to decode JWT payload: {}", e)))?;
 
-        let payload_str = String::from_utf8(decoded)
-            .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?;
+        // SECURITY (audit M-6): zeroize payload buffer when scope ends.
+        let payload_str = Zeroizing::new(
+            String::from_utf8(decoded)
+                .map_err(|e| WSError::OidcError(format!("Invalid UTF-8 in JWT payload: {}", e)))?,
+        );
 
         // Parse JSON to extract issuer
         let payload_json: serde_json::Value = serde_json::from_str(&payload_str)
@@ -434,6 +516,20 @@ mod tests {
     // Note: These tests don't manipulate env vars to avoid unsafe code.
     // Instead, they test the logic with the current environment state.
 
+    /// Build a JWT with the supplied header/payload JSON for tests. The
+    /// signature segment is a placeholder — these tests only exercise parsing.
+    fn make_test_jwt(header_json: &str, payload_json: &str) -> String {
+        let h = URL_SAFE_NO_PAD.encode(header_json);
+        let p = URL_SAFE_NO_PAD.encode(payload_json);
+        format!("{}.{}.signature", h, p)
+    }
+
+    /// Convenience: build a JWT with a default RS256 header and the supplied
+    /// payload (the alg validator only inspects the header).
+    fn make_rs256_jwt(payload_json: &str) -> String {
+        make_test_jwt(r#"{"alg":"RS256","typ":"JWT"}"#, payload_json)
+    }
+
     #[test]
     fn test_provider_names() {
         // Test that provider names are correct
@@ -450,9 +546,9 @@ mod tests {
     fn test_parse_jwt_identity() {
         // Sample JWT token (header.payload.signature)
         // Payload: {"email":"test@example.com","sub":"user123","iss":"https://token.actions.githubusercontent.com"}
-        let payload = r#"{"email":"test@example.com","sub":"user123","iss":"https://token.actions.githubusercontent.com"}"#;
-        let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
-        let token = format!("header.{}.signature", encoded_payload);
+        let token = make_rs256_jwt(
+            r#"{"email":"test@example.com","sub":"user123","iss":"https://token.actions.githubusercontent.com"}"#,
+        );
 
         let identity = GitHubOidcProvider::parse_identity(&token).unwrap();
         assert_eq!(identity, "test@example.com");
@@ -461,9 +557,9 @@ mod tests {
     #[test]
     fn test_parse_jwt_identity_no_email() {
         // Sample JWT token with only 'sub' field
-        let payload = r#"{"sub":"user123","iss":"https://token.actions.githubusercontent.com"}"#;
-        let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
-        let token = format!("header.{}.signature", encoded_payload);
+        let token = make_rs256_jwt(
+            r#"{"sub":"user123","iss":"https://token.actions.githubusercontent.com"}"#,
+        );
 
         let identity = GitHubOidcProvider::parse_identity(&token).unwrap();
         assert_eq!(identity, "user123");
@@ -471,10 +567,9 @@ mod tests {
 
     #[test]
     fn test_parse_jwt_issuer() {
-        let payload =
-            r#"{"email":"test@example.com","iss":"https://token.actions.githubusercontent.com"}"#;
-        let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
-        let token = format!("header.{}.signature", encoded_payload);
+        let token = make_rs256_jwt(
+            r#"{"email":"test@example.com","iss":"https://token.actions.githubusercontent.com"}"#,
+        );
 
         let issuer = GitHubOidcProvider::parse_issuer(&token).unwrap();
         assert_eq!(issuer, "https://token.actions.githubusercontent.com");
@@ -484,6 +579,99 @@ mod tests {
     fn test_parse_invalid_jwt() {
         let result = GitHubOidcProvider::parse_identity("invalid-token");
         assert!(matches!(result, Err(WSError::OidcError(_))));
+    }
+
+    // ============================================================================
+    // SECURITY TESTS: JWT alg validation (audit C-6)
+    // ============================================================================
+
+    #[test]
+    fn test_jwt_alg_rejects_hs256() {
+        // Algorithm-confusion attack: token forged with HMAC must be rejected.
+        let token = make_test_jwt(
+            r#"{"alg":"HS256","typ":"JWT"}"#,
+            r#"{"sub":"attacker","iss":"https://evil.example.com"}"#,
+        );
+        let result = GitHubOidcProvider::parse_identity(&token);
+        let err = result.expect_err("HS256 token must be rejected");
+        match err {
+            WSError::OidcError(msg) => assert!(
+                msg.contains("HS256") && msg.contains("alg"),
+                "error should mention rejected alg, got: {}",
+                msg
+            ),
+            other => panic!("expected OidcError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_jwt_alg_rejects_none() {
+        let token = make_test_jwt(
+            r#"{"alg":"none","typ":"JWT"}"#,
+            r#"{"sub":"attacker"}"#,
+        );
+        assert!(matches!(
+            GitHubOidcProvider::parse_issuer(&token),
+            Err(WSError::OidcError(_))
+        ));
+    }
+
+    #[test]
+    fn test_jwt_alg_rejects_hs512() {
+        let token = make_test_jwt(
+            r#"{"alg":"HS512","typ":"JWT"}"#,
+            r#"{"sub":"attacker"}"#,
+        );
+        assert!(matches!(
+            GitHubOidcProvider::parse_identity(&token),
+            Err(WSError::OidcError(_))
+        ));
+    }
+
+    #[test]
+    fn test_jwt_alg_rejects_missing_alg() {
+        let token = make_test_jwt(r#"{"typ":"JWT"}"#, r#"{"sub":"x"}"#);
+        assert!(matches!(
+            GitHubOidcProvider::parse_identity(&token),
+            Err(WSError::OidcError(_))
+        ));
+    }
+
+    #[test]
+    fn test_jwt_alg_rejects_empty_alg() {
+        let token = make_test_jwt(r#"{"alg":"","typ":"JWT"}"#, r#"{"sub":"x"}"#);
+        assert!(matches!(
+            GitHubOidcProvider::parse_identity(&token),
+            Err(WSError::OidcError(_))
+        ));
+    }
+
+    #[test]
+    fn test_jwt_alg_accepts_rs256() {
+        let token = make_rs256_jwt(r#"{"sub":"u","iss":"https://i.example.com"}"#);
+        assert!(GitHubOidcProvider::parse_identity(&token).is_ok());
+    }
+
+    #[test]
+    fn test_jwt_alg_accepts_es256() {
+        let token = make_test_jwt(
+            r#"{"alg":"ES256","typ":"JWT"}"#,
+            r#"{"sub":"u","iss":"https://i.example.com"}"#,
+        );
+        assert!(GitHubOidcProvider::parse_identity(&token).is_ok());
+    }
+
+    #[test]
+    fn test_jwt_alg_validation_runs_before_payload_parse() {
+        // Even if the payload would be invalid JSON, alg rejection should fire first.
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"HS256"}"#);
+        let payload = URL_SAFE_NO_PAD.encode("not-json-at-all");
+        let token = format!("{}.{}.sig", header, payload);
+        let err = GitHubOidcProvider::parse_identity(&token).expect_err("must reject");
+        match err {
+            WSError::OidcError(msg) => assert!(msg.contains("HS256")),
+            other => panic!("expected OidcError, got {:?}", other),
+        }
     }
 
     #[test]
@@ -577,9 +765,11 @@ mod tests {
     }
 
     #[test]
-    fn test_oidc_token_clone_and_drop() {
-        // Test that Clone works correctly and both original and clone are zeroized
-        // This is important because OidcToken derives Clone
+    fn test_oidc_token_no_clone_required() {
+        // SECURITY (audit M-5): OidcToken intentionally does NOT implement Clone.
+        // Sharing must use references (`&OidcToken`) so the Drop-zeroize
+        // discipline holds for the single owner. This test exercises that
+        // pattern.
 
         let original = OidcToken {
             token: "original-token".to_string(),
@@ -587,21 +777,15 @@ mod tests {
             issuer: "https://original.issuer.com".to_string(),
         };
 
-        {
-            let cloned = original.clone();
-
-            // Verify clone has same values
-            assert_eq!(original.token, cloned.token);
-            assert_eq!(original.identity, cloned.identity);
-            assert_eq!(original.issuer, cloned.issuer);
-
-            // cloned goes out of scope here, Drop called on clone
+        fn read_token(t: &OidcToken) -> usize {
+            t.token.len() + t.identity.len() + t.issuer.len()
         }
 
-        // Original still accessible
+        // Borrow rather than clone.
+        let total = read_token(&original);
+        assert!(total > 0);
         assert_eq!(original.token, "original-token");
-
-        // original goes out of scope at end of test, Drop called on original
+        // original goes out of scope at end of test, Drop called on original.
     }
 
     #[test]
@@ -694,9 +878,7 @@ mod tests {
     fn test_oidc_token_get_sub_claim_with_drop() {
         // Test that get_sub_claim works and doesn't interfere with Drop
 
-        let payload = r#"{"sub":"test-subject","iss":"https://issuer.com"}"#;
-        let encoded_payload = URL_SAFE_NO_PAD.encode(payload);
-        let jwt = format!("header.{}.signature", encoded_payload);
+        let jwt = make_rs256_jwt(r#"{"sub":"test-subject","iss":"https://issuer.com"}"#);
 
         let token = OidcToken {
             token: jwt,

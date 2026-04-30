@@ -305,54 +305,9 @@ impl RekorClient {
             .read_to_string()
             .map_err(|e| WSError::RekorError(format!("Failed to read response body: {}", e)))?;
 
-        let response_data: RekorUploadResponse = serde_json::from_str(&body)
-            .map_err(|e| WSError::RekorError(format!("Failed to parse response: {}", e)))?;
-
-        // Extract entry (should be exactly one entry in the map)
-        if response_data.entries.is_empty() {
-            return Err(WSError::RekorError(
-                "No entry returned in response".to_string(),
-            ));
-        }
-
-        let (uuid, entry_data) = response_data
-            .entries
-            .into_iter()
-            .next()
-            .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
-
-        // Extract verification data
-        let verification = entry_data
-            .verification
-            .unwrap_or(RekorVerification {
-                inclusion_proof: None,
-                signed_entry_timestamp: None,
-            });
-
-        // Extract inclusion proof if available
-        let inclusion_proof = verification
-            .inclusion_proof
-            .map(|proof| {
-                // Serialize the inclusion proof to JSON bytes
-                serde_json::to_vec(&proof).unwrap_or_default()
-            })
-            .unwrap_or_default();
-
-        // Extract SET if available
-        let signed_entry_timestamp = verification.signed_entry_timestamp.unwrap_or_default();
-
-        // Convert integrated_time (Unix timestamp) to RFC3339
-        let integrated_time = format_timestamp(entry_data.integrated_time);
-
-        Ok(RekorEntry {
-            uuid,
-            log_index: entry_data.log_index,
-            body: entry_data.body,
-            log_id: entry_data.log_id,
-            inclusion_proof,
-            signed_entry_timestamp,
-            integrated_time,
-        })
+        // SECURITY (audit H-5): all empty-field rejection handled in the
+        // shared helper so synthetic responses can be unit-tested.
+        build_rekor_entry_from_response(&body)
     }
 
     /// WASI implementation using wasi::http
@@ -453,52 +408,11 @@ impl RekorClient {
             }
         }
 
-        // Parse response
-        let response_data: RekorUploadResponse = serde_json::from_slice(&response_bytes)
-            .map_err(|e| WSError::RekorError(format!("Failed to parse response: {}", e)))?;
-
-        // Extract entry
-        if response_data.entries.is_empty() {
-            return Err(WSError::RekorError(
-                "No entry returned in response".to_string(),
-            ));
-        }
-
-        let (uuid, entry_data) = response_data
-            .entries
-            .into_iter()
-            .next()
-            .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
-
-        // Extract verification data
-        let verification = entry_data
-            .verification
-            .unwrap_or_else(|| RekorVerification {
-                inclusion_proof: None,
-                signed_entry_timestamp: None,
-            });
-
-        // Extract inclusion proof if available
-        let inclusion_proof = verification
-            .inclusion_proof
-            .map(|proof| serde_json::to_vec(&proof).unwrap_or_default())
-            .unwrap_or_default();
-
-        // Extract SET if available
-        let signed_entry_timestamp = verification.signed_entry_timestamp.unwrap_or_default();
-
-        // Convert integrated_time to RFC3339
-        let integrated_time = format_timestamp(entry_data.integrated_time);
-
-        Ok(RekorEntry {
-            uuid,
-            log_index: entry_data.log_index,
-            body: entry_data.body,
-            log_id: entry_data.log_id,
-            inclusion_proof,
-            signed_entry_timestamp,
-            integrated_time,
-        })
+        // SECURITY (audit H-5): all empty-field rejection handled in the
+        // shared helper.
+        let body_str = std::str::from_utf8(&response_bytes)
+            .map_err(|e| WSError::RekorError(format!("Invalid UTF-8 in response: {}", e)))?;
+        build_rekor_entry_from_response(body_str)
     }
 
     /// Verify inclusion proof and SET for a Rekor entry
@@ -536,6 +450,76 @@ impl Default for RekorClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Build a `RekorEntry` from a parsed Rekor upload response (audit H-5).
+///
+/// Pure helper so the empty-SET / empty-inclusion-proof rejection rules can be
+/// unit-tested with a synthetic JSON payload. Rejects (returns Err) any
+/// response that:
+///
+/// - has no entries map
+/// - omits the `verification` object
+/// - omits the inclusion proof
+/// - has a structurally-empty inclusion proof (no hashes or empty root)
+/// - omits or has an empty `signedEntryTimestamp`
+///
+/// These rejections happen BEFORE any caching or downstream verification, so a
+/// caller cannot accidentally cache a partial/invalid entry.
+fn build_rekor_entry_from_response(body: &str) -> Result<RekorEntry, WSError> {
+    let response_data: RekorUploadResponse = serde_json::from_str(body)
+        .map_err(|e| WSError::RekorError(format!("Failed to parse response: {}", e)))?;
+
+    if response_data.entries.is_empty() {
+        return Err(WSError::RekorError(
+            "No entry returned in response".to_string(),
+        ));
+    }
+
+    let (uuid, entry_data) = response_data
+        .entries
+        .into_iter()
+        .next()
+        .ok_or_else(|| WSError::RekorError("Empty response from Rekor".to_string()))?;
+
+    let verification = entry_data.verification.ok_or_else(|| {
+        WSError::RekorError(
+            "Rekor response missing 'verification' object — refusing to return entry".to_string(),
+        )
+    })?;
+
+    let raw_inclusion_proof = verification.inclusion_proof.ok_or_else(|| {
+        WSError::RekorError(
+            "Rekor response missing inclusion proof — refusing to return entry".to_string(),
+        )
+    })?;
+    if raw_inclusion_proof.hashes.is_empty() || raw_inclusion_proof.root_hash.is_empty() {
+        return Err(WSError::RekorError(
+            "Rekor response has structurally-empty inclusion proof (no hashes or empty root)"
+                .to_string(),
+        ));
+    }
+    let inclusion_proof = serde_json::to_vec(&raw_inclusion_proof)
+        .map_err(|e| WSError::RekorError(format!("Failed to serialize inclusion proof: {}", e)))?;
+
+    let signed_entry_timestamp = match verification.signed_entry_timestamp {
+        Some(set) if !set.is_empty() => set,
+        _ => {
+            return Err(WSError::RekorError(
+                "Rekor response missing or empty signed entry timestamp".to_string(),
+            ));
+        }
+    };
+
+    Ok(RekorEntry {
+        uuid,
+        log_index: entry_data.log_index,
+        body: entry_data.body,
+        log_id: entry_data.log_id,
+        inclusion_proof,
+        signed_entry_timestamp,
+        integrated_time: format_timestamp(entry_data.integrated_time),
+    })
 }
 
 /// Format Unix timestamp to RFC3339 string
@@ -728,5 +712,198 @@ mod tests {
         // In a real integration test, we would mock the HTTP response
         // For now, we just verify the error is a Rekor error (connection failure)
         assert!(result.is_err());
+    }
+
+    // ============================================================================
+    // SECURITY TESTS: Rekor response parsing — H-5
+    // (reject empty SET / empty inclusion-proof BEFORE caching)
+    // ============================================================================
+
+    fn full_rekor_response_json() -> String {
+        r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "inclusionProof": {
+                        "hashes": ["aa", "bb"],
+                        "logIndex": 7,
+                        "rootHash": "cc",
+                        "treeSize": 10
+                    },
+                    "signedEntryTimestamp": "MEUCIQ=="
+                }
+            }
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn test_h5_full_response_accepted() {
+        let entry = build_rekor_entry_from_response(&full_rekor_response_json())
+            .expect("complete response must be accepted");
+        assert_eq!(entry.uuid, "abc123");
+        assert_eq!(entry.signed_entry_timestamp, "MEUCIQ==");
+        assert!(!entry.inclusion_proof.is_empty());
+    }
+
+    #[test]
+    fn test_h5_empty_set_rejected() {
+        // SET present but empty: must reject (not silently default).
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "inclusionProof": {
+                        "hashes": ["aa", "bb"],
+                        "logIndex": 7,
+                        "rootHash": "cc",
+                        "treeSize": 10
+                    },
+                    "signedEntryTimestamp": ""
+                }
+            }
+        }"#;
+        let err = build_rekor_entry_from_response(json).expect_err("empty SET must reject");
+        match err {
+            WSError::RekorError(msg) => assert!(
+                msg.to_lowercase().contains("signed entry timestamp"),
+                "msg: {}",
+                msg
+            ),
+            other => panic!("expected RekorError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_h5_missing_set_rejected() {
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "inclusionProof": {
+                        "hashes": ["aa"],
+                        "logIndex": 7,
+                        "rootHash": "cc",
+                        "treeSize": 10
+                    }
+                }
+            }
+        }"#;
+        assert!(matches!(
+            build_rekor_entry_from_response(json),
+            Err(WSError::RekorError(_))
+        ));
+    }
+
+    #[test]
+    fn test_h5_missing_inclusion_proof_rejected() {
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "signedEntryTimestamp": "MEUCIQ=="
+                }
+            }
+        }"#;
+        let err =
+            build_rekor_entry_from_response(json).expect_err("missing inclusion proof must reject");
+        match err {
+            WSError::RekorError(msg) => assert!(msg.contains("inclusion proof"), "msg: {}", msg),
+            other => panic!("expected RekorError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_h5_empty_inclusion_proof_hashes_rejected() {
+        // hashes vector is present but empty.
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "inclusionProof": {
+                        "hashes": [],
+                        "logIndex": 7,
+                        "rootHash": "cc",
+                        "treeSize": 10
+                    },
+                    "signedEntryTimestamp": "MEUCIQ=="
+                }
+            }
+        }"#;
+        let err = build_rekor_entry_from_response(json)
+            .expect_err("structurally empty inclusion proof must reject");
+        match err {
+            WSError::RekorError(msg) => assert!(
+                msg.to_lowercase().contains("structurally-empty"),
+                "msg: {}",
+                msg
+            ),
+            other => panic!("expected RekorError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_h5_empty_root_hash_rejected() {
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef",
+                "verification": {
+                    "inclusionProof": {
+                        "hashes": ["aa"],
+                        "logIndex": 7,
+                        "rootHash": "",
+                        "treeSize": 10
+                    },
+                    "signedEntryTimestamp": "MEUCIQ=="
+                }
+            }
+        }"#;
+        assert!(matches!(
+            build_rekor_entry_from_response(json),
+            Err(WSError::RekorError(_))
+        ));
+    }
+
+    #[test]
+    fn test_h5_missing_verification_object_rejected() {
+        let json = r#"{
+            "abc123": {
+                "logIndex": 7,
+                "body": "ZHVtbXk=",
+                "integratedTime": 1704067200,
+                "logID": "deadbeef"
+            }
+        }"#;
+        assert!(matches!(
+            build_rekor_entry_from_response(json),
+            Err(WSError::RekorError(_))
+        ));
+    }
+
+    #[test]
+    fn test_h5_no_entries_rejected() {
+        let json = r#"{}"#;
+        assert!(matches!(
+            build_rekor_entry_from_response(json),
+            Err(WSError::RekorError(_))
+        ));
     }
 }

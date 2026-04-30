@@ -6,6 +6,20 @@
 //! 3. Fulcio certificate issuance
 //! 4. Module signing
 //! 5. Rekor transparency log upload
+//!
+//! # Environment variables
+//!
+//! - `WSC_EXPECTED_OIDC_ISSUER` — expected OIDC issuer URL. When set
+//!   non-empty, validation is performed against this value (overrides
+//!   `KeylessConfig::expected_issuer`). When **unset**, falls through to
+//!   `KeylessConfig::expected_issuer`. An **empty** value (`""`) is now
+//!   treated as "fall through to programmatic config", **not** as an implicit
+//!   disable (audit H-4).
+//! - `WSC_DISABLE_OIDC_ISSUER_CHECK` — set to `1` to explicitly disable issuer
+//!   validation. This is the only way to silence the validation; previously a
+//!   missing env var silently disabled the check.
+//! - `WSC_REQUIRE_CERT_PINNING` — set to `1` to require certificate pinning.
+//! - `WSC_SIGSTORE_STAGING` — set to `1` to use Sigstore staging endpoints.
 
 use super::{
     FulcioClient, KeylessSignature, OidcProvider, RekorClient, RekorEntry, RekorKeyring,
@@ -72,6 +86,33 @@ pub struct KeylessConfig {
     pub proof_cache: Option<std::sync::Arc<dyn super::proof_cache::ProofCacheBackend>>,
 }
 
+
+/// Resolve the effective expected OIDC issuer for validation (audit H-4).
+///
+/// Pure function over the inputs so the precedence rules can be unit-tested
+/// without environment-variable mutation. Returns `Ok(Some(issuer))` when
+/// validation should be performed against `issuer`, `Ok(None)` when validation
+/// is disabled or no expected value is configured. The boolean tuple element
+/// is `true` iff validation was explicitly disabled.
+///
+/// Precedence:
+/// 1. `disable_env == Some("1")` -> `(None, true)` (explicit disable).
+/// 2. `expected_env` set non-empty -> `(Some(env), false)`.
+/// 3. `expected_env` empty/unset -> fall through to `programmatic`.
+pub(crate) fn resolve_expected_issuer(
+    expected_env: Option<&str>,
+    disable_env: Option<&str>,
+    programmatic: Option<&str>,
+) -> (Option<String>, bool) {
+    if disable_env == Some("1") {
+        return (None, true);
+    }
+    let env = expected_env.filter(|s| !s.is_empty());
+    let chosen = env
+        .map(str::to_string)
+        .or_else(|| programmatic.map(str::to_string));
+    (chosen, false)
+}
 
 /// Main keyless signing interface
 pub struct KeylessSigner {
@@ -251,11 +292,33 @@ impl KeylessSigner {
         let oidc_token = self.oidc.get_token()?;
         log::info!("OIDC token obtained for identity: {}", oidc_token.identity);
 
-        // Step 2b: Validate OIDC issuer if expected issuer is configured (UCA-12 defense)
-        let expected_issuer = self.config.expected_issuer.clone().or_else(|| {
-            std::env::var("WSC_EXPECTED_OIDC_ISSUER").ok().filter(|s| !s.is_empty())
-        });
-        if let Some(ref expected) = expected_issuer {
+        // Step 2b: Validate OIDC issuer if expected issuer is configured (UCA-12 defense).
+        //
+        // Audit H-4: clean up the previous 3-state env-var override.
+        //
+        // Resolution rules:
+        //   1. If `WSC_DISABLE_OIDC_ISSUER_CHECK=1`, disable validation
+        //      (loud warning) — this is the ONLY way to disable. Previously
+        //      an unset/empty env var silently disabled the check.
+        //   2. Else if `WSC_EXPECTED_OIDC_ISSUER` is set non-empty, use it.
+        //   3. Else if `WSC_EXPECTED_OIDC_ISSUER` is set but empty, fall
+        //      through to programmatic config (treated as "no env override").
+        //   4. Else use `KeylessConfig::expected_issuer`.
+        let env_expected = std::env::var("WSC_EXPECTED_OIDC_ISSUER").ok();
+        let env_disable = std::env::var("WSC_DISABLE_OIDC_ISSUER_CHECK").ok();
+        let (expected_issuer, disable_check) = resolve_expected_issuer(
+            env_expected.as_deref(),
+            env_disable.as_deref(),
+            self.config.expected_issuer.as_deref(),
+        );
+
+        if disable_check {
+            log::warn!(
+                "OIDC issuer validation DISABLED via WSC_DISABLE_OIDC_ISSUER_CHECK=1. \
+                 Token issuer: {}",
+                oidc_token.issuer
+            );
+        } else if let Some(ref expected) = expected_issuer {
             // Normalize trailing slashes for comparison (AS-13 defense)
             let expected_normalized = expected.trim_end_matches('/');
             let actual_normalized = oidc_token.issuer.trim_end_matches('/');
@@ -269,8 +332,9 @@ impl KeylessSigner {
             log::info!("OIDC issuer validated: {}", oidc_token.issuer);
         } else {
             log::warn!(
-                "No OIDC issuer validation configured. Set --expected-issuer or \
-                 WSC_EXPECTED_OIDC_ISSUER for defense-in-depth. \
+                "No OIDC issuer validation configured. Set KeylessConfig::expected_issuer or \
+                 WSC_EXPECTED_OIDC_ISSUER for defense-in-depth, or set \
+                 WSC_DISABLE_OIDC_ISSUER_CHECK=1 to silence this warning. \
                  Token issuer: {}",
                 oidc_token.issuer
             );
@@ -693,6 +757,69 @@ mod tests {
     fn test_keyless_config_expected_issuer_default_is_none() {
         let config = KeylessConfig::default();
         assert!(config.expected_issuer.is_none());
+    }
+
+    // ============================================================================
+    // SECURITY TESTS: OIDC issuer env-var precedence (audit H-4)
+    // ============================================================================
+
+    #[test]
+    fn test_resolve_issuer_env_set_overrides_programmatic() {
+        let (chosen, disabled) = resolve_expected_issuer(
+            Some("https://env.example.com"),
+            None,
+            Some("https://prog.example.com"),
+        );
+        assert!(!disabled);
+        assert_eq!(chosen.as_deref(), Some("https://env.example.com"));
+    }
+
+    #[test]
+    fn test_resolve_issuer_env_empty_falls_through_to_programmatic() {
+        // Audit H-4: empty env var must NOT silently disable validation; it
+        // must fall through to the programmatic config.
+        let (chosen, disabled) =
+            resolve_expected_issuer(Some(""), None, Some("https://prog.example.com"));
+        assert!(!disabled);
+        assert_eq!(chosen.as_deref(), Some("https://prog.example.com"));
+    }
+
+    #[test]
+    fn test_resolve_issuer_env_unset_uses_programmatic() {
+        let (chosen, disabled) =
+            resolve_expected_issuer(None, None, Some("https://prog.example.com"));
+        assert!(!disabled);
+        assert_eq!(chosen.as_deref(), Some("https://prog.example.com"));
+    }
+
+    #[test]
+    fn test_resolve_issuer_explicit_disable() {
+        // Audit H-4: only explicit WSC_DISABLE_OIDC_ISSUER_CHECK=1 disables.
+        let (chosen, disabled) = resolve_expected_issuer(
+            Some("https://env.example.com"),
+            Some("1"),
+            Some("https://prog.example.com"),
+        );
+        assert!(disabled);
+        assert!(chosen.is_none());
+    }
+
+    #[test]
+    fn test_resolve_issuer_disable_other_value_does_not_disable() {
+        // Only "1" disables. "true", "yes", "0" must not.
+        for v in &["true", "yes", "0", ""] {
+            let (chosen, disabled) =
+                resolve_expected_issuer(None, Some(*v), Some("https://prog.example.com"));
+            assert!(!disabled, "value {:?} should not disable", v);
+            assert_eq!(chosen.as_deref(), Some("https://prog.example.com"));
+        }
+    }
+
+    #[test]
+    fn test_resolve_issuer_no_config_anywhere() {
+        let (chosen, disabled) = resolve_expected_issuer(None, None, None);
+        assert!(!disabled);
+        assert!(chosen.is_none());
     }
 
     #[test]
