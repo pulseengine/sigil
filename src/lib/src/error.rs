@@ -64,6 +64,12 @@ pub enum WSError {
     #[error("Too many certificates (max: {0})")]
     TooManyCertificates(usize),
 
+    #[error("Too many sections (max: {0})")]
+    TooManySections(usize),
+
+    #[error("Certificate chain too deep (max: {0})")]
+    ChainTooDeep(usize),
+
     #[error("Usage error: {0}")]
     UsageError(&'static str),
 

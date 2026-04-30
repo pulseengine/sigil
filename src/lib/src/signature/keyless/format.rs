@@ -18,6 +18,14 @@ pub const KEYLESS_SIG_TYPE: u8 = 0x02;
 /// Standard signature type identifier
 pub const STANDARD_SIG_TYPE: u8 = 0x01;
 
+/// Maximum accepted depth of an embedded X.509 certificate chain.
+///
+/// Real-world Fulcio chains are length 2–3 (leaf + intermediate(s) + root).
+/// Industry CAs ship at most 4–5. We cap at 8 — generous headroom while
+/// rejecting adversarial 1000-cert chains that would trigger heap exhaustion
+/// in `x509_parser` / WebPKI before any signature work begins.
+pub const MAX_CHAIN_DEPTH: usize = 8;
+
 /// Keyless signature custom section format
 ///
 /// Binary format (extends existing wasmsig format):
@@ -367,6 +375,13 @@ impl KeylessSignature {
             ));
         }
 
+        // SECURITY: bound chain depth before invoking x509_parser/WebPKI.
+        // An adversarial 1000-cert chain would otherwise trigger heap
+        // exhaustion during PEM/DER decoding.
+        if self.cert_chain.len() > MAX_CHAIN_DEPTH {
+            return Err(WSError::ChainTooDeep(MAX_CHAIN_DEPTH));
+        }
+
         // Load Fulcio trusted roots
         let cert_pool = CertificatePool::from_embedded_trust_root().map_err(|e| {
             WSError::CertificateError(format!("Failed to load trusted roots: {}", e))
@@ -693,6 +708,50 @@ mod tests {
 
         assert_eq!(deserialized.signature.len(), 64);
         assert_eq!(deserialized.signature, sig.signature);
+    }
+
+    #[test]
+    fn test_verify_cert_chain_rejects_too_deep() {
+        // A 100-cert synthetic chain must be rejected before any x509 parsing.
+        // This exercises the MAX_CHAIN_DEPTH guard in verify_cert_chain.
+        let mut sig = create_test_signature();
+        sig.cert_chain = (0..100)
+            .map(|i| {
+                format!(
+                    "-----BEGIN CERTIFICATE-----\nfake-cert-{}\n-----END CERTIFICATE-----",
+                    i
+                )
+            })
+            .collect();
+
+        let result = sig.verify_cert_chain();
+        match result {
+            Err(WSError::ChainTooDeep(max)) => assert_eq!(max, MAX_CHAIN_DEPTH),
+            Err(other) => panic!("expected ChainTooDeep, got {:?}", other),
+            Ok(_) => panic!("expected ChainTooDeep, got Ok"),
+        }
+    }
+
+    #[test]
+    fn test_verify_cert_chain_at_max_depth_proceeds_to_parser() {
+        // A chain of MAX_CHAIN_DEPTH bogus PEMs must NOT be rejected by the
+        // depth check; it should fall through to PEM/X.509 parsing and fail
+        // there. This proves the bound is at MAX_CHAIN_DEPTH+1, not below.
+        let mut sig = create_test_signature();
+        sig.cert_chain = (0..MAX_CHAIN_DEPTH)
+            .map(|i| {
+                format!(
+                    "-----BEGIN CERTIFICATE-----\nfake-cert-{}\n-----END CERTIFICATE-----",
+                    i
+                )
+            })
+            .collect();
+
+        let result = sig.verify_cert_chain();
+        // Must not be rejected by depth guard
+        assert!(!matches!(result, Err(WSError::ChainTooDeep(_))));
+        // But it must still fail (these aren't real Fulcio certs)
+        assert!(result.is_err());
     }
 
     #[test]

@@ -94,3 +94,10 @@ path = "fuzz_targets/fuzz_format_detection.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "fuzz_dsse_envelope"
+path = "fuzz_targets/fuzz_dsse_envelope.rs"
+test = false
+doc = false
+bench = false
