@@ -15,7 +15,7 @@ package(default_visibility = ["//visibility:public"])
 
 # Version info - keep in sync with [workspace.package].version in Cargo.toml
 # and with the `version` field in MODULE.bazel.
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 
 rust_binary(
     name = "wasmsign_cli",

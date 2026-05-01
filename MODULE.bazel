@@ -3,7 +3,7 @@
 module(
     name = "wsc",
     # Keep in sync with [workspace.package].version in Cargo.toml.
-    version = "0.8.0",
+    version = "0.8.1",
 )
 
 # Dependencies
