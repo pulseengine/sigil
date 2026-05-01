@@ -12,11 +12,24 @@
 
   ## Status
 
-  - `scalarMul_mul_order`: proven (via scalarMul_zero_point axiom)
-  - `verification_equation_sound`: proven (full mechanized proof)
-  - `verification_equation_complete`: needs prime-order argument (sorry)
-  - `cofactored_verification_sound`: proven (follows from soundness)
-  - `basepoint_prime_order`: needs Mathlib OrderOf (sorry)
+  Honesty policy: every claim below states *exactly* how much of the
+  proof body is mechanically checked. A `sorry` is treated as an open
+  obligation and the table is required to say so. See
+  `audit/2026-04-30/findings.md` C-2 for the audit context.
+
+  - `scalarMul_mul_order`: PROVEN (depends on the `scalarMul_zero_point`
+    axiom declared in this file).
+  - `verification_equation_sound`: PROVEN — full mechanized proof, no
+    `sorry` in the body.
+  - `verification_equation_complete`: OPEN (`sorry`) — body relies on
+    `basepoint_prime_order`, which is itself open. The proof sketch in
+    the body is a roadmap, not a proof.
+  - `cofactored_verification_sound`: PROVEN — follows from
+    `verification_equation_sound`, no `sorry` in the body.
+  - `basepoint_prime_order`: OPEN (`sorry`) — needs an `AddGroup`
+    instance on `CurvePoint` connected to `scalarMul`, plus
+    `addOrderOf B = Curve25519.ℓ`, then Mathlib's
+    `addOrderOf_dvd_of_nsmul_eq_zero`.
 -/
 
 import Mathlib.GroupTheory.OrderOfElement
