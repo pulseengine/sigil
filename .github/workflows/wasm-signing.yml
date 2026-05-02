@@ -12,6 +12,10 @@
 
 name: Sign WASM Module
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     branches: [ main ]

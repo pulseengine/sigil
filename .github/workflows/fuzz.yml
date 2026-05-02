@@ -3,6 +3,10 @@
 
 name: Fuzz Testing
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 on:
   schedule:
     # Run daily at 2 AM UTC

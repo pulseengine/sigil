@@ -1,5 +1,9 @@
 name: Memory Profiling
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
   schedule:
