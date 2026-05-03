@@ -17,6 +17,7 @@ env:
 jobs:
   tpm2-tests:
     name: TPM2 Tests with swtpm
+    # Stays on ubuntu-latest: installs swtpm/swtpm-tools/libtss2-dev/tpm2-tools via sudo apt-get; smithy's runner user has no sudo.
     runs-on: ubuntu-latest
 
     steps:
@@ -111,6 +112,7 @@ jobs:
   # Verify the feature compiles on macOS (but doesn't run tests)
   tpm2-macos-compile:
     name: TPM2 Compile Check (macOS)
+    # Stays on macos-latest: smithy is Linux x86_64 only.
     runs-on: macos-latest
 
     steps:
@@ -136,6 +138,7 @@ jobs:
   #       simply doesn't include the TPM module (platform guards exclude it).
   tpm2-windows-compile:
     name: TPM2 Compile Check (Windows)
+    # Stays on windows-latest: smithy is Linux x86_64 only.
     runs-on: windows-latest
 
     steps:
