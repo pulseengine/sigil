@@ -28,6 +28,7 @@ jobs:
   # Generate compliance report from rivet artifacts
   build-compliance:
     name: Build compliance report
+    # Stays on ubuntu-latest: uses pulseengine/rivet/.github/actions/compliance composite action whose internals are not yet validated against smithy's hardened runner.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
   # Build native CLI binaries for all platforms
   build-native-cli:
     name: Build CLI (${{ matrix.target }})
+    # Stays on ubuntu-latest / macos / windows: matrix spans macOS + Windows (smithy is Linux-only) and Linux entries use sudo apt-get for cross-compilation toolchains and libtss2-dev.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -139,6 +141,7 @@ jobs:
 
   build-and-release:
     name: Build & Release WASM Component
+    # Stays on ubuntu-latest: uses sudo apt-get for build-essential, plus cachix/install-nix-action and bazel-contrib/setup-bazel; smithy has no sudo and no Nix or Bazel.
     runs-on: ubuntu-latest
     permissions:
       contents: write

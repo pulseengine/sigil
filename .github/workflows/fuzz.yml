@@ -21,7 +21,7 @@ on:
 jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, lean-mem]
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +75,7 @@ jobs:
   report:
     name: Fuzz Report
     needs: fuzz
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, light]
     if: always()
 
     steps:
