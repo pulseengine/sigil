@@ -30,6 +30,7 @@ env:
 jobs:
   build-matrix:
     name: ${{ matrix.build-system }} on ${{ matrix.os }}
+    # Stays on ubuntu-latest: matrix includes macos-latest and bazel build-system uses cachix/install-nix-action; smithy is Linux-only and doesn't ship Nix or Bazel.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -149,7 +150,7 @@ jobs:
   # Integration tests for keyless signing (requires OIDC)
   keyless-integration:
     name: Keyless Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     permissions:
       id-token: write  # Required for OIDC token
       contents: read
@@ -165,7 +166,7 @@ jobs:
   # Air-gapped verification end-to-end tests
   airgapped-e2e:
     name: Air-Gapped E2E Tests
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     permissions:
       id-token: write  # Required for OIDC token
       contents: read
@@ -186,7 +187,7 @@ jobs:
   # Example: Sign a WASM module and verify with air-gapped flow
   sign-and-verify-example:
     name: Sign & Verify Example
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     permissions:
       id-token: write
       contents: read
@@ -253,7 +254,7 @@ jobs:
   # Rekor verification tests with fresh data
   rekor-verification:
     name: Rekor Verification Tests (Fresh Data)
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -284,7 +285,7 @@ jobs:
   coverage:
     name: Code Coverage
     needs: [build-matrix]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly

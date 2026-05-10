@@ -16,6 +16,7 @@ on:
 jobs:
   publish:
     if: github.repository == 'pulseengine/sigil'
+    # Stays on ubuntu-latest: crates.io trusted publishing via OIDC; keep release publication on a vetted, well-known runner image until self-hosted publication path is independently audited.
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # Required for trusted publishing

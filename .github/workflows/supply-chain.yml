@@ -25,7 +25,7 @@ on:
 jobs:
   cargo-vet:
     name: Cargo Vet
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, light]
     steps:
     - uses: actions/checkout@v4
     - name: Install Rust
@@ -38,6 +38,7 @@ jobs:
 
   cargo-audit:
     name: Cargo Audit
+    # Stays on ubuntu-latest: smithy-shipped cargo-audit's bundled rustsec parser rejects RUSTSEC-2026-0037 ("unsupported CVSS version: 4.0"). Move back once smithy bumps cargo-audit to 0.22.1+.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -59,14 +60,20 @@ jobs:
 
   cargo-deny:
     name: Cargo Deny
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
     - uses: actions/checkout@v4
-    - uses: EmbarkStudios/cargo-deny-action@v2
+    - uses: dtolnay/rust-toolchain@stable
+    # EmbarkStudios/cargo-deny-action@v2 launches a rootless container which
+    # fails on smithy (newuidmap is setuid + NoNewPrivileges=true on the
+    # runner unit). Direct install + invocation, per smithy migration playbook.
+    # bans/licenses/sources only (advisories handled by cargo-audit job).
+    - run: cargo install cargo-deny --locked --version 0.16.4 || true
+    - run: cargo deny check bans licenses sources
 
   mutants:
     name: Mutation Testing
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, lean-mem]
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@nightly
