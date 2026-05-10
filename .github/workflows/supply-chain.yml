@@ -64,12 +64,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
-    # EmbarkStudios/cargo-deny-action@v2 launches a rootless container which
-    # fails on smithy (newuidmap is setuid + NoNewPrivileges=true on the
-    # runner unit). Direct install + invocation, per smithy migration playbook.
-    # bans/licenses/sources only (advisories handled by cargo-audit job).
-    - run: cargo install cargo-deny --locked --version 0.16.4 || true
-    - run: cargo deny check bans licenses sources
+    # EmbarkStudios/cargo-deny-action@v2 runs in a musl container that can't
+    # install the toolchain pinned by rust-toolchain.toml (issue #103). Also
+    # fails on smithy (rootless container + NoNewPrivileges). Install +
+    # invoke cargo-deny directly so the runner's rustup respects the project
+    # toolchain file. bans/licenses/sources only — advisories live in the
+    # cargo-audit job above.
+    - name: Install cargo-deny
+      run: cargo install --locked cargo-deny --version 0.16.4
+    - name: Run cargo deny check
+      run: cargo deny check bans licenses sources
 
   mutants:
     name: Mutation Testing
