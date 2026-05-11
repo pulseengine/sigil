@@ -43,28 +43,106 @@ pub open spec fn spec_pae(
 
 // ── LE64 injectivity ────────────────────────────────────────────────
 
-/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
-/// See `audit/2026-04-30/findings.md` C-1.
+/// LEMMA (CV-22 supporting): little-endian u64 encoding is injective.
 ///
-/// LEMMA (intended): le64 encoding is injective.
-///
-/// To actually discharge: case-split on `a != b` to obtain a bit position
-/// where the two u64s differ; show that bit lives in one of the eight
-/// `spec_le64` byte slots; conclude the corresponding byte differs, so
-/// the resulting `Seq<u8>` differs by `Seq` extensionality. Requires
-/// Verus' bit-vector mode (`assert(...) by(bit_vector)`) plus a `Seq`
-/// extensionality lemma from `vstd`.
+/// Proof approach: contrapositive via byte-wise equality.
+///   1. If the two `Seq<u8>` outputs are equal, all eight indexed bytes
+///      are equal. Indexing `seq![x0..x7][i]` reduces to `xi` directly
+///      from the macro expansion, so each `sa[i] == sb[i]` exposes the
+///      corresponding `(a >> 8*i) & 0xFF` slice.
+///   2. A single `assert(...) by(bit_vector)` call discharges that the
+///      eight byte-slice equalities together imply `a == b`. This is a
+///      pure bit-vector tautology that Verus' bit-vector solver decides
+///      directly — every bit of `a` and `b` is captured by exactly one
+///      of the eight `0xFF`-masked shifts.
+///   3. Combining (1) and (2) under the assumption `sa == sb` yields
+///      `a == b`, contradicting the `requires a != b` precondition.
 pub proof fn lemma_le64_injective(a: u64, b: u64)
     requires a != b,
     ensures spec_le64(a) != spec_le64(b),
 {
-    // Z3 can reason about bitvector operations directly.
-    // The LE64 encoding preserves all bits, so different inputs
-    // produce different byte sequences.
-    // NOTE: Z3 needs help with Seq inequality — use assume for now.
-    // The property is trivially true by construction of spec_le64.
-    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
-    assume(false);
+    let sa = spec_le64(a);
+    let sb = spec_le64(b);
+
+    // Step 1: Bit-vector tautology — if all eight LE byte-slice equalities
+    // hold simultaneously, the u64s themselves are equal. Phrased as a
+    // closed quantifier-free goal in (a, b) so the bit-vector solver
+    // decides it directly. Slices stay as u64 (`0xFF` mask) rather than
+    // `as u8` so the bv backend reasons in a single sort.
+    assert(
+        (
+            (a & 0xFF) == (b & 0xFF)
+            && ((a >> 8) & 0xFF) == ((b >> 8) & 0xFF)
+            && ((a >> 16) & 0xFF) == ((b >> 16) & 0xFF)
+            && ((a >> 24) & 0xFF) == ((b >> 24) & 0xFF)
+            && ((a >> 32) & 0xFF) == ((b >> 32) & 0xFF)
+            && ((a >> 40) & 0xFF) == ((b >> 40) & 0xFF)
+            && ((a >> 48) & 0xFF) == ((b >> 48) & 0xFF)
+            && ((a >> 56) & 0xFF) == ((b >> 56) & 0xFF)
+        ) ==> a == b
+    ) by (bit_vector);
+
+    // Step 2: Bit-vector bridge — `(x & 0xFF) as u8 == (y & 0xFF) as u8`
+    // is equivalent to `(x & 0xFF) == (y & 0xFF)` because the masked
+    // value already fits in u8, so the truncating cast is value-preserving.
+    // Eight concrete instantiations so no triggers are needed.
+    assert((a & 0xFF) as u8 == (b & 0xFF) as u8
+        <==> (a & 0xFF) == (b & 0xFF)) by (bit_vector);
+    assert(((a >> 8) & 0xFF) as u8 == ((b >> 8) & 0xFF) as u8
+        <==> ((a >> 8) & 0xFF) == ((b >> 8) & 0xFF)) by (bit_vector);
+    assert(((a >> 16) & 0xFF) as u8 == ((b >> 16) & 0xFF) as u8
+        <==> ((a >> 16) & 0xFF) == ((b >> 16) & 0xFF)) by (bit_vector);
+    assert(((a >> 24) & 0xFF) as u8 == ((b >> 24) & 0xFF) as u8
+        <==> ((a >> 24) & 0xFF) == ((b >> 24) & 0xFF)) by (bit_vector);
+    assert(((a >> 32) & 0xFF) as u8 == ((b >> 32) & 0xFF) as u8
+        <==> ((a >> 32) & 0xFF) == ((b >> 32) & 0xFF)) by (bit_vector);
+    assert(((a >> 40) & 0xFF) as u8 == ((b >> 40) & 0xFF) as u8
+        <==> ((a >> 40) & 0xFF) == ((b >> 40) & 0xFF)) by (bit_vector);
+    assert(((a >> 48) & 0xFF) as u8 == ((b >> 48) & 0xFF) as u8
+        <==> ((a >> 48) & 0xFF) == ((b >> 48) & 0xFF)) by (bit_vector);
+    assert(((a >> 56) & 0xFF) as u8 == ((b >> 56) & 0xFF) as u8
+        <==> ((a >> 56) & 0xFF) == ((b >> 56) & 0xFF)) by (bit_vector);
+
+    // Step 3: Unfold spec_le64 at every index so each byte of the encoding
+    // is visible to the SMT solver as the exact masked-shift slice. These
+    // identities hold unconditionally (by the macro/spec definition of
+    // `spec_le64`), not as a claim about the two encodings agreeing.
+    assert(sa[0] == (a & 0xFF) as u8);
+    assert(sa[1] == ((a >> 8) & 0xFF) as u8);
+    assert(sa[2] == ((a >> 16) & 0xFF) as u8);
+    assert(sa[3] == ((a >> 24) & 0xFF) as u8);
+    assert(sa[4] == ((a >> 32) & 0xFF) as u8);
+    assert(sa[5] == ((a >> 40) & 0xFF) as u8);
+    assert(sa[6] == ((a >> 48) & 0xFF) as u8);
+    assert(sa[7] == ((a >> 56) & 0xFF) as u8);
+    assert(sb[0] == (b & 0xFF) as u8);
+    assert(sb[1] == ((b >> 8) & 0xFF) as u8);
+    assert(sb[2] == ((b >> 16) & 0xFF) as u8);
+    assert(sb[3] == ((b >> 24) & 0xFF) as u8);
+    assert(sb[4] == ((b >> 32) & 0xFF) as u8);
+    assert(sb[5] == ((b >> 40) & 0xFF) as u8);
+    assert(sb[6] == ((b >> 48) & 0xFF) as u8);
+    assert(sb[7] == ((b >> 56) & 0xFF) as u8);
+    assert(sa.len() == 8);
+    assert(sb.len() == 8);
+
+    // Step 4: Explicit contradiction in the equal-encoding case. Verus
+    // takes the conditional as a hint to specialise reasoning to the
+    // `sa == sb` branch, where congruence over `==` gives byte equalities
+    // that, via the bridges (Step 2) and the bit-vector tautology (Step 1),
+    // force `a == b` — contradicting `requires a != b`. Outside the
+    // branch, the goal `sa != sb` follows trivially.
+    if sa == sb {
+        assert(sa[0] == sb[0]);
+        assert(sa[1] == sb[1]);
+        assert(sa[2] == sb[2]);
+        assert(sa[3] == sb[3]);
+        assert(sa[4] == sb[4]);
+        assert(sa[5] == sb[5]);
+        assert(sa[6] == sb[6]);
+        assert(sa[7] == sb[7]);
+        assert(a == b);
+    }
 }
 
 // ── PAE injectivity ─────────────────────────────────────────────────
