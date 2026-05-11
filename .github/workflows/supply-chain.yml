@@ -47,6 +47,11 @@ jobs:
     - name: Install cargo-audit
       run: cargo install --locked cargo-audit
     - name: Run cargo audit
+      # Ignore list stays in sync with deny.toml [advisories].ignore.
+      # RUSTSEC-2026-0097 (rand): bumped to 0.9.4 in this branch to clear
+      # the 0.9.x instance; the residual 0.8.5 transitive via regorus
+      # cannot be patched until regorus 0.3+ ships. wsc does not use
+      # custom rand loggers, so the unsoundness does not affect us.
       run: |
         cargo audit \
           --ignore RUSTSEC-2025-0046 \
@@ -56,7 +61,8 @@ jobs:
           --ignore RUSTSEC-2026-0021 \
           --ignore RUSTSEC-2025-0057 \
           --ignore RUSTSEC-2025-0134 \
-          --ignore RUSTSEC-2024-0436
+          --ignore RUSTSEC-2024-0436 \
+          --ignore RUSTSEC-2026-0097
 
   cargo-deny:
     name: Cargo Deny
