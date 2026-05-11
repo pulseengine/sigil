@@ -3,6 +3,93 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] — 2026-05-11
+
+Audit-followup patch release. Clears three supply-chain advisories,
+repairs CI hygiene from the 2026-04-30 audit, discharges one previously-
+relabelled Verus admit, and repairs a broken fuzz target. No public-API
+changes.
+
+### Security
+
+- **Clear RUSTSEC-2026-0097 (`rand` 0.9.x line)** — bumped `rand`
+  0.9.2 → 0.9.4 via `cargo update`. The residual `rand 0.8.5`
+  transitive (via `regorus`, the OPA / Rego policy engine) cannot be
+  patched until upstream `regorus` releases with `rand = "0.9"+`;
+  `wsc` does not use custom rand loggers so the unsoundness does not
+  affect us. `deny.toml` already carried this justification; the
+  `cargo audit` step in `supply-chain.yml` now matches. (PR #110,
+  fixes #102.)
+- **Clear RUSTSEC-2026-0114 (`wasmtime` panic on table allocation)** —
+  bumped `wasmtime` 43.0.1 → 43.0.2 via `cargo update`. (PR #110.)
+- **Clear RUSTSEC-2026-0104 (`rustls-webpki` CRL parsing panic)** —
+  bumped `rustls-webpki` 0.103.12 → 0.103.13 via `cargo update`.
+  (PR #110.)
+
+### Honesty
+
+- **Discharge first Verus `assume(false)`** — `lemma_le64_injective`
+  in `src/lib/src/verus_proofs/dsse_proofs.rs` is now an actual proof,
+  not a relabelled specification. The proof uses `assert ... by(bit_vector)`
+  on the byte-mask equality and explicit unfolding of `spec_le64`'s
+  indexed bytes. The other Verus admits remain marked SPECIFICATION
+  ONLY per audit C-1; the Verus CI job keeps its `continue-on-error`
+  mask until more admits are discharged. (PR #108, refs audit C-1.)
+- **Lift Kani `wasm_module` matrix mask** — the matrix entry was
+  filtering on `wasm_module::tests`, which matched zero harnesses
+  (Kani exits non-zero on no-match). The harness module is actually
+  `wasm_module::component_proofs`. Updated the filter and lifted
+  `continue-on-error` for that entry. The single harness
+  (`proof_component_module_header_mutual_exclusivity`) runs cleanly.
+  Kani `merkle` and `format` masks retained with per-harness
+  diagnostic comments. (PR #112, refs audit C-7.)
+
+### CI hygiene
+
+- **Cargo Deny step hardening** — remove `|| true` that was
+  silently swallowing install failures; add explicit step names;
+  reword the rationale comment to reference `rust-toolchain.toml`
+  and `rules_unprivileged_userns_clone` (the actual root cause that
+  PR #106 addressed). (PR #107, fixes #103.)
+
+### Fixed
+
+- **Repair `fuzz_public_key.rs`** — the target referenced four APIs
+  that had been removed from `SecretKey` / `PublicKey`
+  (`from_openssh`, `from_any`). Rewritten against the current surface
+  with round-trip preservation, PEM, and DER oracles. Module-level
+  comment documents the dropped APIs to prevent reintroduction.
+  (PR #109, original flag from audit PR #98.)
+
+### Deferred
+
+The following audit items remain open and are tracked separately:
+
+- **C-4 / #95** — enforce SPKI cert pinning at the TLS layer
+  (ureq → rustls-direct migration).
+- **M-1 ff / #79 comment** — `no_std` verifier path for embedded /
+  cFS targets.
+- **C-1 (partial)** — discharge the remaining Verus admits
+  (`theorem_pae_injective_on_types`, `theorem_pae_injective_on_payloads`,
+  `theorem_domain_separation`, `theorem_content_type_separation`,
+  `lemma_leaf_node_domain_separation`).
+- **Kani `merkle` / `format` mask removal** — depends on harness
+  rework (sha2 unwind > 4, SMT state-space blow-up).
+- **#88 follow-up** — extend Kani harness coverage to more parser
+  paths beyond varint / DSSE.
+- **#89** — criterion benches CI integration (the bench harness lands
+  in **PR #111**; CI gating deferred to a follow-up).
+- **#46** — post-quantum SLH-DSA signature backend.
+- **#91** — MIRAI abstract-interpretation prototype.
+
+### Contributors
+
+PRs in this release: #107 (cargo-deny), #108 (Verus discharge), #109
+(fuzz repair), #110 (RUSTSEC bumps). Companion work landing on
+0.8.2+next: #111 (criterion benches, #89), #112 (Kani mask lift).
+
+[0.8.2]: https://github.com/pulseengine/sigil/compare/v0.8.1...v0.8.2
+
 ## [0.8.1] — 2026-04-30
 
 Audit-driven hardening release. Closes 26 of 33 findings from the
