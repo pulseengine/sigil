@@ -459,6 +459,12 @@ mod tests {
 // ============================================================================
 // Kani proof harnesses for Merkle tree operations
 // ============================================================================
+//
+// AUDIT C-7 (partial closure): the `Kani merkle` matrix entry remains
+// masked (continue-on-error). proof_largest_power_of_two_* run cleanly,
+// but the three SHA-256-touching harnesses (proof_leaf_node_domain_separation,
+// proof_leaf_hash_deterministic, proof_node_hash_deterministic) do not pass
+// at --default-unwind 4 — see per-harness doc-comments below for diagnosis.
 #[cfg(kani)]
 mod proofs {
     use super::*;
@@ -504,6 +510,19 @@ mod proofs {
     ///
     /// This is the domain separation property: leaf hash uses 0x00 prefix,
     /// node hash uses 0x01 prefix, so they cannot collide.
+    ///
+    /// AUDIT C-7 (partial closure) — currently masked in CI.
+    /// This harness is unprovable with Kani as written:
+    ///   1. Verifying assert_ne! on two SHA-256 outputs requires reasoning
+    ///      about SHA-256 collision-resistance — a cryptographic assumption,
+    ///      not a computational property bounded model checking can discharge.
+    ///   2. Even setting that aside, the sha2 crate's compression loop runs
+    ///      64 rounds; --default-unwind 4 cannot unroll it, so the harness
+    ///      hits an unwinding-assertion failure before reaching the assert.
+    /// To make this prov-able the leaf/node domain-separation property should
+    /// be moved to a tool that can model SHA-256 as an uninterpreted function
+    /// (e.g. Verus or Lean axiomatisation). Until then, the prefix-byte check
+    /// in #[cfg(test)] (test_node_hash_computation) is the operational guard.
     #[kani::proof]
     fn proof_leaf_node_domain_separation() {
         // For a 64-byte input that could be interpreted as either a leaf or
@@ -524,6 +543,14 @@ mod proofs {
     }
 
     /// Prove: compute_leaf_hash is deterministic.
+    ///
+    /// AUDIT C-7 (partial closure) — currently masked in CI.
+    /// Determinism is trivial for any pure Rust function, but Kani still
+    /// has to fully symbolically execute the SHA-256 compression on both
+    /// calls. That loop is 64 rounds, so --default-unwind 4 produces an
+    /// unwinding-assertion failure long before the assert_eq is reached.
+    /// A per-harness #[kani::unwind(65)] is necessary; even then Kani's
+    /// SMT backend may time out within the 60-minute job budget.
     #[kani::proof]
     fn proof_leaf_hash_deterministic() {
         let b0: u8 = kani::any();
@@ -536,6 +563,12 @@ mod proofs {
     }
 
     /// Prove: compute_node_hash is deterministic.
+    ///
+    /// AUDIT C-7 (partial closure) — currently masked in CI.
+    /// Same blocker as proof_leaf_hash_deterministic: SHA-256's 64-round
+    /// compression loop is too deep for --default-unwind 4 and a per-harness
+    /// #[kani::unwind(65)] may still hit SMT timeout because inputs are two
+    /// fully-symbolic 32-byte arrays.
     #[kani::proof]
     fn proof_node_hash_deterministic() {
         let l: [u8; 32] = [kani::any(); 32];

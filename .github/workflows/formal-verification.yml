@@ -64,14 +64,38 @@ jobs:
         include:
           - module: varint
             harness: wasm_module::varint
+            tolerate_failure: false
           - module: merkle
             harness: signature::keyless::merkle
+            # WIP — see audit C-7 partial closure. Three of the five harnesses
+            # in this module call SHA-256 with symbolic input; the sha2 crate's
+            # 64-round compression loop exceeds --default-unwind 4. Bumping the
+            # per-harness #[kani::unwind] is necessary but may still hit Kani
+            # SMT timeouts on SHA-256. proof_leaf_node_domain_separation also
+            # asks Kani to prove SHA-256 collision-resistance, which is outside
+            # the scope of bounded model checking entirely.
+            tolerate_failure: true
           - module: dsse
             harness: dsse
+            tolerate_failure: false
           - module: format
             harness: format
+            # WIP — see audit C-7 partial closure. CI observation: the format
+            # harnesses fail under cargo kani --default-unwind 4 despite static
+            # analysis showing the properties are sound and loop-free. Suspected
+            # root cause is Kani SMT slowness on 4 fully-symbolic bytes combined
+            # with multiple equality checks (similar to the documented blow-up
+            # noted in proof_consistency_validation_agrees_with_detection).
+            # Next attempt: try concretizing each magic-byte pattern as its own
+            # harness rather than enumerating in one 4-byte-symbolic harness.
+            tolerate_failure: true
           - module: wasm_module
-            harness: wasm_module::tests
+            # Filter was wasm_module::tests, which matched no harness (the
+            # module is named component_proofs, not tests). Fixed in this PR
+            # so the single harness — header mutual-exclusivity, no loops, no
+            # crypto — actually runs.
+            harness: wasm_module::component_proofs
+            tolerate_failure: false
     steps:
     - uses: actions/checkout@v4
 
@@ -85,18 +109,16 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    # Audit 2026-04-30 finding C-7 (partial): on inspection, several
-    # matrix jobs (format, merkle, wasm_module) fail when continue-on-error
-    # is removed. The harnesses cover specific bounded properties and not
-    # all are passing today. Mask retained per-job until the failing
-    # harnesses are fixed; varint and dsse pass cleanly today and could be
-    # ungated in a follow-up.
+    # Audit 2026-04-30 finding C-7 (partial): mask is now per-matrix-entry via
+    # matrix.tolerate_failure. varint, dsse, and wasm_module run unmasked;
+    # merkle and format remain masked with diagnosis at the matrix include
+    # site above and in the harness doc-comments.
     - name: Run Kani ${{ matrix.module }} proofs
       env:
         HARNESS: ${{ matrix.harness }}
       run: cargo kani -p wsc --default-unwind 4 --output-format terse --harness "$HARNESS"
       timeout-minutes: 60
-      continue-on-error: true  # WIP — see audit C-7 partial closure
+      continue-on-error: ${{ matrix.tolerate_failure }}
 
   rocq-proofs:
     name: Rocq/coq-of-rust Translation
