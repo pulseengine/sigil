@@ -1026,10 +1026,23 @@ mod tests {
 // ============================================================================
 // Kani proof harnesses for WASM module/component headers
 // ============================================================================
+//
+// AUDIT C-7 (partial closure): the `Kani wasm_module` matrix entry is
+// unmasked as of this PR. The previous workflow filter was
+// `--harness wasm_module::tests`, which matched zero harnesses (this module
+// is named `component_proofs`, not `tests`) and therefore caused Kani to
+// exit non-zero. The workflow now uses `wasm_module::component_proofs`.
+//
+// The single harness below has no loops and no crypto; it should run in
+// well under a minute at --default-unwind 4.
 #[cfg(kani)]
 mod component_proofs {
     use super::*;
 
+    /// Prove: a WASM module header and a WASM component header are mutually
+    /// exclusive. They share the first four magic bytes (\0asm) but differ at
+    /// byte 4 (0x01 for modules, 0x0d for components), so no 8-byte sequence
+    /// can satisfy both.
     #[kani::proof]
     fn proof_component_module_header_mutual_exclusivity() {
         let b: [u8; 8] = kani::any();

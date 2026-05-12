@@ -205,6 +205,26 @@ mod tests {
 // ============================================================================
 // Kani proof harnesses for format detection
 // ============================================================================
+//
+// AUDIT C-7 (partial closure): the `Kani format` matrix entry remains masked
+// (continue-on-error). Static analysis of the four harnesses below shows the
+// properties are sound, loop-free, and operate on small symbolic inputs (4
+// bytes max). They should all pass — but they do not, on CI, with
+// `cargo kani -p wsc --default-unwind 4 --harness format`.
+//
+// Suspected causes, to investigate next:
+//   1. `proof_consistency_validation_agrees_with_detection` already documents
+//      that the previous variant blew up the SMT state space via `format!()`
+//      in an unreachable error path. The current variant inlines the logic,
+//      but the same Kani slowness pattern may apply to other harnesses too.
+//   2. assert_ne! on &'static str compiles to a length+pointer/byte compare;
+//      Kani may force evaluation of both sides as symbolic, ballooning state.
+//   3. The 4-byte fully-symbolic input space (~4 billion combinations) is
+//      tractable for SMT only if the equality checks short-circuit cleanly;
+//      a Kani version regression could change this.
+// Next-attempt direction: split each magic-byte pattern into its own
+// per-pattern harness (concrete on one pattern, symbolic on the others) to
+// localize whichever harness is hanging. Until then this job stays masked.
 #[cfg(kani)]
 mod proofs {
     use super::*;
