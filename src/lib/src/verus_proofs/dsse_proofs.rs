@@ -147,18 +147,26 @@ pub proof fn lemma_le64_injective(a: u64, b: u64)
 
 // ── PAE injectivity ─────────────────────────────────────────────────
 
-/// **SPECIFICATION ONLY** — proof obligation not yet discharged.
-/// See `audit/2026-04-30/findings.md` C-1. Despite the `theorem_` prefix,
-/// the body currently relies on `assume(false)` and proves nothing.
+/// THEOREM (CV-22, part 1): PAE is injective over the payload-type
+/// component. If `type1 != type2`, the PAE encodings differ regardless
+/// of which (common) payload is appended.
 ///
-/// SPEC (intended) — CV-22, part 1: PAE is injective over payload types.
+/// Proof structure (contrapositive on `pae1 == pae2`):
 ///
-/// To actually discharge: case-split on `type1.len() == type2.len()`.
-/// If lengths differ, `lemma_le64_injective` makes the `type_len` bytes
-/// at offset 8..16 differ. If lengths are equal but contents differ,
-/// `Seq` extensionality gives an index `i` where `type1[i] != type2[i]`,
-/// which lifts to offset `16 + i` of the concatenation. Requires `Seq::add`
-/// indexing lemmas from `vstd::seq_lib`.
+///   1. **Structural length.** Each `add` adds `Seq` lengths, so
+///      `spec_pae(t, p).len() == 24 + t.len() + p.len()`. Equality of
+///      the full encodings therefore forces `type1.len() == type2.len()`
+///      directly — without needing `lemma_le64_injective`, which was the
+///      original plan but turns out to be redundant because `Seq::add`
+///      already exposes the length structurally.
+///   2. **Byte-by-byte at the type slot.** For `0 <= i < type1.len()`,
+///      byte `16 + i` of `spec_pae(t, p)` equals `t[i]`. This is just
+///      iterated `Seq::add` indexing: the first two `add`s contribute
+///      bytes 0..16 (item_count, type_len), the third `add` puts the
+///      type bytes at offsets 16..16+t.len(), and the final two `add`s
+///      do not perturb earlier indices.
+///   3. **Extensionality.** Same length + byte-wise equality lifts to
+///      `type1 =~= type2`, contradicting `requires type1 != type2`.
 pub proof fn theorem_pae_injective_on_types(
     type1: Seq<u8>,
     type2: Seq<u8>,
@@ -167,13 +175,100 @@ pub proof fn theorem_pae_injective_on_types(
     requires type1 != type2,
     ensures spec_pae(type1, payload) != spec_pae(type2, payload),
 {
-    // PAE includes explicit length fields before each component.
-    // If types differ in length, the le64-encoded length bytes differ.
-    // If types have equal length but different content, the type
-    // bytes at offset 16..16+len differ.
-    // NOTE: Requires Seq::add injectivity lemmas from vstd.
-    // ADMITTED — see SPECIFICATION ONLY block above. Audit C-1 (2026-04-30).
-    assume(false);
+    let ic = spec_le64(2);
+    let tl1 = spec_le64(type1.len() as u64);
+    let tl2 = spec_le64(type2.len() as u64);
+    let pl = spec_le64(payload.len() as u64);
+    let pae1 = spec_pae(type1, payload);
+    let pae2 = spec_pae(type2, payload);
+
+    // ── Step 1: length of every prefix ────────────────────────────────
+    // `spec_le64` always produces a length-8 sequence (8 explicit
+    // elements in the `seq!` macro). Verus sees this by unfolding the
+    // `seq![..]` expansion.
+    assert(ic.len() == 8);
+    assert(tl1.len() == 8);
+    assert(tl2.len() == 8);
+    assert(pl.len() == 8);
+
+    // `Seq::add` is total and length-additive; these are pure facts
+    // about `+` on sequence lengths.
+    let s1a = ic.add(tl1);                          // len 16
+    let s1b = s1a.add(type1);                        // len 16 + |type1|
+    let s1c = s1b.add(pl);                           // len 24 + |type1|
+    let s1d = s1c.add(payload);                      // len 24 + |type1| + |payload|
+    assert(s1a.len() == 16);
+    assert(s1b.len() == 16 + type1.len());
+    assert(s1c.len() == 24 + type1.len());
+    assert(s1d.len() == 24 + type1.len() + payload.len());
+    assert(pae1 == s1d);
+
+    let s2a = ic.add(tl2);
+    let s2b = s2a.add(type2);
+    let s2c = s2b.add(pl);
+    let s2d = s2c.add(payload);
+    assert(s2a.len() == 16);
+    assert(s2b.len() == 16 + type2.len());
+    assert(s2c.len() == 24 + type2.len());
+    assert(s2d.len() == 24 + type2.len() + payload.len());
+    assert(pae2 == s2d);
+
+    // ── Step 2: contrapositive ────────────────────────────────────────
+    if pae1 == pae2 {
+        // Total lengths match ⇒ |type1| == |type2|.
+        assert(pae1.len() == pae2.len());
+        assert(24 + type1.len() + payload.len()
+            == 24 + type2.len() + payload.len());
+        assert(type1.len() == type2.len());
+
+        // For every i in [0, type1.len()), expose
+        //   pae1[16 + i] == type1[i]   and   pae2[16 + i] == type2[i].
+        //
+        // Proof per index: with offset `off = 16 + i` and `i' = off - 16`,
+        //   - `s1b[off] == type1[i']` by `Seq::add` indexing on
+        //     `ic.add(tl1).add(type1)`, since `off >= 16 == s1a.len()`
+        //     and `i' < type1.len()`.
+        //   - `s1c[off] == s1b[off]` because `off < s1b.len() == s1c.len() - 8`,
+        //     so the `add(pl)` does not affect this index.
+        //   - `s1d[off] == s1c[off]` for the same reason on `add(payload)`.
+        //   Combined: `pae1[off] == type1[i]`.
+        // The same chain applies symmetrically to pae2.
+        assert forall|i: int| 0 <= i < type1.len() implies type1[i] == type2[i] by {
+            let off = 16 + i;
+            assert(0 <= off);
+            assert(off < pae1.len());
+
+            // pae1[off] == type1[i]
+            assert(s1a.len() == 16);
+            assert(off >= s1a.len());
+            assert(off - s1a.len() == i);
+            assert(off - s1a.len() < type1.len());
+            assert(s1b[off] == type1[i]);
+            assert(off < s1b.len());
+            assert(s1c[off] == s1b[off]);
+            assert(s1d[off] == s1c[off]);
+            assert(pae1[off] == type1[i]);
+
+            // pae2[off] == type2[i]
+            assert(s2a.len() == 16);
+            assert(off >= s2a.len());
+            assert(off - s2a.len() == i);
+            assert(off - s2a.len() < type2.len());
+            assert(s2b[off] == type2[i]);
+            assert(off < s2b.len());
+            assert(s2c[off] == s2b[off]);
+            assert(s2d[off] == s2c[off]);
+            assert(pae2[off] == type2[i]);
+
+            // Equality of pae1 and pae2 at this index forces the
+            // type-bytes to agree.
+            assert(pae1[off] == pae2[off]);
+        };
+
+        // Extensionality: same length + agree at every index ⇒ equal.
+        assert(type1 =~= type2);
+        assert(type1 == type2);
+    }
 }
 
 /// **SPECIFICATION ONLY** — proof obligation not yet discharged.
