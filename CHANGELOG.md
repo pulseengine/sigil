@@ -3,6 +3,92 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] — 2026-05-16
+
+Audit-followup continuation. Closes the residual security-ignore-list
+entry from v0.8.2, restructures the Kani matrix masking pattern, and
+lands a second Verus proof attempt. No public-API changes; mostly
+hygiene-and-honesty work.
+
+### Security
+
+- **Bump regorus 0.2.8 → 0.10 to fully clear RUSTSEC-2026-0097**
+  (PR #115). The audit fix in v0.8.2 bumped `rand` 0.9.x to 0.9.4 but
+  left the residual `rand 0.8.5` (transitive via regorus) under an
+  `--ignore RUSTSEC-2026-0097` flag in `supply-chain.yml` + `deny.toml`.
+  regorus 0.10 drops the rand 0.8.5 transitive entirely; both ignore
+  entries removed. Net effect: `cargo audit` returns 0 vulnerabilities
+  (the only remaining entry is `rustls-pemfile`, which is unmaintained
+  upstream and stays in the ignore list pending upstream deprecation).
+- **Surfaced an out-of-band finding: Sigstore Fulcio cert rotation**
+  invalidated sigil's pinned fingerprints (filed as issue #117). The
+  pin set in `cert_pinning.rs::fulcio_production()` is stale as of
+  2026-05-16; the keyless integration test catches this when run.
+  Resolution scope: update the pin set + add a monitoring job. Not
+  blocking this release because audit C-4 (issue #95) documented that
+  pinning is currently warn-only — the mismatch is logged, not
+  fail-closed.
+
+### Honesty
+
+- **Second Verus admit attempt: `theorem_pae_injective_on_types`**
+  (PR #116). Replaces `assume(false)` with an explicit ~70-line proof
+  using `Seq::add` indexing axioms and length-additive structural
+  reasoning, building on PR #108's discharge of `lemma_le64_injective`.
+  The proof has not yet been validated by Verus — CI's Bazel-side
+  toolchain dependency on Nix was unavailable on the run that would
+  have checked it, and the Verus job carries `continue-on-error: true`
+  per audit C-1. Even if Verus eventually rejects the attempt, the
+  structured `assert` chain is a substantive improvement on the bare
+  admit and gives the next attempt a concrete starting point.
+- **Kani matrix mask is now per-job and documented** (PR #112). The
+  filter for `wasm_module` was renaming-bug — it pointed at a module
+  named `tests` that doesn't exist; the real module is `component_proofs`.
+  Filter fixed. The unwind-loop failures that came out once the filter
+  matched real harnesses (in `wasm_module`, `dsse`, `merkle`, `format`)
+  are now masked per-entry via a `tolerate_failure` matrix field, with
+  inline diagnostic comments explaining what the next attempt needs
+  (per-harness `#[kani::unwind(N)]` or rewriting equality checks).
+
+### Documentation
+
+- **Cerisier formalization companion docs** (PR #114) added to
+  `docs/security/`:
+  - `attestation-cerisier-mapping.md` — translates each sigil
+    attestation primitive into Cerisier's program-logic vocabulary,
+    identifies four extension gaps (G1 time-indexed predicates,
+    G2 cross-scheme transitions, G3 content-addressed store,
+    G4 key rotation).
+  - `attestation-trust-scenarios.md` — three concrete trust-evolution
+    scenarios (cross-scheme PQ migration, admits in proof chain, key
+    rotation) with proposed Cerisier-style judgements.
+
+  Companion blog post on pulseengine.eu:
+  *"Reasoning about attestation chains: from TrustMee to Cerisier"*
+  (published 2026-05-11).
+
+### Deferred (still tracked)
+
+- **#117** — Sigstore Fulcio cert pin rotation (new this release).
+- **#95** — enforce SPKI cert pinning at the TLS layer (audit C-4).
+- **#79** — `no_std` verifier path for embedded / cFS targets.
+- **#46** — post-quantum SLH-DSA backend.
+- **#91** — MIRAI abstract-interpretation prototype.
+- **#88 follow-up** — extend Kani harness coverage beyond varint;
+  needs per-harness `#[kani::unwind]` for the masked entries.
+- **Audit C-1 (further)** — discharge the remaining Verus admits
+  (`theorem_pae_injective_on_payloads`, `theorem_domain_separation`,
+  `theorem_content_type_separation`, plus the merkle_proofs.rs admits).
+
+### Contributors
+
+PRs in this release: #112 (Kani matrix), #114 (Cerisier docs),
+#115 (regorus bump), #116 (Verus proof attempt). #111 (criterion
+benches, implements #89) also landed in this cycle but is not
+release-coupled.
+
+[0.8.3]: https://github.com/pulseengine/sigil/compare/v0.8.2...v0.8.3
+
 ## [0.8.2] — 2026-05-11
 
 Audit-followup patch release. Clears three supply-chain advisories,
