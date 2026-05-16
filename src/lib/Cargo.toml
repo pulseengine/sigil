@@ -86,7 +86,7 @@ optional = true
 # Rego policy language support (optional, for power users)
 # Regorus is Microsoft's fast Rust implementation of OPA/Rego
 [dependencies.regorus]
-version = "0.2"
+version = "0.10"
 optional = true
 
 # Wasmtime runtime for hosting WASM components (optional)
