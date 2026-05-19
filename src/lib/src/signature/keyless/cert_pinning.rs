@@ -85,9 +85,19 @@ use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 /// Sigstore uses Google Trust Services certificates (GTS Root R1 -> GTS WR3 -> fulcio.sigstore.dev)
 /// We pin the leaf SPKI and the intermediate CA SPKI for defense in depth.
 const FULCIO_PRODUCTION_PINS: &[&str] = &[
-    // fulcio.sigstore.dev leaf SPKI (updated 2026-04-14)
+    // fulcio.sigstore.dev leaf SPKI (added 2026-05-19 after Sigstore
+    // rotated the leaf; verified via direct `openssl s_client` fetch
+    // and chain identity check — issuer = Google Trust Services / WR3,
+    // subject CN = fulcio.sigstore.dev. See issue #117 for the
+    // operational discovery story.)
+    "e30da317897121cb8fba4b1285d4d51207dfbe6272c245bc1c19694317658275",
+    // fulcio.sigstore.dev previous leaf SPKI (kept for transition /
+    // rollback safety; remove on the next rotation if Sigstore does
+    // not roll back to this leaf.)
     "6611c54b2960f4ed00fef7be46e6ea6541f38e65b039f756b87c0825c0f67df4",
-    // Google Trust Services WR3 intermediate CA SPKI
+    // Google Trust Services WR3 intermediate CA SPKI (unchanged
+    // across the 2026-05 rotation; only the Fulcio leaf rotated, not
+    // the issuing intermediate.)
     "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
