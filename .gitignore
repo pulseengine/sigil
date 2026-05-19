@@ -47,3 +47,7 @@ wasmsign2
 # Nix / direnv
 .direnv/
 result
+
+# Local audit working notes (intentionally untracked — formal findings
+# land in docs/security/ once distilled).
+/audit/
