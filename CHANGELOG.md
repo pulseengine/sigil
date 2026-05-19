@@ -3,6 +3,58 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] — 2026-05-19
+
+Hotfix release. Single-commit content: rotate the pinned Fulcio leaf
+SPKI to the new Sigstore-issued cert.
+
+### Why this exists
+
+v0.8.3 tagged cleanly and shipped to crates.io, but the
+`release.yml::Build & Release WASM Component` job failed (and so the
+GitHub Release object for v0.8.3 was never created) because Sigstore
+rotated the `fulcio.sigstore.dev` leaf certificate between the pin
+set's last update (2026-04-14, leaf `6611c54b...`) and the v0.8.3
+release date (2026-05-16, observed leaf `e30da317...`). The keyless
+signing flow correctly fail-closed on the pin mismatch.
+
+This release bumps the version, lands the pin fix from PR #119, and
+re-triggers `release.yml` at a tag (v0.8.4) whose code does contain
+the new pin. The crates.io packages already at 0.8.3 are unaffected;
+v0.8.4 will publish over them as the canonical version going forward.
+
+### Changed
+
+- `src/lib/src/signature/keyless/cert_pinning.rs` —
+  `FULCIO_PRODUCTION_PINS` adds the new leaf SPKI
+  `e30da317897121cb8fba4b1285d4d51207dfbe6272c245bc1c19694317658275`.
+  Verified by direct `openssl s_client` fetch; chain identity
+  (subject CN, issuer `Google Trust Services WR3`) cross-checked.
+  Previous leaf retained for transition / rollback safety. GTS WR3
+  intermediate pin and Rekor leaf pin both unchanged and re-verified.
+
+### Audit observation
+
+The v0.8.3 release-blocking failure provided strong evidence that
+audit C-4 (issue #95) was partly mis-framed: cert pinning **is**
+enforced today on the keyless HTTP path (post-handshake check, fail-
+closed), even though it is not enforced at the rustls handshake
+layer. The right framing for #95 is "move enforcement to the
+handshake layer for defense-in-depth", not "enable enforcement".
+
+### Operational follow-up (issue thread)
+
+A scheduled "compare live SPKI vs pinned set" job would surface the
+next Sigstore rotation **before** it blocks a release rather than
+after. Tracked as a follow-up to #117 (already filed and closed by
+this PR), not blocking.
+
+### Contributors
+
+PRs in this release: #119 (Fulcio pin rotation).
+
+[0.8.4]: https://github.com/pulseengine/sigil/compare/v0.8.3...v0.8.4
+
 ## [0.8.3] — 2026-05-16
 
 Audit-followup continuation. Closes the residual security-ignore-list
