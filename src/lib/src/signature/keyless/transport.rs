@@ -257,10 +257,12 @@ pub fn create_standard_agent() -> ureq::Agent {
 
 /// Create an HTTP agent with optional certificate pinning.
 ///
-/// This is the recommended function for creating HTTP clients. It automatically:
-/// - Enables certificate pinning if a valid `PinningConfig` is provided
-/// - Falls back to standard WebPKI if pinning config is empty or fails
-/// - Respects `WSC_REQUIRE_CERT_PINNING` environment variable
+/// This is the recommended function for creating HTTP clients:
+/// - When a non-empty `PinningConfig` is supplied, pinning is **mandatory** —
+///   the pinned agent is built or a hard error is returned. There is no
+///   silent downgrade to unpinned TLS. (This closes audit finding C-4.)
+/// - When no pins are supplied, the caller has explicitly opted out and a
+///   standard WebPKI agent is returned.
 ///
 /// # Arguments
 /// * `pinning` - Optional certificate pinning configuration
@@ -269,38 +271,34 @@ pub fn create_standard_agent() -> ureq::Agent {
 /// A configured ureq::Agent
 ///
 /// # Errors
-/// Returns error only if `WSC_REQUIRE_CERT_PINNING=1` and pinning cannot be configured
+/// Returns `WSError::CertificatePinningError` if a non-empty pin set is
+/// supplied but the pinned agent cannot be constructed.
+///
+/// # Deprecated environment variable
+/// `WSC_REQUIRE_CERT_PINNING` is retained for backwards compatibility but is
+/// redundant: pinning is now unconditionally enforced whenever a non-empty
+/// pin set is supplied. The Sigstore production path (`PinningConfig::fulcio`,
+/// `PinningConfig::rekor`) always supplies one. The variable now only affects
+/// the explicit no-pins opt-out branch below.
 #[cfg(not(target_os = "wasi"))]
 pub fn create_agent_with_optional_pinning(
     pinning: Option<PinningConfig>,
 ) -> Result<ureq::Agent, WSError> {
-    let require_pinning = std::env::var("WSC_REQUIRE_CERT_PINNING")
-        .unwrap_or_default()
-        == "1";
-
     match pinning {
-        Some(config) if config.is_enabled() => {
-            match create_pinned_agent(config) {
-                Ok(agent) => Ok(agent),
-                Err(e) => {
-                    if require_pinning {
-                        Err(e)
-                    } else {
-                        log::warn!("Failed to enable certificate pinning: {}. Falling back to standard TLS.", e);
-                        Ok(create_standard_agent())
-                    }
-                }
-            }
-        }
+        // Pins are configured: pinning is MANDATORY. A configured pin set
+        // must never silently downgrade to unpinned TLS — that silent
+        // posture downgrade was audit finding C-4. Any failure to build the
+        // pinned agent is propagated as a hard error.
+        Some(config) if config.is_enabled() => create_pinned_agent(config),
+        // No pins configured: the caller explicitly opted out of pinning.
         _ => {
-            if require_pinning {
-                Err(WSError::CertificatePinningError(
-                    "Certificate pinning required (WSC_REQUIRE_CERT_PINNING=1) but no pins configured".to_string()
-                ))
-            } else {
-                log::debug!("Certificate pinning disabled, using standard TLS");
-                Ok(create_standard_agent())
+            if std::env::var("WSC_REQUIRE_CERT_PINNING").unwrap_or_default() == "1" {
+                return Err(WSError::CertificatePinningError(
+                    "Certificate pinning required (WSC_REQUIRE_CERT_PINNING=1) but no pins configured".to_string(),
+                ));
             }
+            log::debug!("Certificate pinning disabled, using standard TLS");
+            Ok(create_standard_agent())
         }
     }
 }
