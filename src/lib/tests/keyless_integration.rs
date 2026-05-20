@@ -93,7 +93,7 @@ fn test_github_actions_keyless_signing() {
     println!("\n🔐 Testing Rekor verification with REAL production data...");
 
     use wsc::keyless::RekorClient;
-    let rekor_client = RekorClient::new();
+    let rekor_client = RekorClient::new().expect("pinned Rekor client");
     let verification_result = rekor_client.verify_inclusion(&signature.rekor_entry);
 
     match &verification_result {

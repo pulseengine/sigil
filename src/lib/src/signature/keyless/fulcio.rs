@@ -89,10 +89,11 @@ impl FulcioClient {
     ///
     /// # Certificate Pinning
     ///
-    /// Certificate pinning is ENFORCED by default using embedded pins for Sigstore
-    /// production infrastructure. Custom pins can be set via `WSC_FULCIO_PINS`.
-    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
-    pub fn new() -> Self {
+    /// Certificate pinning is unconditionally ENFORCED using embedded pins for
+    /// Sigstore production infrastructure. Custom pins can be set via
+    /// `WSC_FULCIO_PINS`. If the pinned agent cannot be constructed, this
+    /// returns an error rather than silently downgrading to unpinned TLS.
+    pub fn new() -> Result<Self, WSError> {
         Self::with_url("https://fulcio.sigstore.dev".to_string())
     }
 
@@ -103,36 +104,28 @@ impl FulcioClient {
     ///
     /// # Certificate Pinning
     ///
-    /// Certificate pinning is now ENFORCED when configured via `WSC_FULCIO_PINS`.
-    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
-    pub fn with_url(base_url: String) -> Self {
+    /// Certificate pinning is unconditionally ENFORCED. Returns an error if the
+    /// pinned agent cannot be constructed — there is no unpinned fallback.
+    pub fn with_url(base_url: String) -> Result<Self, WSError> {
         #[cfg(not(target_os = "wasi"))]
         {
             use super::transport::create_agent_with_optional_pinning;
             use super::cert_pinning::PinningConfig;
 
-            // Create pinning configuration for Fulcio
-            let pinning = Some(PinningConfig::fulcio());
+            // Certificate pinning is mandatory for Sigstore endpoints: a
+            // failure to build the pinned agent is a hard error, never a
+            // silent downgrade to unpinned TLS (audit finding C-4).
+            let agent = create_agent_with_optional_pinning(Some(PinningConfig::fulcio()))?;
 
-            // Create agent with certificate pinning (or fall back to standard TLS)
-            let agent = match create_agent_with_optional_pinning(pinning) {
-                Ok(agent) => agent,
-                Err(e) => {
-                    // Log error but don't panic - fall back to standard agent
-                    log::error!("Failed to create pinned agent for Fulcio: {}. Using standard TLS.", e);
-                    super::transport::create_standard_agent()
-                }
-            };
-
-            Self {
+            Ok(Self {
                 base_url,
                 client: agent,
-            }
+            })
         }
 
         #[cfg(target_os = "wasi")]
         {
-            Self { base_url }
+            Ok(Self { base_url })
         }
     }
 
@@ -458,12 +451,6 @@ impl FulcioClient {
     }
 }
 
-impl Default for FulcioClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 // Add pem crate for parsing PEM certificates
 mod pem {
     use crate::error::WSError;
@@ -518,13 +505,13 @@ mod tests {
 
     #[test]
     fn test_fulcio_client_creation() {
-        let client = FulcioClient::new();
+        let client = FulcioClient::new().unwrap();
         assert_eq!(client.base_url, "https://fulcio.sigstore.dev");
     }
 
     #[test]
     fn test_fulcio_client_with_custom_url() {
-        let client = FulcioClient::with_url("https://custom.fulcio.dev".to_string());
+        let client = FulcioClient::with_url("https://custom.fulcio.dev".to_string()).unwrap();
         assert_eq!(client.base_url, "https://custom.fulcio.dev");
     }
 

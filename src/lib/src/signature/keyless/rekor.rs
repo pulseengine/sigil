@@ -8,8 +8,8 @@
 /// ```no_run
 /// use wsc::keyless::{RekorClient, FulcioCertificate};
 ///
-/// // Create a Rekor client
-/// let client = RekorClient::new();
+/// // Create a Rekor client (certificate pinning is enforced)
+/// let client = RekorClient::new().expect("pinned Rekor client");
 ///
 /// // Create a mock certificate (in real use, get from Fulcio)
 /// let certificate = FulcioCertificate {
@@ -160,10 +160,11 @@ impl RekorClient {
     ///
     /// # Certificate Pinning
     ///
-    /// Certificate pinning is ENFORCED by default using embedded pins for Sigstore
-    /// production infrastructure. Custom pins can be set via `WSC_REKOR_PINS`.
-    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
-    pub fn new() -> Self {
+    /// Certificate pinning is unconditionally ENFORCED using embedded pins for
+    /// Sigstore production infrastructure. Custom pins can be set via
+    /// `WSC_REKOR_PINS`. If the pinned agent cannot be constructed, this
+    /// returns an error rather than silently downgrading to unpinned TLS.
+    pub fn new() -> Result<Self, WSError> {
         Self::with_url("https://rekor.sigstore.dev".to_string())
     }
 
@@ -171,36 +172,28 @@ impl RekorClient {
     ///
     /// # Certificate Pinning
     ///
-    /// Certificate pinning is ENFORCED when configured via `WSC_REKOR_PINS`.
-    /// Set `WSC_REQUIRE_CERT_PINNING=1` to fail if pinning cannot be configured.
-    pub fn with_url(base_url: String) -> Self {
+    /// Certificate pinning is unconditionally ENFORCED. Returns an error if the
+    /// pinned agent cannot be constructed — there is no unpinned fallback.
+    pub fn with_url(base_url: String) -> Result<Self, WSError> {
         #[cfg(not(target_os = "wasi"))]
         {
             use super::transport::create_agent_with_optional_pinning;
             use super::cert_pinning::PinningConfig;
 
-            // Create pinning configuration for Rekor
-            let pinning = Some(PinningConfig::rekor());
+            // Certificate pinning is mandatory for Sigstore endpoints: a
+            // failure to build the pinned agent is a hard error, never a
+            // silent downgrade to unpinned TLS (audit finding C-4).
+            let agent = create_agent_with_optional_pinning(Some(PinningConfig::rekor()))?;
 
-            // Create agent with certificate pinning (or fall back to standard TLS)
-            let agent = match create_agent_with_optional_pinning(pinning) {
-                Ok(agent) => agent,
-                Err(e) => {
-                    // Log error but don't panic - fall back to standard agent
-                    log::error!("Failed to create pinned agent for Rekor: {}. Using standard TLS.", e);
-                    super::transport::create_standard_agent()
-                }
-            };
-
-            Self {
+            Ok(Self {
                 base_url,
                 client: agent,
-            }
+            })
         }
 
         #[cfg(target_os = "wasi")]
         {
-            Self { base_url }
+            Ok(Self { base_url })
         }
     }
 
@@ -446,12 +439,6 @@ impl RekorClient {
     }
 }
 
-impl Default for RekorClient {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Build a `RekorEntry` from a parsed Rekor upload response (audit H-5).
 ///
 /// Pure helper so the empty-SET / empty-inclusion-proof rejection rules can be
@@ -540,14 +527,14 @@ mod tests {
 
     #[test]
     fn test_rekor_client_new() {
-        let client = RekorClient::new();
+        let client = RekorClient::new().unwrap();
         assert_eq!(client.base_url, "https://rekor.sigstore.dev");
     }
 
     #[test]
     fn test_rekor_client_with_url() {
         let custom_url = "https://custom.rekor.server".to_string();
-        let client = RekorClient::with_url(custom_url.clone());
+        let client = RekorClient::with_url(custom_url.clone()).unwrap();
         assert_eq!(client.base_url, custom_url);
     }
 
@@ -582,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_upload_entry_invalid_hash_length() {
-        let client = RekorClient::new();
+        let client = RekorClient::new().unwrap();
 
         // Create stub certificate
         let cert = FulcioCertificate {
@@ -609,7 +596,7 @@ mod tests {
 
     #[test]
     fn test_verify_inclusion_rejects_invalid() {
-        let client = RekorClient::new();
+        let client = RekorClient::new().unwrap();
         let entry = RekorEntry {
             uuid: "test-uuid".to_string(),
             log_index: 1,
@@ -687,7 +674,7 @@ mod tests {
     #[test]
     fn test_mock_rekor_entry_flow() {
         // This test demonstrates the expected flow with mock data
-        let client = RekorClient::new();
+        let client = RekorClient::new().unwrap();
 
         // Create mock certificate
         let cert = FulcioCertificate {

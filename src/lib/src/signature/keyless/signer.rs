@@ -205,20 +205,20 @@ impl KeylessSigner {
 
         // Create Fulcio client with appropriate URL
         let fulcio = if let Some(url) = &config.fulcio_url {
-            FulcioClient::with_url(url.clone())
+            FulcioClient::with_url(url.clone())?
         } else if use_staging {
-            FulcioClient::with_url("https://fulcio.staging.sigstore.dev".to_string())
+            FulcioClient::with_url("https://fulcio.staging.sigstore.dev".to_string())?
         } else {
-            FulcioClient::new()
+            FulcioClient::new()?
         };
 
         // Create Rekor client with appropriate URL
         let rekor = if let Some(url) = &config.rekor_url {
-            RekorClient::with_url(url.clone())
+            RekorClient::with_url(url.clone())?
         } else if use_staging {
-            RekorClient::with_url("https://rekor.staging.sigstore.dev".to_string())
+            RekorClient::with_url("https://rekor.staging.sigstore.dev".to_string())?
         } else {
-            RekorClient::new()
+            RekorClient::new()?
         };
 
         Ok(Self {
