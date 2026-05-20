@@ -1,0 +1,79 @@
+# Criterion benchmark regression gate for signature-verification hot paths.
+# Addresses Issue #89: every signature verification runs within a build-time
+# budget, so a silent crypto-path slowdown could hang CI. The PR job is a
+# fast sanity run (proves the bench code compiles and executes); the nightly
+# job runs the full benchmark suite and uploads the criterion output so
+# regressions surface as criterion diffs rather than mysteriously slow CI.
+
+name: Benchmarks
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/src/**'
+      - 'src/lib/benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/benchmarks.yml'
+  schedule:
+    # Run the full benchmark suite nightly at 4 AM UTC.
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  # PR gate: fast sanity run with a reduced sample size. This is NOT a
+  # statistically meaningful measurement — it only proves the bench code
+  # compiles and executes without spending 10+ minutes per PR.
+  bench-sanity:
+    name: Benchmark Sanity Run
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Run benchmarks (reduced sample size)
+      run: cargo bench -p wsc --bench verification_benchmarks -- --sample-size 10 --warm-up-time 1
+      timeout-minutes: 20
+
+  # Nightly job: full criterion run. The criterion output is uploaded as a
+  # workflow artifact so the per-path latency baselines are inspectable.
+  # NOTE: cross-run criterion baseline persistence is intentionally out of
+  # scope — that needs an external artifact store sigil doesn't have. The
+  # artifact upload below is the deliverable.
+  bench-full:
+    name: Full Benchmark Suite
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Run full benchmark suite
+      run: cargo bench -p wsc --bench verification_benchmarks
+      timeout-minutes: 60
+
+    - name: Upload criterion output
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: criterion-output
+        path: target/criterion/
+        if-no-files-found: warn
+        retention-days: 30
