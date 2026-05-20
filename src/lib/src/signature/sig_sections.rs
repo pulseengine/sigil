@@ -528,3 +528,98 @@ mod tests {
         );
     }
 }
+
+// ============================================================================
+// Kani proof harnesses for the signature-section parser
+// ============================================================================
+//
+// These harnesses target ONLY the parsing / length-validation surface of
+// `SignatureForHashes::deserialize` — the first point at which raw, untrusted
+// signature bytes are structurally decoded and length-checked, before any
+// cryptographic verification runs.
+//
+// They deliberately do NOT exercise Ed25519 / SHA-256: the crypto path is
+// unbounded for bounded model checking (the SHA-256 64-round compression loop
+// blows the `--default-unwind 4` budget — see the `kani-proofs` matrix WIP
+// comments in .github/workflows/formal-verification.yml). Inputs are kept
+// short and symbolic so that the only loops Kani must unwind are the
+// 5-iteration LEB128 varint loops and the bounded `read_exact` fills; the
+// per-harness `#[kani::unwind]` bounds cover those exactly.
+#[cfg(kani)]
+mod proofs {
+    use super::*;
+
+    /// Prove: deserializing an arbitrary short byte slice never panics.
+    ///
+    /// For every possible 4-byte input — truncated, malformed, or otherwise —
+    /// `SignatureForHashes::deserialize` must return `Ok` or `Err`, never
+    /// panic (no slice OOB, no allocation overflow, no arithmetic overflow).
+    /// Four bytes is too short to carry a complete record, so this also
+    /// exercises every truncation point in the parser.
+    #[kani::proof]
+    #[kani::unwind(6)] // varint LEB128 loops read at most 5 bytes
+    fn proof_deserialize_short_input_no_panic() {
+        let b0: u8 = kani::any();
+        let b1: u8 = kani::any();
+        let b2: u8 = kani::any();
+        let b3: u8 = kani::any();
+        let data = [b0, b1, b2, b3];
+        // Must not panic, regardless of how malformed the input is.
+        let _ = SignatureForHashes::deserialize(data);
+    }
+
+    /// Prove: a truncated record (declared length exceeds buffer) is rejected
+    /// without panicking.
+    ///
+    /// The first varint of a `SignatureForHashes` record is the key_id length.
+    /// Here we hand the parser a single-byte key_id length of 5 followed by
+    /// only 2 payload bytes. `varint::get_slice` must detect that the declared
+    /// length outruns the buffer and return an error — never read out of
+    /// bounds and never panic.
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_deserialize_truncated_length_field_rejected() {
+        let p0: u8 = kani::any();
+        let p1: u8 = kani::any();
+        // key_id length = 5 (single-byte LEB128, high bit clear), but only
+        // 2 bytes of payload follow.
+        let data = [5u8, p0, p1];
+        let result = SignatureForHashes::deserialize(data);
+        assert!(
+            result.is_err(),
+            "truncated key_id length must be rejected, not read OOB"
+        );
+    }
+
+    /// Prove: an empty input is rejected without panicking.
+    ///
+    /// With no bytes at all, the very first `varint::get32` read hits EOF.
+    /// The parser must surface an error rather than panic.
+    #[kani::proof]
+    #[kani::unwind(2)]
+    fn proof_deserialize_empty_input_rejected() {
+        let data: [u8; 0] = [];
+        let result = SignatureForHashes::deserialize(data);
+        assert!(result.is_err(), "empty input must be rejected");
+    }
+
+    /// Prove: an unsupported algorithm id is rejected without panicking.
+    ///
+    /// After a well-formed empty key_id (length 0) the next byte is the
+    /// algorithm id. For any value other than `ED25519_PK_ID` the parser must
+    /// return an error. This pins the length-validated structural check that
+    /// gates the algorithm field, before any crypto path is reachable.
+    #[kani::proof]
+    #[kani::unwind(6)]
+    fn proof_deserialize_unsupported_alg_rejected() {
+        let alg: u8 = kani::any();
+        kani::assume(alg != ED25519_PK_ID);
+        // key_id length = 0, then the symbolic (unsupported) alg id.
+        let data = [0u8, alg];
+        let result = SignatureForHashes::deserialize(data);
+        assert!(
+            result.is_err(),
+            "non-Ed25519 alg id must be rejected at parse time"
+        );
+    }
+}

@@ -84,6 +84,25 @@ jobs:
             # unmasked. Static analysis in this PR missed the memcmp
             # loop inside the prefix comparison.
             tolerate_failure: true
+          - module: sig_sections
+            harness: signature::sig_sections
+            # Signature-section parser harnesses (issue #88): prove that
+            # SignatureForHashes::deserialize rejects short/truncated/
+            # malformed signature bytes without panicking and bounds-checks
+            # declared length fields. The harnesses target ONLY the parsing /
+            # length-validation surface — no Ed25519/SHA-256 — so the only
+            # loops are the 5-iteration LEB128 varint loops, covered by
+            # per-harness #[kani::unwind(6)]. Designed to run at
+            # --default-unwind 4.
+            #
+            # WIP — masked on first landing only because Kani could not be
+            # installed/run in the authoring environment to confirm a clean
+            # local pass (the harnesses are static-analysed loop-free, but
+            # the varint loops lower through BufReader internals that static
+            # analysis cannot fully see — the same class of surprise that
+            # masked dsse/wasm_module above). Flip to false once a CI run is
+            # observed green.
+            tolerate_failure: true
           - module: format
             harness: format
             # WIP — see audit C-7 partial closure. CI observation: the format
