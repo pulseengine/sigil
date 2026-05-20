@@ -3,6 +3,76 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-05-20
+
+Cleanup-cycle release: a criterion benchmark regression gate and a
+fail-closed hardening of Sigstore certificate pinning. Minor-versioned
+because the keyless client constructors now return a `Result` — a
+breaking change for code that uses `wsc` as a library.
+
+### Added
+
+- **Criterion benchmark regression gate** (#89, PR #122). New
+  `.github/workflows/benchmarks.yml`: a fast sample-reduced sanity run
+  on every PR touching `src/lib`, plus a full nightly run that uploads
+  the criterion output as an artifact. The benchmark code already
+  existed (`src/lib/benches/verification_benchmarks.rs` — four groups:
+  Ed25519 verify, DSSE parse+verify, Merkle validation, cert-chain
+  validation); this adds the CI gate that turns it into a regression
+  guard for the signature-verification hot path.
+
+### Changed (breaking)
+
+- **Sigstore certificate pinning is now fail-closed** (#95, PR #123).
+  TLS-layer pin enforcement was already in place — `PinnedCertVerifier`
+  implements `rustls::ServerCertVerifier`, so a pin mismatch aborts the
+  handshake. The residual gap was in agent *construction*:
+  `create_agent_with_optional_pinning` silently fell back to an
+  unpinned standard agent on failure, and the `RekorClient` /
+  `FulcioClient` constructors swallowed even the hard error. Now,
+  whenever a non-empty pin set is supplied, pinning is mandatory —
+  construction failure propagates as an error, never a silent
+  downgrade. This closes audit finding C-4.
+  - **API change:** `FulcioClient::{new, with_url}` and
+    `RekorClient::{new, with_url}` now return `Result<Self, WSError>`;
+    the `Default` impls (which assumed an infallible `new()`) are
+    removed. Direct library callers must handle the `Result`.
+  - `WSC_REQUIRE_CERT_PINNING` is redundant for the Sigstore
+    production path (pinning is unconditional there); retained for
+    backwards compatibility, documented as deprecated.
+  - Corrects the v0.8.4 "Audit observation": pinning **is** enforced
+    at the rustls handshake layer today, not post-handshake.
+
+### Deferred
+
+- **#88 — Kani harness for the signature-section parser.** The varint
+  and DSSE harnesses already exist; the signature-parser harness is
+  blocked on `SignatureForHashes::deserialize` building an 8 KiB
+  `BufReader` internally, which is intractable for Kani's bounded
+  model checker (a single one-symbolic-byte harness ran 24+ minutes).
+  Needs a `deserialize` refactor exposing a `BufRead`-taking entry
+  point. Tracked on #88.
+- **#46 — SLH-DSA / FIPS 205 post-quantum backend.** Blocked upstream:
+  usable `slh-dsa` versions need either a `signature` pre-release or
+  `signature 3.x`, and the matching `ecdsa 0.17` / `p256 0.14` crates
+  have no stable release yet — only release candidates. Integrating
+  now would put RC crypto on the production Sigstore signing path.
+  Tracked on #46 with the precise unblock condition.
+
+### Closed without code
+
+- **#91 — MIRAI abstract-interpretation prototype.** The MIRAI
+  repository is archived (last commit 2024-08, pinned to an
+  18-month-old nightly); its property classes are already covered by
+  the existing Kani and Verus harnesses.
+
+### Contributors
+
+PRs in this release: #121 (gitignore audit notes), #122 (benchmark
+gate), #123 (cert-pinning fail-closed).
+
+[0.9.0]: https://github.com/pulseengine/sigil/compare/v0.8.4...v0.9.0
+
 ## [0.8.4] — 2026-05-19
 
 Hotfix release. Single-commit content: rotate the pinned Fulcio leaf
