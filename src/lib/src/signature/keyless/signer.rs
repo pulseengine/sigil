@@ -457,7 +457,9 @@ impl KeylessSigner {
         log::debug!("Embedding keyless signature: {} bytes", signature_bytes.len());
 
         // Use Module's existing attach_signature mechanism
-        module.attach_signature(&signature_bytes)
+        module
+            .attach_signature(&signature_bytes)
+            .map_err(Into::into)
     }
 }
 

@@ -1,21 +1,10 @@
-mod hash;
-mod info;
+// The classic signature core (`hash`, `info`, `keys`, `matrix`, `multi`,
+// `sig_sections`, `simple`) lives in `wsc-verify-core` so it builds for
+// `wasm32-*` without TLS/X.509 deps. Re-export it here so the existing
+// `wsc::signature::*` public API is unchanged.
+pub use wsc_verify_core::signature::*;
+
+/// Keyless signing support — OIDC + Fulcio + Rekor. Stays in `wsc` because
+/// it depends on `rustls`/`ureq`/`x509-parser`, which the carved core
+/// deliberately avoids.
 pub mod keyless;
-mod keys;
-mod matrix;
-mod multi;
-mod sig_sections;
-mod simple;
-
-pub use info::*;
-pub use keys::*;
-pub use matrix::*;
-
-pub(crate) use hash::*;
-
-// Re-export signature data structures for fuzzing and advanced use cases
-pub use sig_sections::{
-    SignatureData, SignedHashes, SignatureForHashes,
-    SIGNATURE_SECTION_HEADER_NAME, SIGNATURE_SECTION_DELIMITER_NAME,
-    MAX_HASHES, MAX_SIGNATURES, new_delimiter_section,
-};

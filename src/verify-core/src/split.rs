@@ -7,7 +7,7 @@ impl Module {
     /// Print the structure of a module to the standard output, mainly for debugging purposes.
     ///
     /// Set `verbose` to `true` in order to also print details about signature data.
-    pub fn show(&self, verbose: bool) -> Result<(), WSError> {
+    pub fn show(&self, verbose: bool) -> Result<(), CoreError> {
         for (idx, section) in self.sections.iter().enumerate() {
             println!("{}:\t{}", idx, section.display(verbose));
         }
@@ -20,7 +20,7 @@ impl Module {
     /// and `false` if the section can be ignored during verification.
     ///
     /// It is highly recommended to always include the standard sections in the signed set.
-    pub fn split<P>(self, mut predicate: P) -> Result<Module, WSError>
+    pub fn split<P>(self, mut predicate: P) -> Result<Module, CoreError>
     where
         P: FnMut(&Section) -> bool,
     {
@@ -67,14 +67,14 @@ impl Module {
     ///
     /// This function returns the module without the embedded signature,
     /// as well as the detached signature as a byte string.
-    pub fn detach_signature(mut self) -> Result<(Module, Vec<u8>), WSError> {
+    pub fn detach_signature(mut self) -> Result<(Module, Vec<u8>), CoreError> {
         let mut out_sections = vec![];
         let mut sections = self.sections.into_iter();
         let detached_signature = match sections.next() {
-            None => return Err(WSError::NoSignatures),
+            None => return Err(CoreError::NoSignatures),
             Some(section) => {
                 if !section.is_signature_header() {
-                    return Err(WSError::NoSignatures);
+                    return Err(CoreError::NoSignatures);
                 }
                 section.payload().to_vec()
             }
@@ -89,7 +89,7 @@ impl Module {
 
     /// Embed a detached signature into a module.
     /// This function returns the module with embedded signature.
-    pub fn attach_signature(mut self, detached_signature: &[u8]) -> Result<Module, WSError> {
+    pub fn attach_signature(mut self, detached_signature: &[u8]) -> Result<Module, CoreError> {
         let mut out_sections = vec![];
         let sections = self.sections.into_iter();
         let signature_header = Section::Custom(CustomSection::new(
@@ -99,7 +99,7 @@ impl Module {
         out_sections.push(signature_header);
         for section in sections {
             if section.is_signature_header() {
-                return Err(WSError::SignatureAlreadyAttached);
+                return Err(CoreError::SignatureAlreadyAttached);
             }
             out_sections.push(section);
         }
@@ -129,7 +129,7 @@ mod tests {
         let module = create_test_module();
         let result = module.detach_signature();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::NoSignatures));
+        assert!(matches!(result.unwrap_err(), CoreError::NoSignatures));
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            WSError::SignatureAlreadyAttached
+            CoreError::SignatureAlreadyAttached
         ));
     }
 

@@ -29,7 +29,7 @@ impl SecretKey {
     ///
     /// `key_id` is the key identifier of the public key, to be stored with the signature.
     /// This parameter is optional.
-    pub fn sign(&self, mut module: Module, key_id: Option<&Vec<u8>>) -> Result<Module, WSError> {
+    pub fn sign(&self, mut module: Module, key_id: Option<&Vec<u8>>) -> Result<Module, CoreError> {
         let mut out_sections = vec![Section::Custom(CustomSection::default())];
         let mut hasher = Hash::new();
         for section in module.sections.into_iter() {
@@ -91,7 +91,7 @@ impl PublicKey {
         &self,
         reader: &mut impl Read,
         detached_signature: Option<&[u8]>,
-    ) -> Result<(), WSError> {
+    ) -> Result<(), CoreError> {
         let stream = Module::init_from_reader(reader)?;
         let mut sections = Module::iterate(stream)?;
 
@@ -102,7 +102,7 @@ impl PublicKey {
                 detached_signature.to_vec(),
             ))
         } else {
-            sections.next().ok_or(WSError::ParseError)??
+            sections.next().ok_or(CoreError::ParseError)??
         };
         let signature_header = match signature_header_section {
             Section::Custom(custom_section) if custom_section.is_signature_header() => {
@@ -110,7 +110,7 @@ impl PublicKey {
             }
             _ => {
                 debug!("This module is not signed");
-                return Err(WSError::NoSignatures);
+                return Err(CoreError::NoSignatures);
             }
         };
 
@@ -121,14 +121,14 @@ impl PublicKey {
                 "Unsupported hash function: {:02x}",
                 signature_data.specification_version
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
 
         let signed_hashes_set = signature_data.signed_hashes_set;
         let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailed);
+            return Err(CoreError::VerificationFailed);
         }
 
         let mut hasher = Hash::new();
@@ -147,7 +147,7 @@ impl PublicKey {
         if ct_contains_hash(&valid_hashes, &h) {
             Ok(())
         } else {
-            Err(WSError::VerificationFailed)
+            Err(CoreError::VerificationFailed)
         }
     }
 }
@@ -165,7 +165,7 @@ impl PublicKeySet {
         &self,
         reader: &mut impl Read,
         detached_signature: Option<&[u8]>,
-    ) -> Result<HashSet<&PublicKey>, WSError> {
+    ) -> Result<HashSet<&PublicKey>, CoreError> {
         let mut sections = Module::iterate(Module::init_from_reader(reader)?)?;
 
         // Read the signature header from the module, or reconstruct it from the detached signature.
@@ -179,7 +179,7 @@ impl PublicKeySet {
             ));
             signature_header = &signature_header_from_detached_signature;
         } else {
-            signature_header_from_stream = sections.next().ok_or(WSError::ParseError)??;
+            signature_header_from_stream = sections.next().ok_or(CoreError::ParseError)??;
             signature_header = &signature_header_from_stream;
         }
         let signature_header = match signature_header {
@@ -188,7 +188,7 @@ impl PublicKeySet {
             }
             _ => {
                 debug!("This module is not signed");
-                return Err(WSError::NoSignatures);
+                return Err(CoreError::NoSignatures);
             }
         };
 
@@ -199,14 +199,14 @@ impl PublicKeySet {
                 "Unsupported content type: {:02x}",
                 signature_data.content_type
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         if signature_data.hash_function != SIGNATURE_HASH_FUNCTION {
             debug!(
                 "Unsupported hash function: {:02x}",
                 signature_data.specification_version
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         let signed_hashes_set = signature_data.signed_hashes_set;
         let valid_hashes_for_pks: HashMap<&PublicKey, HashSet<&Vec<u8>>> = self
@@ -219,7 +219,7 @@ impl PublicKeySet {
             .collect();
         if valid_hashes_for_pks.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailed);
+            return Err(CoreError::VerificationFailed);
         }
 
         let mut hasher = Hash::new();
@@ -242,7 +242,7 @@ impl PublicKeySet {
         }
         if valid_pks.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailed);
+            return Err(CoreError::VerificationFailed);
         }
         Ok(valid_pks)
     }
@@ -335,7 +335,7 @@ mod tests {
         let mut reader = Cursor::new(unsigned_bytes);
         let result = kp.pk.verify(&mut reader, None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::NoSignatures));
+        assert!(matches!(result.unwrap_err(), CoreError::NoSignatures));
     }
 
     #[test]
@@ -352,7 +352,7 @@ mod tests {
         let mut reader = Cursor::new(signed_bytes);
         let result = kp2.pk.verify(&mut reader, None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::VerificationFailed));
+        assert!(matches!(result.unwrap_err(), CoreError::VerificationFailed));
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
         let mut reader = Cursor::new(unsigned_bytes);
         let result = key_set.verify(&mut reader, None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::NoSignatures));
+        assert!(matches!(result.unwrap_err(), CoreError::NoSignatures));
     }
 
     #[test]
@@ -427,7 +427,7 @@ mod tests {
         let mut reader = Cursor::new(signed_bytes);
         let result = key_set.verify(&mut reader, None);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::VerificationFailed));
+        assert!(matches!(result.unwrap_err(), CoreError::VerificationFailed));
     }
 
     #[test]

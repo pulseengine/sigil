@@ -1,0 +1,21 @@
+[package]
+name = "wsc-verify-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Verification core for wsc: WASM-module parsing + classic Ed25519 signature verification, built so it compiles for wasm32-unknown-unknown with no network/TLS/X.509 dependencies. Carved out of the wsc crate so MC/DC coverage tools (e.g. witness) can instrument it directly."
+readme = "../../README.md"
+keywords = ["webassembly", "modules", "signatures"]
+homepage = "https://github.com/pulseengine/sigil"
+categories = ["cryptography", "wasm", "no-std"]
+
+[dependencies]
+ct-codecs = "1.1.6"
+ed25519-compact = { version = "2.1.1", features = ["pem"] }
+getrandom = { version = "0.3.4", features = ["wasm_js"] }
+hmac-sha256 = "1.1.12"
+log = "0.4.28"
+thiserror = "2.0.17"
+zeroize = { version = "1.8", features = ["derive"] }

@@ -12,6 +12,9 @@ homepage = "https://github.com/pulseengine/wsc"
 categories = ["cryptography", "wasm"]
 
 [dependencies]
+# Verification core (carved out so it builds for wasm32 with no TLS/X.509 deps).
+# wsc re-exports its public API for backwards compatibility.
+wsc-verify-core = { version = "0.9.0", path = "../verify-core" }
 # Re-export attestation types from minimal crate
 wsc-attestation = { version = "0.9.0", path = "../attestation" }
 anyhow = "1.0.100"
