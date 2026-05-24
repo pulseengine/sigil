@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use wsc::secure_file;
+//! use wsc_verify_core::secure_file;
 //! use std::path::Path;
 //!
 //! // Write sensitive data securely
@@ -21,7 +21,7 @@
 //!
 //! // Read with permission checking
 //! let data = secure_file::read_secure(Path::new("/path/to/secret.key"))?;
-//! # Ok::<(), wsc::CoreError>(())
+//! # Ok::<(), wsc_verify_core::CoreError>(())
 //! ```
 
 use crate::error::CoreError;
