@@ -25,7 +25,7 @@ impl PublicKeySet {
         reader: &mut impl Read,
         detached_signature: Option<&[u8]>,
         predicates: &[impl Fn(&Section) -> bool],
-    ) -> Result<Vec<HashSet<&PublicKey>>, WSError> {
+    ) -> Result<Vec<HashSet<&PublicKey>>, CoreError> {
         let mut sections = Module::iterate(Module::init_from_reader(reader)?)?;
         let signature_header_section = if let Some(detached_signature) = &detached_signature {
             Section::Custom(CustomSection::new(
@@ -33,7 +33,7 @@ impl PublicKeySet {
                 detached_signature.to_vec(),
             ))
         } else {
-            sections.next().ok_or(WSError::ParseError)??
+            sections.next().ok_or(CoreError::ParseError)??
         };
         let signature_header = match signature_header_section {
             Section::Custom(custom_section) if custom_section.is_signature_header() => {
@@ -41,7 +41,7 @@ impl PublicKeySet {
             }
             _ => {
                 debug!("This module is not signed");
-                return Err(WSError::NoSignatures);
+                return Err(CoreError::NoSignatures);
             }
         };
 
@@ -51,14 +51,14 @@ impl PublicKeySet {
                 "Unsupported hash function: {:02x}",
                 signature_data.hash_function,
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         if signature_data.content_type != SIGNATURE_WASM_MODULE_CONTENT_TYPE {
             debug!(
                 "Unsupported content type: {:02x}",
                 signature_data.content_type,
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
 
         let signed_hashes_set = signature_data.signed_hashes_set;
@@ -71,7 +71,7 @@ impl PublicKeySet {
         }
         if valid_hashes_for_pks.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailed);
+            return Err(CoreError::VerificationFailed);
         }
 
         let mut section_sequence_must_be_signed_for_pks: HashMap<PublicKey, Option<bool>> =
@@ -144,7 +144,7 @@ impl PublicKeySet {
 
         if res.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailedForPredicates);
+            return Err(CoreError::VerificationFailedForPredicates);
         }
         Ok(res)
     }
@@ -242,7 +242,7 @@ mod tests {
         let result = key_set.verify_matrix(&mut reader, None, &[predicate]);
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::NoSignatures));
+        assert!(matches!(result.unwrap_err(), CoreError::NoSignatures));
     }
 
     #[test]
@@ -262,7 +262,7 @@ mod tests {
         let result = key_set.verify_matrix(&mut reader, None, &[predicate]);
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::VerificationFailed));
+        assert!(matches!(result.unwrap_err(), CoreError::VerificationFailed));
     }
 
     #[test]

@@ -13,7 +13,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use wsc::secure_file;
+//! use wsc_verify_core::secure_file;
 //! use std::path::Path;
 //!
 //! // Write sensitive data securely
@@ -21,10 +21,10 @@
 //!
 //! // Read with permission checking
 //! let data = secure_file::read_secure(Path::new("/path/to/secret.key"))?;
-//! # Ok::<(), wsc::WSError>(())
+//! # Ok::<(), wsc_verify_core::CoreError>(())
 //! ```
 
-use crate::error::WSError;
+use crate::error::CoreError;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
@@ -43,7 +43,7 @@ pub const SECURE_FILE_MODE: u32 = 0o600;
 ///
 /// On non-Unix platforms, this always returns `Ok(())` with a debug log.
 #[cfg(unix)]
-pub fn check_permissions(path: &Path) -> Result<(), WSError> {
+pub fn check_permissions(path: &Path) -> Result<(), CoreError> {
     use std::os::unix::fs::PermissionsExt;
 
     let metadata = fs::metadata(path)?;
@@ -69,7 +69,7 @@ pub fn check_permissions(path: &Path) -> Result<(), WSError> {
 }
 
 #[cfg(not(unix))]
-pub fn check_permissions(path: &Path) -> Result<(), WSError> {
+pub fn check_permissions(path: &Path) -> Result<(), CoreError> {
     log::debug!(
         "Permission check skipped for '{}': not supported on this platform. \
          On Windows, ensure proper ACLs are set for sensitive files.",
@@ -83,7 +83,7 @@ pub fn check_permissions(path: &Path) -> Result<(), WSError> {
 /// Sets the file permissions to 0600 (owner read/write only).
 /// On non-Unix platforms, this logs a warning and succeeds.
 #[cfg(unix)]
-pub fn set_secure_permissions(path: &Path) -> Result<(), WSError> {
+pub fn set_secure_permissions(path: &Path) -> Result<(), CoreError> {
     use std::os::unix::fs::PermissionsExt;
 
     let mut perms = fs::metadata(path)?.permissions();
@@ -94,7 +94,7 @@ pub fn set_secure_permissions(path: &Path) -> Result<(), WSError> {
 }
 
 #[cfg(not(unix))]
-pub fn set_secure_permissions(path: &Path) -> Result<(), WSError> {
+pub fn set_secure_permissions(path: &Path) -> Result<(), CoreError> {
     log::warn!(
         "Cannot set restrictive file permissions for '{}': not supported on this platform. \
          Ensure proper access controls are configured for sensitive files.",
@@ -110,7 +110,7 @@ pub fn set_secure_permissions(path: &Path) -> Result<(), WSError> {
 ///
 /// On non-Unix platforms, this creates the file normally and logs a warning.
 #[cfg(unix)]
-pub fn create_secure_file(path: &Path) -> Result<File, WSError> {
+pub fn create_secure_file(path: &Path) -> Result<File, CoreError> {
     use std::os::unix::fs::OpenOptionsExt;
 
     let file = OpenOptions::new()
@@ -124,7 +124,7 @@ pub fn create_secure_file(path: &Path) -> Result<File, WSError> {
 }
 
 #[cfg(not(unix))]
-pub fn create_secure_file(path: &Path) -> Result<File, WSError> {
+pub fn create_secure_file(path: &Path) -> Result<File, CoreError> {
     log::warn!(
         "Creating file '{}' without restrictive permissions: not supported on this platform. \
          Ensure proper access controls are configured for sensitive files.",
@@ -153,7 +153,7 @@ pub fn create_secure_file(path: &Path) -> Result<File, WSError> {
 /// so there's no window where the file exists with permissive permissions.
 ///
 /// On non-Unix systems, the file is created normally with a warning logged.
-pub fn write_secure(path: &Path, data: &[u8]) -> Result<(), WSError> {
+pub fn write_secure(path: &Path, data: &[u8]) -> Result<(), CoreError> {
     let mut file = create_secure_file(path)?;
     file.write_all(data)?;
     file.sync_all()?;
@@ -170,7 +170,7 @@ pub fn write_secure(path: &Path, data: &[u8]) -> Result<(), WSError> {
 /// Write a string to a file with secure permissions
 ///
 /// See [`write_secure`] for details on the security guarantees.
-pub fn write_secure_string(path: &Path, content: &str) -> Result<(), WSError> {
+pub fn write_secure_string(path: &Path, content: &str) -> Result<(), CoreError> {
     write_secure(path, content.as_bytes())
 }
 
@@ -185,7 +185,7 @@ pub fn write_secure_string(path: &Path, content: &str) -> Result<(), WSError> {
 ///
 /// This function will still read the file even if permissions are too permissive,
 /// but it will log a warning to alert the user to the security issue.
-pub fn read_secure(path: &Path) -> Result<Vec<u8>, WSError> {
+pub fn read_secure(path: &Path) -> Result<Vec<u8>, CoreError> {
     // Check permissions first
     check_permissions(path)?;
 
@@ -200,10 +200,10 @@ pub fn read_secure(path: &Path) -> Result<Vec<u8>, WSError> {
 /// Read a file as a string and check its permissions
 ///
 /// See [`read_secure`] for details on the security guarantees.
-pub fn read_secure_string(path: &Path) -> Result<String, WSError> {
+pub fn read_secure_string(path: &Path) -> Result<String, CoreError> {
     let contents = read_secure(path)?;
     String::from_utf8(contents).map_err(|e| {
-        WSError::InternalError(format!("Invalid UTF-8 in secure file: {}", e))
+        CoreError::InternalError(format!("Invalid UTF-8 in secure file: {}", e))
     })
 }
 

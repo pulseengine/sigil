@@ -4,7 +4,7 @@ use std::io::{BufReader, BufWriter, prelude::*};
 use crate::ED25519_PK_ID;
 use crate::SIGNATURE_VERSION;
 use crate::SIGNATURE_WASM_MODULE_CONTENT_TYPE;
-use crate::error::*;
+use crate::error::CoreError;
 use crate::wasm_module::*;
 
 pub const SIGNATURE_SECTION_HEADER_NAME: &str = "signature";
@@ -41,7 +41,7 @@ pub struct SignatureData {
 }
 
 impl SignatureForHashes {
-    pub fn serialize(&self) -> Result<Vec<u8>, WSError> {
+    pub fn serialize(&self) -> Result<Vec<u8>, CoreError> {
         let mut writer = BufWriter::new(Vec::new());
         if let Some(key_id) = &self.key_id {
             varint::put_slice(&mut writer, key_id)?;
@@ -63,10 +63,10 @@ impl SignatureForHashes {
 
         writer
             .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+            .map_err(|e| CoreError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
     }
 
-    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
+    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, CoreError> {
         let mut reader = BufReader::new(bin.as_ref());
         let key_id = varint::get_slice(&mut reader)?;
         let key_id = if key_id.is_empty() {
@@ -79,7 +79,7 @@ impl SignatureForHashes {
         let alg_id = alg_id[0];
         if alg_id != ED25519_PK_ID {
             debug!("Unsupported algorithm: {:02x}", alg_id);
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         let signature = varint::get_slice(&mut reader)?;
 
@@ -104,7 +104,7 @@ impl SignatureForHashes {
                     "Too many certificates: {} (max: {})",
                     cert_count, MAX_CERTIFICATES
                 );
-                return Err(WSError::TooManyCertificates(MAX_CERTIFICATES));
+                return Err(CoreError::TooManyCertificates(MAX_CERTIFICATES));
             }
             if cert_count > 0 {
                 let mut certs = Vec::with_capacity(cert_count as usize);
@@ -139,7 +139,7 @@ impl SignatureForHashes {
 }
 
 impl SignedHashes {
-    pub fn serialize(&self) -> Result<Vec<u8>, WSError> {
+    pub fn serialize(&self) -> Result<Vec<u8>, CoreError> {
         let mut writer = BufWriter::new(Vec::new());
         varint::put(&mut writer, self.hashes.len() as _)?;
         for hash in &self.hashes {
@@ -151,15 +151,15 @@ impl SignedHashes {
         }
         writer
             .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+            .map_err(|e| CoreError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
     }
 
-    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
+    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, CoreError> {
         let mut reader = BufReader::new(bin.as_ref());
         let hashes_count = varint::get32(&mut reader)? as _;
         if hashes_count > MAX_HASHES {
             debug!("Too many hashes: {} (max: {})", hashes_count, MAX_HASHES);
-            return Err(WSError::TooManyHashes(MAX_HASHES));
+            return Err(CoreError::TooManyHashes(MAX_HASHES));
         }
         let mut hashes = Vec::with_capacity(hashes_count);
         for _ in 0..hashes_count {
@@ -173,7 +173,7 @@ impl SignedHashes {
                 "Too many signatures: {} (max: {})",
                 signatures_count, MAX_SIGNATURES
             );
-            return Err(WSError::TooManySignatures(MAX_SIGNATURES));
+            return Err(CoreError::TooManySignatures(MAX_SIGNATURES));
         }
         let mut signatures = Vec::with_capacity(signatures_count);
         for i in 0..signatures_count {
@@ -195,7 +195,7 @@ impl SignedHashes {
 }
 
 impl SignatureData {
-    pub fn serialize(&self) -> Result<Vec<u8>, WSError> {
+    pub fn serialize(&self) -> Result<Vec<u8>, CoreError> {
         let mut writer = BufWriter::new(Vec::new());
         varint::put(&mut writer, self.specification_version as _)?;
         varint::put(&mut writer, self.content_type as _)?;
@@ -206,10 +206,10 @@ impl SignatureData {
         }
         writer
             .into_inner()
-            .map_err(|e| WSError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
+            .map_err(|e| CoreError::IOError(std::io::Error::other(format!("buffer flush failed: {}", e))))
     }
 
-    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, WSError> {
+    pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, CoreError> {
         let mut reader = BufReader::new(bin.as_ref());
         let specification_version = varint::get7(&mut reader)?;
         if specification_version != SIGNATURE_VERSION {
@@ -217,12 +217,12 @@ impl SignatureData {
                 "Unsupported specification version: {:02x}",
                 specification_version
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         let content_type = varint::get7(&mut reader)?;
         if content_type != SIGNATURE_WASM_MODULE_CONTENT_TYPE {
             debug!("Unsupported content type: {:02x}", content_type);
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         let hash_function = varint::get7(&mut reader)?;
         let signed_hashes_count = varint::get32(&mut reader)? as _;
@@ -231,7 +231,7 @@ impl SignatureData {
                 "Too many hashes: {} (max: {})",
                 signed_hashes_count, MAX_HASHES
             );
-            return Err(WSError::TooManyHashes(MAX_HASHES));
+            return Err(CoreError::TooManyHashes(MAX_HASHES));
         }
         let mut signed_hashes_set = Vec::with_capacity(signed_hashes_count);
         for _ in 0..signed_hashes_count {
@@ -248,10 +248,10 @@ impl SignatureData {
     }
 }
 
-pub fn new_delimiter_section() -> Result<Section, WSError> {
+pub fn new_delimiter_section() -> Result<Section, CoreError> {
     let mut custom_payload = vec![0u8; 16];
     getrandom::fill(&mut custom_payload)
-        .map_err(|_| WSError::InternalError("RNG error".to_string()))?;
+        .map_err(|_| CoreError::InternalError("RNG error".to_string()))?;
     Ok(Section::Custom(CustomSection::new(
         SIGNATURE_SECTION_DELIMITER_NAME.to_string(),
         custom_payload,
@@ -356,7 +356,7 @@ mod tests {
         varint::put(&mut buf, (MAX_HASHES + 1) as u64).unwrap();
         let result = SignedHashes::deserialize(&buf);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::TooManyHashes(_)));
+        assert!(matches!(result.unwrap_err(), CoreError::TooManyHashes(_)));
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
 
         let result = SignedHashes::deserialize(&buf);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::TooManySignatures(_)));
+        assert!(matches!(result.unwrap_err(), CoreError::TooManySignatures(_)));
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            WSError::TooManyCertificates(_)
+            CoreError::TooManyCertificates(_)
         ));
     }
 
@@ -408,7 +408,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            WSError::TooManyCertificates(_)
+            CoreError::TooManyCertificates(_)
         ));
     }
 
@@ -510,7 +510,7 @@ mod tests {
     /// None` (which would downgrade a cert-based signature to bare-key).
     ///
     /// PoC: 5 bytes each with MSB set make `varint::get32` consume all 5 and
-    /// return `WSError::ParseError`. Before the fix, the `if let Ok(...)`
+    /// return `CoreError::ParseError`. Before the fix, the `if let Ok(...)`
     /// pattern swallowed this and produced `Ok { certificate_chain: None }`.
     #[test]
     fn test_malformed_cert_count_is_rejected() {

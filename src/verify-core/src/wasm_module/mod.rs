@@ -25,7 +25,7 @@ const WASM_COMPONENT_HEADER: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01
 pub type Header = [u8; 8];
 
 /// Maximum number of sections accepted by `SectionsIterator` before the parser
-/// aborts with `WSError::TooManySections`. 4096 is generous for any legitimate
+/// aborts with `CoreError::TooManySections`. 4096 is generous for any legitimate
 /// module (the wasm-tools spec recommends ~100 typical sections; the Component
 /// Model adds a handful more) while bounding worst-case work for adversarial
 /// inputs that declare millions of empty sections.
@@ -169,7 +169,7 @@ impl CustomSection {
     /// Return the custom section as an array of bytes.
     ///
     /// This includes the data itself, but also the size and name of the custom section.
-    pub fn outer_payload(&self) -> Result<Vec<u8>, WSError> {
+    pub fn outer_payload(&self) -> Result<Vec<u8>, CoreError> {
         let mut writer = io::Cursor::new(vec![]);
         varint::put(&mut writer, self.name.len() as _)?;
         writer.write_all(self.name.as_bytes())?;
@@ -278,7 +278,7 @@ impl SectionLike for Section {
 
 impl Section {
     /// Create a new section with the given identifier and payload.
-    pub fn new(id: SectionId, payload: Vec<u8>) -> Result<Self, WSError> {
+    pub fn new(id: SectionId, payload: Vec<u8>) -> Result<Self, CoreError> {
         match id {
             SectionId::CustomSection => {
                 let mut reader = io::Cursor::new(payload);
@@ -286,7 +286,7 @@ impl Section {
                 // SECURITY: Bound custom section name length to prevent OOM
                 // on malformed WASM with excessive name_len values.
                 if name_len > varint::MAX_SLICE_LEN {
-                    return Err(WSError::ParseError);
+                    return Err(CoreError::ParseError);
                 }
                 let mut name_slice = vec![0u8; name_len];
                 reader.read_exact(&mut name_slice)?;
@@ -301,17 +301,17 @@ impl Section {
     }
 
     /// Create a section from its standard serialized representation.
-    pub fn deserialize(reader: &mut impl Read) -> Result<Option<Self>, WSError> {
+    pub fn deserialize(reader: &mut impl Read) -> Result<Option<Self>, CoreError> {
         let id = match varint::get7(reader) {
             Ok(id) => SectionId::from(id),
-            Err(WSError::Eof) => return Ok(None),
+            Err(CoreError::Eof) => return Ok(None),
             Err(e) => return Err(e),
         };
         let len = varint::get32(reader)? as usize;
         // SECURITY: Bound section payload length to prevent OOM on malformed
         // WASM modules with excessive length prefixes (matches get_slice limit).
         if len > varint::MAX_SLICE_LEN {
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
         let mut payload = vec![0u8; len];
         reader.read_exact(&mut payload)?;
@@ -320,7 +320,7 @@ impl Section {
     }
 
     /// Serialize a section.
-    pub fn serialize(&self, writer: &mut impl Write) -> Result<(), WSError> {
+    pub fn serialize(&self, writer: &mut impl Write) -> Result<(), CoreError> {
         let outer_payload;
         let payload = match self {
             Section::Standard(s) => s.payload(),
@@ -365,9 +365,9 @@ impl CustomSection {
 
     /// If the section contains the module's signature, deserializes it into a `SignatureData` object
     /// containing the signatures and the hashes.
-    pub fn signature_data(&self) -> Result<SignatureData, WSError> {
+    pub fn signature_data(&self) -> Result<SignatureData, CoreError> {
         let header_payload =
-            SignatureData::deserialize(self.payload()).map_err(|_| WSError::ParseError)?;
+            SignatureData::deserialize(self.payload()).map_err(|_| CoreError::ParseError)?;
         Ok(header_payload)
     }
 }
@@ -393,7 +393,7 @@ pub struct Module {
 
 impl Module {
     /// Deserialize a WebAssembly module from the given reader.
-    pub fn deserialize(reader: &mut impl Read) -> Result<Self, WSError> {
+    pub fn deserialize(reader: &mut impl Read) -> Result<Self, CoreError> {
         let stream = Self::init_from_reader(reader)?;
         let header = stream.header;
         let it = Self::iterate(stream)?;
@@ -405,10 +405,10 @@ impl Module {
     }
 
     /// Deserialize a WebAssembly module from the given file.
-    pub fn deserialize_from_file(file: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn deserialize_from_file(file: impl AsRef<Path>) -> Result<Self, CoreError> {
         let path = file.as_ref();
         let fp = File::open(path).map_err(|e| {
-            WSError::InternalError(format!(
+            CoreError::InternalError(format!(
                 "Failed to open input file '{}': {}",
                 path.display(),
                 e
@@ -418,7 +418,7 @@ impl Module {
     }
 
     /// Serialize a WebAssembly module to the given writer.
-    pub fn serialize(&self, writer: &mut impl Write) -> Result<(), WSError> {
+    pub fn serialize(&self, writer: &mut impl Write) -> Result<(), CoreError> {
         writer.write_all(&self.header)?;
         for section in &self.sections {
             section.serialize(writer)?;
@@ -427,12 +427,12 @@ impl Module {
     }
 
     /// Serialize a WebAssembly module to the given file.
-    pub fn serialize_to_file(&self, file: impl AsRef<Path>) -> Result<(), WSError> {
+    pub fn serialize_to_file(&self, file: impl AsRef<Path>) -> Result<(), CoreError> {
         let path = file.as_ref();
         // Create parent directories if they don't exist
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                WSError::InternalError(format!(
+                CoreError::InternalError(format!(
                     "Failed to create parent directory for '{}': {}",
                     path.display(),
                     e
@@ -440,7 +440,7 @@ impl Module {
             })?;
         }
         let fp = File::create(path).map_err(|e| {
-            WSError::InternalError(format!(
+            CoreError::InternalError(format!(
                 "Failed to create output file '{}': {}",
                 path.display(),
                 e
@@ -450,11 +450,11 @@ impl Module {
     }
 
     /// Parse the module's header. This function must be called before `stream()`.
-    pub fn init_from_reader<T: Read>(reader: &mut T) -> Result<ModuleStreamReader<'_, T>, WSError> {
+    pub fn init_from_reader<T: Read>(reader: &mut T) -> Result<ModuleStreamReader<'_, T>, CoreError> {
         let mut header = Header::default();
         reader.read_exact(&mut header)?;
         if header != WASM_HEADER && header != WASM_COMPONENT_HEADER {
-            return Err(WSError::UnsupportedModuleType);
+            return Err(CoreError::UnsupportedModuleType);
         }
         Ok(ModuleStreamReader { reader, header })
     }
@@ -466,7 +466,7 @@ impl Module {
     /// adversarial modules from causing unbounded work.
     pub fn iterate<T: Read>(
         module_stream: ModuleStreamReader<T>,
-    ) -> Result<SectionsIterator<T>, WSError> {
+    ) -> Result<SectionsIterator<T>, CoreError> {
         Ok(SectionsIterator {
             reader: module_stream.reader,
             count: 0,
@@ -482,7 +482,7 @@ pub struct ModuleStreamReader<'t, T: Read> {
 /// An iterator over the sections of a WebAssembly module.
 ///
 /// Yields at most [`MAX_SECTIONS`] sections; the next call after the cap is
-/// reached returns `Some(Err(WSError::TooManySections(MAX_SECTIONS)))` and the
+/// reached returns `Some(Err(CoreError::TooManySections(MAX_SECTIONS)))` and the
 /// iterator subsequently terminates.
 pub struct SectionsIterator<'t, T: Read> {
     reader: &'t mut T,
@@ -490,13 +490,13 @@ pub struct SectionsIterator<'t, T: Read> {
 }
 
 impl<'t, T: Read> Iterator for SectionsIterator<'t, T> {
-    type Item = Result<Section, WSError>;
+    type Item = Result<Section, CoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.count >= MAX_SECTIONS {
             // Bound iteration so a malformed module declaring millions of
             // empty sections cannot loop the parser indefinitely.
-            return Some(Err(WSError::TooManySections(MAX_SECTIONS)));
+            return Some(Err(CoreError::TooManySections(MAX_SECTIONS)));
         }
         match Section::deserialize(self.reader) {
             Err(e) => Some(Err(e)),
@@ -683,7 +683,7 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            WSError::UnsupportedModuleType
+            CoreError::UnsupportedModuleType
         ));
     }
 
@@ -1010,7 +1010,7 @@ mod tests {
         for item in it {
             match item {
                 Ok(_) => seen += 1,
-                Err(WSError::TooManySections(max)) => {
+                Err(CoreError::TooManySections(max)) => {
                     assert_eq!(max, MAX_SECTIONS);
                     hit_cap = true;
                     break;

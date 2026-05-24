@@ -1,0 +1,20 @@
+[package]
+name = "wsc-witness-harness"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Witness MC/DC harness for wsc-verify-core. Excluded from the main workspace; built only when targeting wasm32-unknown-unknown for instrumentation."
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wsc-verify-core = { path = "../../src/verify-core" }
+
+[profile.release]
+panic = "abort"
+opt-level = "z"
+
+[profile.dev]
+panic = "abort"
+debug = 2  # full DWARF — witness uses it for line-correlated truth tables

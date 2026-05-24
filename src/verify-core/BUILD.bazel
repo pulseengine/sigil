@@ -1,0 +1,29 @@
+"""Verification core for wsc.
+
+Carved out of `//src/lib:wsc` so the verification path builds for `wasm32-*`
+without TLS/X.509/network dependencies. This crate intentionally has zero
+direct deps that pull in `ring` — that constraint is what enables direct
+witness MC/DC instrumentation on the verification logic.
+"""
+
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "wsc-verify-core",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "wsc_verify_core",
+    edition = "2024",
+    deps = [
+        "@wsc_deps//:ct-codecs",
+        "@wsc_deps//:ed25519-compact",
+        "@wsc_deps//:getrandom",
+        "@wsc_deps//:hmac-sha256",
+        "@wsc_deps//:log",
+        "@wsc_deps//:thiserror",
+        "@wsc_deps//:zeroize",
+    ],
+)
+
+exports_files(["Cargo.toml"])

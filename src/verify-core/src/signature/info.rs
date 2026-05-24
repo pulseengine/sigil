@@ -5,7 +5,7 @@
 //!
 //! Backported from wasmsign2 (commit 8223bec, 2025-12-18).
 
-use crate::error::*;
+use crate::error::CoreError;
 use crate::signature::sig_sections::{SignatureData, SIGNATURE_SECTION_HEADER_NAME};
 use crate::wasm_module::{Module, Section};
 use std::fs::File;
@@ -84,7 +84,7 @@ impl Module {
     ///     println!("Key ID: {:02x?}", key_id);
     /// }
     /// ```
-    pub fn signature_info(&self) -> Result<SignatureInfo, WSError> {
+    pub fn signature_info(&self) -> Result<SignatureInfo, CoreError> {
         for section in &self.sections {
             if let Section::Custom(custom) = section {
                 if custom.is_signature_header() {
@@ -93,7 +93,7 @@ impl Module {
                 }
             }
         }
-        Err(WSError::NoSignatures)
+        Err(CoreError::NoSignatures)
     }
 }
 
@@ -111,7 +111,7 @@ impl Module {
 ///     println!("Key ID: {:02x?}", key_id);
 /// }
 /// ```
-pub fn signature_info_from_file(path: impl AsRef<Path>) -> Result<SignatureInfo, WSError> {
+pub fn signature_info_from_file(path: impl AsRef<Path>) -> Result<SignatureInfo, CoreError> {
     let fp = File::open(path.as_ref())?;
     signature_info_from_reader(&mut BufReader::new(fp), None)
 }
@@ -134,7 +134,7 @@ pub fn signature_info_from_file(path: impl AsRef<Path>) -> Result<SignatureInfo,
 pub fn signature_info_from_reader(
     reader: &mut impl Read,
     detached_signature: Option<&[u8]>,
-) -> Result<SignatureInfo, WSError> {
+) -> Result<SignatureInfo, CoreError> {
     if let Some(detached) = detached_signature {
         let data = SignatureData::deserialize(detached)?;
         return Ok(SignatureInfo::from_signature_data(&data));
@@ -143,14 +143,14 @@ pub fn signature_info_from_reader(
     let stream = Module::init_from_reader(reader)?;
     let mut sections = Module::iterate(stream)?;
 
-    let first_section = sections.next().ok_or(WSError::ParseError)??;
+    let first_section = sections.next().ok_or(CoreError::ParseError)??;
 
     match first_section {
         Section::Custom(custom) if custom.name() == SIGNATURE_SECTION_HEADER_NAME => {
             let data = custom.signature_data()?;
             Ok(SignatureInfo::from_signature_data(&data))
         }
-        _ => Err(WSError::NoSignatures),
+        _ => Err(CoreError::NoSignatures),
     }
 }
 
@@ -166,7 +166,7 @@ pub fn signature_info_from_reader(
 /// let info = wsc::signature_info_from_detached(&signature_bytes)?;
 /// println!("Detached signature has {} keys", info.key_ids().len());
 /// ```
-pub fn signature_info_from_detached(detached_signature: &[u8]) -> Result<SignatureInfo, WSError> {
+pub fn signature_info_from_detached(detached_signature: &[u8]) -> Result<SignatureInfo, CoreError> {
     let data = SignatureData::deserialize(detached_signature)?;
     Ok(SignatureInfo::from_signature_data(&data))
 }
@@ -231,7 +231,7 @@ mod tests {
         let module = create_test_module();
 
         let result = module.signature_info();
-        assert!(matches!(result, Err(WSError::NoSignatures)));
+        assert!(matches!(result, Err(CoreError::NoSignatures)));
     }
 
     #[test]

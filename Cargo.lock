@@ -4765,6 +4765,7 @@ dependencies = [
  "wat",
  "webpki-roots",
  "wsc-attestation",
+ "wsc-verify-core",
  "x509-parser",
  "zeroize",
 ]
@@ -4804,6 +4805,19 @@ version = "0.9.0"
 dependencies = [
  "wit-bindgen 0.47.0",
  "wsc",
+]
+
+[[package]]
+name = "wsc-verify-core"
+version = "0.9.0"
+dependencies = [
+ "ct-codecs",
+ "ed25519-compact",
+ "getrandom 0.3.4",
+ "hmac-sha256",
+ "log",
+ "thiserror 2.0.17",
+ "zeroize",
 ]
 
 [[package]]

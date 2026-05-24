@@ -50,7 +50,7 @@ impl SecretKey {
         key_id: Option<&Vec<u8>>,
         detached: bool,
         allow_extensions: bool,
-    ) -> Result<(Module, Vec<u8>), WSError> {
+    ) -> Result<(Module, Vec<u8>), CoreError> {
         let mut hasher = Hash::new();
         let mut hashes = vec![];
 
@@ -76,7 +76,7 @@ impl SecretKey {
                     // instead of panicking. A crafted module could have duplicate
                     // signature sections to trigger a DoS via assert panic.
                     if previous_signature_data.is_some() {
-                        return Err(WSError::ParseError);
+                        return Err(CoreError::ParseError);
                     }
                     previous_signature_data = Some(custom_section.signature_data()?);
                     continue;
@@ -113,7 +113,7 @@ impl SecretKey {
         sk: &SecretKey,
         key_id: Option<&Vec<u8>>,
         hashes: Vec<Vec<u8>>,
-    ) -> Result<Section, WSError> {
+    ) -> Result<Section, CoreError> {
         // SECURITY: Zeroize message buffer on drop to prevent key material leakage
         let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
         msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
@@ -157,7 +157,7 @@ impl SecretKey {
             {
                 previous_signature_data.signed_hashes_set.clone()
             }
-            _ => return Err(WSError::IncompatibleSignatureVersion),
+            _ => return Err(CoreError::IncompatibleSignatureVersion),
         };
 
         let mut new_hashes = true;
@@ -170,7 +170,7 @@ impl SecretKey {
                         && ct_eq(&sig.signature, &signature_for_hashes.signature)
                 }) {
                     debug!("A matching hash set was already signed with that key.");
-                    return Err(WSError::DuplicateSignature);
+                    return Err(CoreError::DuplicateSignature);
                 }
                 debug!("A matching hash set was already signed.");
                 previous_signed_hashes_set
@@ -213,7 +213,7 @@ impl PublicKey {
         reader: &mut impl Read,
         detached_signature: Option<&[u8]>,
         mut predicate: P,
-    ) -> Result<(), WSError>
+    ) -> Result<(), CoreError>
     where
         P: FnMut(&Section) -> bool,
     {
@@ -224,7 +224,7 @@ impl PublicKey {
                 detached_signature.to_vec(),
             ))
         } else {
-            sections.next().ok_or(WSError::ParseError)?.1?
+            sections.next().ok_or(CoreError::ParseError)?.1?
         };
         let signature_header = match signature_header_section {
             Section::Custom(custom_section) if custom_section.is_signature_header() => {
@@ -232,7 +232,7 @@ impl PublicKey {
             }
             _ => {
                 debug!("This module is not signed");
-                return Err(WSError::NoSignatures);
+                return Err(CoreError::NoSignatures);
             }
         };
 
@@ -242,14 +242,14 @@ impl PublicKey {
                 "Unsupported hash function: {:02x}",
                 signature_data.hash_function
             );
-            return Err(WSError::ParseError);
+            return Err(CoreError::ParseError);
         }
 
         let signed_hashes_set = signature_data.signed_hashes_set;
         let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
-            return Err(WSError::VerificationFailed);
+            return Err(CoreError::VerificationFailed);
         }
         debug!("Hashes matching the signature:");
         for valid_hash in &valid_hashes {
@@ -270,7 +270,7 @@ impl PublicKey {
                 let h = hasher.finalize().to_vec();
                 debug!("  - [{}]", Hex::encode_to_string(&h).unwrap_or_else(|_| "<hex error>".to_string()));
                 if !valid_hashes.contains(&h) {
-                    return Err(WSError::VerificationFailedForPredicates);
+                    return Err(CoreError::VerificationFailedForPredicates);
                 }
                 matching_section_ranges.push(0..=idx);
                 section_sequence_must_be_signed = None;
@@ -279,10 +279,10 @@ impl PublicKey {
                 match section_sequence_must_be_signed {
                     None => section_sequence_must_be_signed = Some(section_must_be_signed),
                     Some(false) if section_must_be_signed => {
-                        return Err(WSError::VerificationFailedForPredicates);
+                        return Err(CoreError::VerificationFailedForPredicates);
                     }
                     Some(true) if !section_must_be_signed => {
-                        return Err(WSError::VerificationFailedForPredicates);
+                        return Err(CoreError::VerificationFailedForPredicates);
                     }
                     _ => {}
                 }
@@ -298,7 +298,7 @@ impl PublicKey {
     pub(crate) fn valid_hashes_for_pk<'t>(
         &self,
         signed_hashes_set: &'t [SignedHashes],
-    ) -> Result<HashSet<&'t Vec<u8>>, WSError> {
+    ) -> Result<HashSet<&'t Vec<u8>>, CoreError> {
         let mut valid_hashes = HashSet::new();
         for signed_section_sequence in signed_hashes_set {
             // SECURITY: Zeroize message buffer on drop to prevent data leakage

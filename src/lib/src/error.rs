@@ -166,6 +166,37 @@ impl From<x509_parser::error::X509Error> for WSError {
     }
 }
 
+// Lift errors from the verification core (`wsc-verify-core`) into `WSError`
+// so call sites in this crate can keep using `?` through the carve boundary
+// without manual mapping.
+impl From<wsc_verify_core::CoreError> for WSError {
+    fn from(err: wsc_verify_core::CoreError) -> Self {
+        use wsc_verify_core::CoreError as C;
+        match err {
+            C::InternalError(s) => WSError::InternalError(s),
+            C::ParseError => WSError::ParseError,
+            C::IOError(e) => WSError::IOError(e),
+            C::Eof => WSError::Eof,
+            C::UTF8Error(e) => WSError::UTF8Error(e),
+            C::CryptoError(e) => WSError::CryptoError(e),
+            C::UnsupportedModuleType => WSError::UnsupportedModuleType,
+            C::VerificationFailed => WSError::VerificationFailed,
+            C::VerificationFailedForPredicates => WSError::VerificationFailedForPredicates,
+            C::NoSignatures => WSError::NoSignatures,
+            C::UnsupportedKeyType => WSError::UnsupportedKeyType,
+            C::IncompatibleSignatureVersion => WSError::IncompatibleSignatureVersion,
+            C::DuplicateSignature => WSError::DuplicateSignature,
+            C::SignatureAlreadyAttached => WSError::SignatureAlreadyAttached,
+            C::DuplicatePublicKey => WSError::DuplicatePublicKey,
+            C::UnknownPublicKey => WSError::UnknownPublicKey,
+            C::TooManyHashes(n) => WSError::TooManyHashes(n),
+            C::TooManySignatures(n) => WSError::TooManySignatures(n),
+            C::TooManyCertificates(n) => WSError::TooManyCertificates(n),
+            C::TooManySections(n) => WSError::TooManySections(n),
+        }
+    }
+}
+
 // WASI HTTP error conversion for wasm32-wasip2 target
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 impl From<wasi::http::types::ErrorCode> for WSError {

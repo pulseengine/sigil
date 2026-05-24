@@ -1,14 +1,14 @@
 use std::io::{self, prelude::*};
 
-use crate::error::*;
+use crate::error::CoreError;
 
-pub fn get7(reader: &mut impl Read) -> Result<u8, WSError> {
+pub fn get7(reader: &mut impl Read) -> Result<u8, CoreError> {
     let mut v: u8 = 0;
     for i in 0..1 {
         let mut byte = [0u8; 1];
         if let Err(e) = reader.read_exact(&mut byte) {
             return Err(if e.kind() == io::ErrorKind::UnexpectedEof {
-                WSError::Eof
+                CoreError::Eof
             } else {
                 e.into()
             });
@@ -18,10 +18,10 @@ pub fn get7(reader: &mut impl Read) -> Result<u8, WSError> {
             return Ok(v);
         }
     }
-    Err(WSError::ParseError)
+    Err(CoreError::ParseError)
 }
 
-pub fn get32(reader: &mut impl Read) -> Result<u32, WSError> {
+pub fn get32(reader: &mut impl Read) -> Result<u32, CoreError> {
     let mut v: u32 = 0;
     for i in 0..5 {
         let mut byte = [0u8; 1];
@@ -31,10 +31,10 @@ pub fn get32(reader: &mut impl Read) -> Result<u32, WSError> {
             return Ok(v);
         }
     }
-    Err(WSError::ParseError)
+    Err(CoreError::ParseError)
 }
 
-pub fn put(writer: &mut impl Write, mut v: u64) -> Result<(), WSError> {
+pub fn put(writer: &mut impl Write, mut v: u64) -> Result<(), CoreError> {
     let mut byte = [0u8; 1];
     loop {
         byte[0] = (v & 0x7f) as u8;
@@ -49,7 +49,7 @@ pub fn put(writer: &mut impl Write, mut v: u64) -> Result<(), WSError> {
     }
 }
 
-pub fn put_slice(writer: &mut impl Write, bytes: impl AsRef<[u8]>) -> Result<(), WSError> {
+pub fn put_slice(writer: &mut impl Write, bytes: impl AsRef<[u8]>) -> Result<(), CoreError> {
     let bytes = bytes.as_ref();
     put(writer, bytes.len() as _)?;
     writer.write_all(bytes)?;
@@ -62,11 +62,11 @@ pub fn put_slice(writer: &mut impl Write, bytes: impl AsRef<[u8]>) -> Result<(),
 /// that could cause excessive memory allocation.
 pub const MAX_SLICE_LEN: usize = 16 * 1024 * 1024;
 
-pub fn get_slice(reader: &mut impl Read) -> Result<Vec<u8>, WSError> {
+pub fn get_slice(reader: &mut impl Read) -> Result<Vec<u8>, CoreError> {
     let len = get32(reader)? as usize;
     // Prevent DoS via excessive memory allocation
     if len > MAX_SLICE_LEN {
-        return Err(WSError::ParseError);
+        return Err(CoreError::ParseError);
     }
     let mut bytes = vec![0u8; len];
     reader.read_exact(&mut bytes)?;
@@ -99,7 +99,7 @@ mod tests {
         let mut reader = io::Cursor::new(data);
         let result = get7(&mut reader);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::Eof));
+        assert!(matches!(result.unwrap_err(), CoreError::Eof));
     }
 
     #[test]
@@ -229,7 +229,7 @@ mod tests {
         let result = get_slice(&mut reader);
         // Should return error, not OOM
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::ParseError));
+        assert!(matches!(result.unwrap_err(), CoreError::ParseError));
     }
 
     #[test]

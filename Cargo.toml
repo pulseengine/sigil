@@ -3,11 +3,13 @@ resolver = "2"
 members = [
     "src/attestation",
     "src/cli",
-    "src/lib",
     "src/component",
+    "src/lib",
+    "src/verify-core",
 ]
 exclude = [
     "examples/wasmtime-loader",
+    "verification/witness-harness",
 ]
 
 [workspace.package]

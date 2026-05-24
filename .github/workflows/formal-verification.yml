@@ -63,9 +63,13 @@ jobs:
       matrix:
         include:
           - module: varint
+            # `wasm_module::varint` lives in `wsc-verify-core` after the
+            # carve, so the harness must be invoked against that crate.
+            pkg: wsc-verify-core
             harness: wasm_module::varint
             tolerate_failure: false
           - module: merkle
+            pkg: wsc
             harness: signature::keyless::merkle
             # WIP — see audit C-7 partial closure. Three of the five harnesses
             # in this module call SHA-256 with symbolic input; the sha2 crate's
@@ -76,6 +80,7 @@ jobs:
             # the scope of bounded model checking entirely.
             tolerate_failure: true
           - module: dsse
+            pkg: wsc
             harness: dsse
             # WIP — CI observation post-rebase: dsse harnesses also hit
             # "unwinding assertion loop 0" at --default-unwind 4. The
@@ -85,6 +90,7 @@ jobs:
             # loop inside the prefix comparison.
             tolerate_failure: true
           - module: format
+            pkg: wsc
             harness: format
             # WIP — see audit C-7 partial closure. CI observation: the format
             # harnesses fail under cargo kani --default-unwind 4 despite static
@@ -96,17 +102,20 @@ jobs:
             # harness rather than enumerating in one 4-byte-symbolic harness.
             tolerate_failure: true
           - module: wasm_module
-            # Filter was wasm_module::tests, which matched no harness (the
-            # module is named component_proofs, not tests). Fixed in this PR
-            # so the single harness — header mutual-exclusivity — actually
-            # runs. CI observation: the harness hits an unwinding-loop
-            # assertion inside <builtin-library-memcmp> at the default
-            # unwind of 4. Static analysis missed this; the harness's
-            # equality check on the 8-byte header lowers to memcmp at the
-            # MIR level. Needs a per-harness #[kani::unwind(9)] (or
-            # rewriting the equality as a per-byte comparison) before this
-            # can be unmasked. Filter-fix lands here; harness-fix is a
-            # follow-up.
+            # `wasm_module::component_proofs` lives in `wsc-verify-core`
+            # after the carve, so the harness must be invoked against that
+            # crate. Filter was wasm_module::tests, which matched no
+            # harness (the module is named component_proofs, not tests).
+            # Fixed in this PR so the single harness — header mutual-
+            # exclusivity — actually runs. CI observation: the harness
+            # hits an unwinding-loop assertion inside <builtin-library-
+            # memcmp> at the default unwind of 4. Static analysis missed
+            # this; the harness's equality check on the 8-byte header
+            # lowers to memcmp at the MIR level. Needs a per-harness
+            # #[kani::unwind(9)] (or rewriting the equality as a per-byte
+            # comparison) before this can be unmasked. Filter-fix lands
+            # here; harness-fix is a follow-up.
+            pkg: wsc-verify-core
             harness: wasm_module::component_proofs
             tolerate_failure: true
     steps:
@@ -129,7 +138,8 @@ jobs:
     - name: Run Kani ${{ matrix.module }} proofs
       env:
         HARNESS: ${{ matrix.harness }}
-      run: cargo kani -p wsc --default-unwind 4 --output-format terse --harness "$HARNESS"
+        PACKAGE: ${{ matrix.pkg }}
+      run: cargo kani -p "$PACKAGE" --default-unwind 4 --output-format terse --harness "$HARNESS"
       timeout-minutes: 60
       continue-on-error: ${{ matrix.tolerate_failure }}
 

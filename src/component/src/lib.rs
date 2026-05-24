@@ -88,11 +88,15 @@ impl Guest for Component {
         // Create a reader over the module bytes
         let mut reader = Cursor::new(&module_bytes);
 
-        // Verify based on signature type
+        // Verify based on signature type. `pk.verify` now returns
+        // `CoreError` (the carved verify-core error type), so the match
+        // patterns are `CoreError` variants — `From<CoreError> for WSError`
+        // handles `?` propagation in the rest of `wsc`, but a direct match
+        // here must be against the actual return type.
         match pk.verify(&mut reader, detached_sig.as_deref()) {
             Ok(()) => Ok(true),
-            Err(wsc::WSError::NoSignatures) => Ok(false),
-            Err(wsc::WSError::VerificationFailed) => Ok(false),
+            Err(wsc::CoreError::NoSignatures) => Ok(false),
+            Err(wsc::CoreError::VerificationFailed) => Ok(false),
             Err(e) => Err(format!("Verification error: {}", e)),
         }
     }

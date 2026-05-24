@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 
 #[derive(Clone, Copy)]
-pub(crate) struct Hash {
+pub struct Hash {
     hash: hmac_sha256::Hash,
 }
 

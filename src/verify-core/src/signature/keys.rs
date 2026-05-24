@@ -1,4 +1,4 @@
-pub use crate::error::*;
+pub use crate::error::CoreError;
 use crate::secure_file;
 
 use ct_codecs::{Encoder, Hex};
@@ -9,8 +9,8 @@ use std::path::Path;
 use std::fmt;
 use zeroize::Zeroizing;
 
-pub(crate) const ED25519_PK_ID: u8 = 0x01;
-pub(crate) const ED25519_SK_ID: u8 = 0x81;
+pub const ED25519_PK_ID: u8 = 0x01;
+pub const ED25519_SK_ID: u8 = 0x81;
 
 /// A public key.
 #[derive(Clone, Eq, PartialEq, Hash)]
@@ -21,12 +21,12 @@ pub struct PublicKey {
 
 impl PublicKey {
     /// Create a public key from raw bytes.
-    pub fn from_bytes(pk: &[u8]) -> Result<Self, WSError> {
+    pub fn from_bytes(pk: &[u8]) -> Result<Self, CoreError> {
         let mut reader = io::Cursor::new(pk);
         let mut id = [0u8];
         reader.read_exact(&mut id)?;
         if id[0] != ED25519_PK_ID {
-            return Err(WSError::UnsupportedKeyType);
+            return Err(CoreError::UnsupportedKeyType);
         }
         let mut bytes = vec![];
         reader.read_to_end(&mut bytes)?;
@@ -37,13 +37,13 @@ impl PublicKey {
     }
 
     /// Deserialize a PEM-encoded public key.
-    pub fn from_pem(pem: &str) -> Result<Self, WSError> {
+    pub fn from_pem(pem: &str) -> Result<Self, CoreError> {
         let pk = ed25519_compact::PublicKey::from_pem(pem)?;
         Ok(Self { pk, key_id: None })
     }
 
     /// Deserialize a DER-encoded public key.
-    pub fn from_der(der: &[u8]) -> Result<Self, WSError> {
+    pub fn from_der(der: &[u8]) -> Result<Self, CoreError> {
         let pk = ed25519_compact::PublicKey::from_der(der)?;
         Ok(Self { pk, key_id: None })
     }
@@ -66,7 +66,7 @@ impl PublicKey {
     }
 
     /// Read public key from a file (raw WSC format).
-    pub fn from_file(file: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn from_file(file: impl AsRef<Path>) -> Result<Self, CoreError> {
         let mut fp = File::open(file)?;
         let mut bytes = vec![];
         fp.read_to_end(&mut bytes)?;
@@ -74,19 +74,19 @@ impl PublicKey {
     }
 
     /// Read public key from a PEM file.
-    pub fn from_pem_file(file: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn from_pem_file(file: impl AsRef<Path>) -> Result<Self, CoreError> {
         let content = std::fs::read_to_string(file)?;
         Self::from_pem(&content)
     }
 
     /// Read public key from a DER file.
-    pub fn from_der_file(file: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn from_der_file(file: impl AsRef<Path>) -> Result<Self, CoreError> {
         let bytes = std::fs::read(file)?;
         Self::from_der(&bytes)
     }
 
     /// Save the public key to a file.
-    pub fn to_file(&self, file: impl AsRef<Path>) -> Result<(), WSError> {
+    pub fn to_file(&self, file: impl AsRef<Path>) -> Result<(), CoreError> {
         let mut fp = File::create(file)?;
         fp.write_all(&self.to_bytes())?;
         Ok(())
@@ -129,12 +129,12 @@ pub struct SecretKey {
 
 impl SecretKey {
     /// Create a secret key from raw bytes.
-    pub fn from_bytes(sk: &[u8]) -> Result<Self, WSError> {
+    pub fn from_bytes(sk: &[u8]) -> Result<Self, CoreError> {
         let mut reader = io::Cursor::new(sk);
         let mut id = [0u8];
         reader.read_exact(&mut id)?;
         if id[0] != ED25519_SK_ID {
-            return Err(WSError::UnsupportedKeyType);
+            return Err(CoreError::UnsupportedKeyType);
         }
         let mut bytes = vec![];
         reader.read_to_end(&mut bytes)?;
@@ -144,13 +144,13 @@ impl SecretKey {
     }
 
     /// Deserialize a PEM-encoded secret key.
-    pub fn from_pem(pem: &str) -> Result<Self, WSError> {
+    pub fn from_pem(pem: &str) -> Result<Self, CoreError> {
         let sk = ed25519_compact::SecretKey::from_pem(pem)?;
         Ok(Self { sk })
     }
 
     /// Deserialize a DER-encoded secret key.
-    pub fn from_der(der: &[u8]) -> Result<Self, WSError> {
+    pub fn from_der(der: &[u8]) -> Result<Self, CoreError> {
         let sk = ed25519_compact::SecretKey::from_der(der)?;
         Ok(Self { sk })
     }
@@ -188,7 +188,7 @@ impl SecretKey {
     /// On Unix systems, this function checks file permissions and logs a warning
     /// if the file is readable by group or others. Secret keys should have mode
     /// 0600 (owner read/write only) to prevent credential theft.
-    pub fn from_file(file: impl AsRef<Path>) -> Result<Self, WSError> {
+    pub fn from_file(file: impl AsRef<Path>) -> Result<Self, CoreError> {
         let bytes = secure_file::read_secure(file.as_ref())?;
         Self::from_bytes(&bytes)
     }
@@ -204,7 +204,7 @@ impl SecretKey {
     ///
     /// On non-Unix systems, a warning is logged that permissions cannot be
     /// enforced, and the file is created with default permissions.
-    pub fn to_file(&self, file: impl AsRef<Path>) -> Result<(), WSError> {
+    pub fn to_file(&self, file: impl AsRef<Path>) -> Result<(), CoreError> {
         secure_file::write_secure(file.as_ref(), &self.to_bytes())
     }
 }
@@ -273,27 +273,27 @@ impl PublicKeySet {
     }
 
     /// Add a public key to the set.
-    pub fn insert(&mut self, pk: PublicKey) -> Result<(), WSError> {
+    pub fn insert(&mut self, pk: PublicKey) -> Result<(), CoreError> {
         if !self.pks.insert(pk) {
-            return Err(WSError::DuplicatePublicKey);
+            return Err(CoreError::DuplicatePublicKey);
         }
         Ok(())
     }
 
     /// Load a public key from a PEM file and add it to the set.
-    pub fn insert_pem_file(&mut self, file: impl AsRef<Path>) -> Result<(), WSError> {
+    pub fn insert_pem_file(&mut self, file: impl AsRef<Path>) -> Result<(), CoreError> {
         let pk = PublicKey::from_pem_file(file)?;
         self.insert(pk)
     }
 
     /// Load a public key from a raw WSC format file and add it to the set.
-    pub fn insert_file(&mut self, file: impl AsRef<Path>) -> Result<(), WSError> {
+    pub fn insert_file(&mut self, file: impl AsRef<Path>) -> Result<(), CoreError> {
         let pk = PublicKey::from_file(file)?;
         self.insert(pk)
     }
 
     /// Merge another public key set into this one.
-    pub fn merge(&mut self, other: &PublicKeySet) -> Result<(), WSError> {
+    pub fn merge(&mut self, other: &PublicKeySet) -> Result<(), CoreError> {
         for pk in other.pks.iter() {
             self.insert(pk.clone())?;
         }
@@ -301,9 +301,9 @@ impl PublicKeySet {
     }
 
     /// Remove a key from the set.
-    pub fn remove(&mut self, pk: &PublicKey) -> Result<(), WSError> {
+    pub fn remove(&mut self, pk: &PublicKey) -> Result<(), CoreError> {
         if !self.pks.remove(pk) {
-            return Err(WSError::UnknownPublicKey);
+            return Err(CoreError::UnknownPublicKey);
         }
         Ok(())
     }
@@ -361,7 +361,7 @@ mod tests {
         let bytes = vec![0xFF, 1, 2, 3, 4]; // Invalid key type
         let result = PublicKey::from_bytes(&bytes);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::UnsupportedKeyType));
+        assert!(matches!(result.unwrap_err(), CoreError::UnsupportedKeyType));
     }
 
     #[test]
@@ -432,7 +432,7 @@ mod tests {
         let bytes = vec![0xFF, 1, 2, 3, 4]; // Invalid key type
         let result = SecretKey::from_bytes(&bytes);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::UnsupportedKeyType));
+        assert!(matches!(result.unwrap_err(), CoreError::UnsupportedKeyType));
     }
 
     #[test]
@@ -490,7 +490,7 @@ mod tests {
         let result = set.insert(kp.pk.clone());
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::DuplicatePublicKey));
+        assert!(matches!(result.unwrap_err(), CoreError::DuplicatePublicKey));
         assert_eq!(set.len(), 1); // Still only one key
     }
 
@@ -513,7 +513,7 @@ mod tests {
 
         let result = set.remove(&kp.pk);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), WSError::UnknownPublicKey));
+        assert!(matches!(result.unwrap_err(), CoreError::UnknownPublicKey));
     }
 
     #[test]
