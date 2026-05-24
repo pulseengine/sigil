@@ -16,7 +16,7 @@ on:
       duration:
         description: 'Fuzzing duration per target (seconds)'
         required: false
-        default: '300'
+        default: '1800'
 
 jobs:
   fuzz:
@@ -25,6 +25,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # All 10 cargo-fuzz targets declared in `fuzz/Cargo.toml`. The
+        # matrix had silently fallen behind as new targets were added —
+        # keep this list in sync with `fuzz/Cargo.toml [[bin]]` entries.
         target:
           - fuzz_varint
           - fuzz_keyless_signature
@@ -32,6 +35,10 @@ jobs:
           - fuzz_signature_data
           - fuzz_public_key
           - fuzz_rekor_entry
+          - fuzz_dsse_envelope
+          - fuzz_elf_parsing
+          - fuzz_format_detection
+          - fuzz_mcuboot_parsing
 
     steps:
       - name: Checkout repository
@@ -47,11 +54,22 @@ jobs:
         run: mkdir -p fuzz/corpus/${{ matrix.target }}
 
       - name: Run fuzzer
+        env:
+          # Default 30-minute budget per target for the nightly schedule
+          # (previously 5 min). On manual dispatch the workflow input
+          # overrides this. The matrix runs all 10 targets in parallel on
+          # smithy lean-mem runners so wall-clock stays ~30 min while
+          # per-target depth rises 6×. Inputs interpolated via env: to
+          # keep the matrix value out of the shell template (workflow-
+          # injection-safe pattern).
+          DEFAULT_DURATION: '1800'
+          DURATION_INPUT: ${{ github.event.inputs.duration }}
+          TARGET: ${{ matrix.target }}
         run: |
           cd fuzz
-          DURATION=${{ github.event.inputs.duration || '300' }}
-          echo "Fuzzing ${{ matrix.target }} for ${DURATION} seconds..."
-          cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=$DURATION
+          DURATION="${DURATION_INPUT:-$DEFAULT_DURATION}"
+          echo "Fuzzing ${TARGET} for ${DURATION} seconds..."
+          cargo +nightly fuzz run "${TARGET}" -- -max_total_time="${DURATION}"
         continue-on-error: true
 
       - name: Upload crash artifacts
