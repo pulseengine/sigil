@@ -92,30 +92,54 @@ jobs:
         tool: cargo-mutants
     - name: Run mutation testing on security-critical modules
       run: |
-        cargo mutants -p wsc --timeout 120 --jobs 4 --output mutants-out \
+        cargo mutants -p wsc --timeout 120 --jobs 4 --output mutants-wsc \
           -f src/lib/src/signature/ \
           -f src/lib/src/dsse.rs \
           -f src/lib/src/format/ \
           -E "proofs::" \
           -E "key_id" \
           -- --lib
+    # The classic verification core lives in `wsc-verify-core` after the
+    # carve. Running cargo-mutants on it too keeps the zero-survivor gate
+    # on the moved signature code — without this step the original `-f
+    # src/lib/src/signature/` filter would silently match almost nothing
+    # post-merge and the gate would pass for the wrong reason.
+    - name: Run mutation testing on wsc-verify-core (carved verification core)
+      run: |
+        cargo mutants -p wsc-verify-core --timeout 120 --jobs 4 \
+          --output mutants-verify-core \
+          -f src/verify-core/src/signature/ \
+          -E "proofs::" \
+          -- --lib
     - name: Check surviving mutants
       run: |
-        if [ -f mutants-out/missed.txt ]; then
-          MISSED=$(wc -l < mutants-out/missed.txt | tr -d ' ')
-        else
-          MISSED=0
-        fi
-        echo "Surviving mutants: $MISSED"
-        if [ "$MISSED" -gt 0 ]; then
-          echo "::error::$MISSED mutant(s) survived — tests must catch all mutations in security-critical code"
-          cat mutants-out/missed.txt | head -30
+        missed_count() {
+          if [ -f "$1/missed.txt" ]; then
+            wc -l < "$1/missed.txt" | tr -d ' '
+          else
+            echo 0
+          fi
+        }
+        WSC=$(missed_count mutants-wsc)
+        CORE=$(missed_count mutants-verify-core)
+        TOTAL=$((WSC + CORE))
+        echo "Surviving mutants: wsc=$WSC, wsc-verify-core=$CORE, total=$TOTAL"
+        if [ "$TOTAL" -gt 0 ]; then
+          echo "::error::$TOTAL mutant(s) survived — tests must catch all mutations in security-critical code"
+          for d in mutants-wsc mutants-verify-core; do
+            if [ -f "$d/missed.txt" ]; then
+              echo "--- $d/missed.txt ---"
+              head -15 "$d/missed.txt"
+            fi
+          done
           exit 1
         fi
         echo "All mutants killed!"
-    - name: Upload mutants report
+    - name: Upload mutants reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: mutants-report
-        path: mutants-out/
+        name: mutants-reports
+        path: |
+          mutants-wsc/
+          mutants-verify-core/
