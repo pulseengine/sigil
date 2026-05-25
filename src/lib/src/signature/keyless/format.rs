@@ -1,6 +1,10 @@
+use crate::Module;
 use crate::error::WSError;
 use crate::wasm_module::varint;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use serde::Deserialize;
 use serde_json;
+use sha2::{Digest, Sha256};
 use std::io::{Cursor, Write};
 use x509_parser::prelude::*;
 
@@ -8,6 +12,49 @@ use x509_parser::prelude::*;
 use super::cert_verifier::CertificatePool;
 pub use super::rekor::RekorEntry;
 use super::rekor_verifier::RekorKeyring;
+
+/// Deserialization view of the Rekor `hashedrekord/0.0.1` entry body.
+///
+/// Only the fields needed to bind the entry to a candidate
+/// [`KeylessSignature`] bundle are modeled — extra fields in the body are
+/// permitted and ignored. The signer side at `rekor.rs::upload_entry`
+/// produces this exact shape.
+#[derive(Debug, Deserialize)]
+struct HashedrekordBody {
+    kind: String,
+    #[serde(rename = "apiVersion")]
+    api_version: String,
+    spec: HashedrekordSpec,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordSpec {
+    signature: HashedrekordSignature,
+    data: HashedrekordData,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordSignature {
+    content: String,
+    #[serde(rename = "publicKey")]
+    public_key: HashedrekordPublicKey,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordPublicKey {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordData {
+    hash: HashedrekordHash,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordHash {
+    algorithm: String,
+    value: String,
+}
 
 /// Binary format version for keyless signatures
 pub const KEYLESS_VERSION: u8 = 0x02;
@@ -45,13 +92,17 @@ pub const MAX_CHAIN_DEPTH: usize = 8;
 /// ```
 #[derive(Debug, Clone)]
 pub struct KeylessSignature {
-    /// Ed25519 signature over the module hash
+    /// ECDSA P-256 signature over `SHA256(module_bytes_without_signature_section)`,
+    /// produced by the ephemeral key whose public half is in the leaf of
+    /// [`cert_chain`](Self::cert_chain). Serialized in IEEE P1363 form (r || s).
     pub signature: Vec<u8>,
     /// X.509 certificate chain from Fulcio (PEM format)
     pub cert_chain: Vec<String>,
     /// Rekor transparency log entry
     pub rekor_entry: RekorEntry,
-    /// SHA256 hash of the WASM module that was signed
+    /// SHA256 of the module **before** the keyless signature custom section
+    /// was attached. Verifiers must recompute this from the candidate module
+    /// (after stripping the signature section) and reject on mismatch.
     pub module_hash: Vec<u8>,
 }
 
@@ -448,6 +499,301 @@ impl KeylessSignature {
         log::debug!("Rekor inclusion proof verified successfully");
         Ok(())
     }
+
+    /// Verify that this signature actually binds to the given module.
+    ///
+    /// This is the artifact-integrity step of keyless verification. It is
+    /// **independent of** certificate chain validation and Rekor SET
+    /// verification, which only attest to "this Fulcio cert exists and is
+    /// known to the transparency log." Without this check, an attacker who
+    /// obtains any valid Fulcio cert + Rekor entry can splice the signature
+    /// blob onto an arbitrary module and the verifier will accept it
+    /// (issue #135).
+    ///
+    /// Two checks run in sequence; failing either rejects the module:
+    ///
+    /// 1. **Hash binding.** Strip the embedded signature custom section,
+    ///    serialize the remaining module, recompute its SHA-256, and require
+    ///    it to equal [`Self::module_hash`]. This proves the candidate
+    ///    module's bytes are the bytes the signer covered.
+    /// 2. **Signature authenticity.** Extract the ECDSA P-256 public key
+    ///    from the leaf certificate and verify [`Self::signature`] is a
+    ///    valid signature over `SHA256(stripped_module_bytes)`. This proves
+    ///    the cert's holder actually signed *this* hash, not someone else's.
+    ///
+    /// On any failure, returns [`WSError::VerificationFailed`] and emits a
+    /// `log::error!` with the specific reason. The error variant does not
+    /// distinguish hash vs. signature failure to avoid leaking which check
+    /// a tampered artifact tripped.
+    pub fn verify_artifact_binding(&self, module: &Module) -> Result<(), WSError> {
+        use ecdsa::signature::DigestVerifier;
+        use p256::ecdsa::{Signature as P256Signature, VerifyingKey};
+
+        // Step 1: Recompute the module hash over the bytes the signer
+        // covered (i.e., the module with the signature custom section
+        // removed). The sign path computes the hash *before* attaching the
+        // signature, so verify must mirror that by stripping it.
+        let (unsigned_module, _stripped_signature_bytes) = module
+            .clone()
+            .detach_signature()
+            .map_err(|_| WSError::NoSignatures)?;
+
+        let mut unsigned_bytes = Vec::new();
+        unsigned_module.serialize(&mut unsigned_bytes).map_err(|e| {
+            WSError::InternalError(format!("Failed to serialize stripped module: {}", e))
+        })?;
+
+        let recomputed_hash = Sha256::digest(&unsigned_bytes);
+        if &recomputed_hash[..] != self.module_hash.as_slice() {
+            log::error!(
+                "Keyless artifact binding rejected: module hash mismatch \
+                 (expected {}, recomputed {})",
+                hex::encode(&self.module_hash),
+                hex::encode(recomputed_hash),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // Step 2: Extract the leaf cert's SPKI as a P-256 verifying key and
+        // verify the signature blob against the recomputed digest. The sign
+        // path uses `signing_key.sign_digest(Sha256)` with the same module
+        // bytes — verify must use `verify_digest` symmetrically.
+        let leaf_pem = self.cert_chain.first().ok_or_else(|| {
+            log::error!("Keyless artifact binding rejected: empty certificate chain");
+            WSError::VerificationFailed
+        })?;
+
+        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes()).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: failed to parse leaf cert PEM: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+        let cert = pem.parse_x509().map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: failed to parse leaf X.509: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        // Fulcio issues ECDSA P-256 keys (matching the sign path at
+        // signer.rs `SigningKey::<p256::NistP256>::random`). The SPKI's
+        // BIT STRING `data` field is the SEC1-encoded uncompressed point
+        // (0x04 || x || y) for P-256, which `from_sec1_bytes` accepts.
+        let spki_bits = cert.public_key().subject_public_key.data.as_ref();
+        let verifying_key = VerifyingKey::from_sec1_bytes(spki_bits).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: leaf cert SPKI is not a valid \
+                 ECDSA P-256 key: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let signature = P256Signature::from_slice(&self.signature).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: signature blob is not a valid \
+                 ECDSA P-256 signature: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&unsigned_bytes);
+        verifying_key.verify_digest(hasher, &signature).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: ECDSA verify failed: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        log::debug!("Keyless artifact binding verified successfully");
+        Ok(())
+    }
+
+    /// Verify that the Rekor entry's body binds to *this* bundle.
+    ///
+    /// [`verify_artifact_binding`](Self::verify_artifact_binding) proves
+    /// the signature, leaf cert and module are mutually consistent.
+    /// [`verify_rekor_inclusion`](Self::verify_rekor_inclusion) (and the
+    /// SET check used by [`KeylessVerifier`](super::signer::KeylessVerifier))
+    /// prove the Rekor entry was logged by Rekor. Neither proves the
+    /// Rekor entry actually references *this* bundle — without that
+    /// binding, an attacker with any valid Fulcio cert can sign a
+    /// malicious module and stuff in **any unrelated** Rekor entry, and
+    /// `verify --keyless` returns exit 0 (issue #135 UCA-2).
+    ///
+    /// This check decodes the entry body — a base64'd `hashedrekord/0.0.1`
+    /// JSON document — and asserts three equalities against the bundle:
+    ///
+    /// 1. `body.spec.data.hash.algorithm == "sha256"` and
+    ///    `body.spec.data.hash.value == hex(self.module_hash)`.
+    /// 2. `base64_decode(body.spec.signature.content) == self.signature`.
+    /// 3. The leaf certificate parsed from
+    ///    `base64_decode(body.spec.signature.publicKey.content)` matches
+    ///    `self.cert_chain[0]` byte-for-byte at the DER level.
+    ///
+    /// All failures return [`WSError::VerificationFailed`] with a
+    /// `log::error!` describing the specific mismatch; the error variant
+    /// itself does not discriminate, to avoid giving an attacker an
+    /// oracle for which leg of the check rejected their forgery.
+    pub fn verify_rekor_body_binds_to_bundle(&self) -> Result<(), WSError> {
+        // 1. Decode the body and shape-check kind/version. Rekor's API
+        // returns the body as base64-encoded JSON; the signer side at
+        // `rekor.rs::upload_entry` builds it as `hashedrekord/0.0.1`.
+        let body_bytes = BASE64.decode(&self.rekor_entry.body).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body is not valid base64: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let body: HashedrekordBody = serde_json::from_slice(&body_bytes).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body is not a hashedrekord JSON: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        if body.kind != "hashedrekord" {
+            log::error!(
+                "Rekor body binding rejected: unexpected kind '{}', want 'hashedrekord'",
+                body.kind
+            );
+            return Err(WSError::VerificationFailed);
+        }
+        if body.api_version != "0.0.1" {
+            log::error!(
+                "Rekor body binding rejected: unsupported hashedrekord apiVersion '{}', \
+                 want '0.0.1'",
+                body.api_version
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 2. Artifact hash equality: body says what was logged, bundle
+        // carries what was signed. Without this, an attacker can pair
+        // their signature over module M' with someone else's Rekor
+        // entry that logged a different hash for module M.
+        if body.spec.data.hash.algorithm.to_ascii_lowercase() != "sha256" {
+            log::error!(
+                "Rekor body binding rejected: unsupported hash algorithm '{}', want 'sha256'",
+                body.spec.data.hash.algorithm
+            );
+            return Err(WSError::VerificationFailed);
+        }
+        let bundle_hash_hex = hex::encode(&self.module_hash);
+        if !body
+            .spec
+            .data
+            .hash
+            .value
+            .eq_ignore_ascii_case(&bundle_hash_hex)
+        {
+            log::error!(
+                "Rekor body binding rejected: body artifact hash '{}' does not match bundle \
+                 module_hash '{}'",
+                body.spec.data.hash.value,
+                bundle_hash_hex,
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 3. Signature blob equality: body says which signature was
+        // logged, bundle carries which signature is being presented.
+        // Without this, an attacker can splice a body whose hash happens
+        // to match but whose recorded signature came from a different
+        // signing event.
+        let body_sig = BASE64.decode(&body.spec.signature.content).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body signature is not valid base64: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+        if body_sig.as_slice() != self.signature.as_slice() {
+            log::error!(
+                "Rekor body binding rejected: body signature bytes do not match bundle \
+                 signature (body_len={}, bundle_len={})",
+                body_sig.len(),
+                self.signature.len(),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 4. Public-key binding: the body's publicKey.content is a
+        // base64'd PEM that the signer uploaded as
+        // `cert_chain.join("\n")`. Different Rekor clients could
+        // serialize cert chain joining differently, so the robust check
+        // is to extract the leaf CERTIFICATE block from the decoded
+        // bytes, parse it to DER, and compare to the bundle's leaf cert
+        // (also normalised via PEM→DER). Direct byte equality on the
+        // raw PEM would over-reject on benign whitespace / line-ending
+        // differences.
+        let body_pubkey_bytes = BASE64
+            .decode(&body.spec.signature.public_key.content)
+            .map_err(|e| {
+                log::error!(
+                    "Rekor body binding rejected: body publicKey is not valid base64: {}",
+                    e
+                );
+                WSError::VerificationFailed
+            })?;
+        let body_leaf_der = first_certificate_der(&body_pubkey_bytes).ok_or_else(|| {
+            log::error!(
+                "Rekor body binding rejected: body publicKey contains no CERTIFICATE PEM block"
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let bundle_leaf_pem = self.cert_chain.first().ok_or_else(|| {
+            log::error!("Rekor body binding rejected: bundle has no leaf certificate");
+            WSError::VerificationFailed
+        })?;
+        let bundle_leaf_der =
+            first_certificate_der(bundle_leaf_pem.as_bytes()).ok_or_else(|| {
+                log::error!(
+                    "Rekor body binding rejected: bundle leaf cert is not a parseable PEM \
+                     CERTIFICATE block"
+                );
+                WSError::VerificationFailed
+            })?;
+
+        if body_leaf_der != bundle_leaf_der {
+            log::error!(
+                "Rekor body binding rejected: body leaf cert DER differs from bundle leaf \
+                 cert DER (body_len={}, bundle_len={})",
+                body_leaf_der.len(),
+                bundle_leaf_der.len(),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        log::debug!("Rekor body binding verified successfully");
+        Ok(())
+    }
+}
+
+/// Parse a PEM-encoded byte slice and return the DER bytes of the first
+/// CERTIFICATE block. Returns `None` if no CERTIFICATE block is present
+/// or the PEM is malformed. Used to normalise leaf-cert comparison
+/// across serializations that may differ on whitespace or trailing
+/// concatenated certs.
+fn first_certificate_der(pem_bytes: &[u8]) -> Option<Vec<u8>> {
+    // Use the absolute path `::pem` because `x509_parser::prelude::*`
+    // brings in a `pem` module that would otherwise shadow the crate.
+    for entry in ::pem::parse_many(pem_bytes).ok()?.into_iter() {
+        if entry.tag() == "CERTIFICATE" {
+            return Some(entry.contents().to_vec());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -765,5 +1111,475 @@ mod tests {
 
         assert_eq!(deserialized.module_hash.len(), 32);
         assert_eq!(deserialized.module_hash, sig.module_hash);
+    }
+
+    // -----------------------------------------------------------------
+    // Artifact-binding tests for issue #135
+    //
+    // These tests reproduce the class of tampering the original verifier
+    // accepted (signature blob present and well-formed, but the artifact
+    // bytes don't match what the cert holder actually signed). Each test
+    // builds a real cert with a real ECDSA P-256 keypair, signs a real
+    // module, then mutates one piece of the bundle and asserts rejection.
+    // -----------------------------------------------------------------
+
+    /// Test fixture: a real WASM module + a KeylessSignature whose cert,
+    /// signature, and module_hash all consistently bind to that module.
+    /// Calling [`verify_artifact_binding`] on `(signed_module, keyless_sig)`
+    /// must succeed; tamper any one piece and it must fail.
+    struct ArtifactBindingFixture {
+        signed_module: crate::Module,
+        keyless_sig: KeylessSignature,
+        /// A second, independently-generated cert chain (with a different
+        /// public key) for the "swap the cert" tamper test.
+        other_cert_pem: String,
+    }
+
+    fn build_artifact_binding_fixture() -> ArtifactBindingFixture {
+        use crate::wasm_module::{Module, Section, StandardSection, SectionId};
+        use ecdsa::signature::DigestSigner;
+        use p256::pkcs8::DecodePrivateKey;
+
+        // 1. Build a realistic-enough module: WASM magic + version, plus a
+        // standard section so the hash covers more than just the header.
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(
+                    SectionId::Type,
+                    vec![0x01, 0x60, 0x00, 0x00],
+                )),
+                Section::Standard(StandardSection::new(
+                    SectionId::Function,
+                    vec![0x01, 0x00],
+                )),
+                Section::Standard(StandardSection::new(
+                    SectionId::Code,
+                    vec![0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b],
+                )),
+            ],
+        };
+
+        // 2. Generate an ECDSA P-256 keypair via rcgen, then re-import the
+        // PKCS#8 PEM into p256 so we can both (a) mint a real cert that
+        // embeds the public key and (b) sign the module hash with the
+        // matching private key. Going rcgen→p256 avoids hand-rolling
+        // PKCS#8 export from p256.
+        let cert_keypair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .expect("rcgen keypair generation");
+        let signing_key_pem = cert_keypair.serialize_pem();
+        let secret = p256::SecretKey::from_pkcs8_pem(&signing_key_pem)
+            .expect("p256 import of rcgen PKCS8 PEM");
+        let signing_key = ecdsa::SigningKey::<p256::NistP256>::from(&secret);
+
+        let params = rcgen::CertificateParams::new(vec!["fixture.local".to_string()])
+            .expect("cert params");
+        let cert = params.self_signed(&cert_keypair).expect("self-signed cert");
+        let cert_pem = cert.pem();
+
+        // 3. Sign the module hash exactly the way `KeylessSigner::sign_module` does.
+        let mut module_bytes = Vec::new();
+        module
+            .clone()
+            .serialize(&mut module_bytes)
+            .expect("module serialize");
+
+        let mut hasher = Sha256::new();
+        hasher.update(&module_bytes);
+        let signature: p256::ecdsa::Signature = signing_key.sign_digest(hasher.clone());
+        let module_hash = hasher.finalize().to_vec();
+
+        // 4. Build the hashedrekord body matching the bundle so the
+        // Rekor body-binding check has a real document to validate.
+        // The signer side at `rekor.rs::upload_entry` constructs this
+        // exact shape; we mirror it byte-for-byte.
+        let sig_bytes_vec = signature.to_bytes().to_vec();
+        let body_json = build_hashedrekord_body(&sig_bytes_vec, &cert_pem, &module_hash);
+
+        let rekor_entry = RekorEntry {
+            uuid: "fixture-rekor-uuid".to_string(),
+            log_index: 1,
+            body: body_json,
+            log_id: "fixture-log-id".to_string(),
+            inclusion_proof: vec![],
+            signed_entry_timestamp: String::new(),
+            integrated_time: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let keyless_sig = KeylessSignature::new(
+            sig_bytes_vec,
+            vec![cert_pem.clone()],
+            rekor_entry,
+            module_hash,
+        );
+
+        let sig_blob = keyless_sig.to_bytes().expect("keyless sig serialize");
+        let signed_module = module.attach_signature(&sig_blob).expect("attach signature");
+
+        // 5. Mint an unrelated cert with a different keypair for the
+        // cert-substitution test.
+        let other_keypair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .expect("other keypair");
+        let other_params = rcgen::CertificateParams::new(vec!["other.local".to_string()])
+            .expect("other params");
+        let other_cert = other_params
+            .self_signed(&other_keypair)
+            .expect("other self-signed");
+
+        ArtifactBindingFixture {
+            signed_module,
+            keyless_sig,
+            other_cert_pem: other_cert.pem(),
+        }
+    }
+
+    /// Build a `hashedrekord/0.0.1` body JSON matching the inputs and
+    /// return it base64-encoded (as the Rekor API returns it).
+    fn build_hashedrekord_body(
+        signature_bytes: &[u8],
+        leaf_cert_pem: &str,
+        module_hash: &[u8],
+    ) -> String {
+        let body = serde_json::json!({
+            "kind": "hashedrekord",
+            "apiVersion": "0.0.1",
+            "spec": {
+                "signature": {
+                    "content": BASE64.encode(signature_bytes),
+                    "publicKey": {
+                        "content": BASE64.encode(leaf_cert_pem.as_bytes()),
+                    },
+                },
+                "data": {
+                    "hash": {
+                        "algorithm": "sha256",
+                        "value": hex::encode(module_hash),
+                    },
+                },
+            },
+        });
+        BASE64.encode(serde_json::to_vec(&body).expect("body to JSON"))
+    }
+
+    #[test]
+    fn test_verify_artifact_binding_accepts_genuine_signed_module() {
+        let fx = build_artifact_binding_fixture();
+        fx.keyless_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect("genuine signed module must verify");
+    }
+
+    /// Reproduces issue #135 exactly: flip a byte inside the signed
+    /// payload (not in the signature section), keep the signature blob
+    /// intact, assert verification rejects.
+    #[test]
+    fn test_verify_artifact_binding_rejects_byte_flipped_module() {
+        use crate::wasm_module::{Section, SectionLike, StandardSection};
+
+        let fx = build_artifact_binding_fixture();
+
+        // Tamper a byte inside the Code section's payload — well outside
+        // the signature custom section, so the signature blob still
+        // parses and the cert/Rekor checks would still succeed. We
+        // rebuild the section (rather than mutating in place) because
+        // `StandardSection`'s fields are private.
+        let tampered_sections: Vec<Section> = fx
+            .signed_module
+            .sections
+            .iter()
+            .map(|s| match s {
+                Section::Standard(std_sec) if std_sec.id() == crate::SectionId::Code => {
+                    let mut payload = std_sec.payload().to_vec();
+                    assert!(!payload.is_empty(), "Code section has bytes");
+                    payload[0] ^= 0xFF;
+                    Section::Standard(StandardSection::new(std_sec.id(), payload))
+                }
+                other => other.clone(),
+            })
+            .collect();
+        let tampered = crate::Module {
+            header: fx.signed_module.header,
+            sections: tampered_sections,
+        };
+
+        let err = fx
+            .keyless_sig
+            .verify_artifact_binding(&tampered)
+            .expect_err("tampered module must be rejected");
+        assert!(
+            matches!(err, WSError::VerificationFailed),
+            "expected VerificationFailed, got: {:?}",
+            err
+        );
+    }
+
+    /// Tampering the signature blob (not the artifact) must also be
+    /// rejected — proves the ECDSA verify leg fires even when the hash
+    /// check would pass.
+    #[test]
+    fn test_verify_artifact_binding_rejects_corrupted_signature() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        // Flip the high bit of the first signature byte — keeps the
+        // length valid (so `Signature::from_slice` succeeds) but breaks
+        // the cryptographic check.
+        tampered_sig.signature[0] ^= 0x80;
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("corrupted signature must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Pre-image attack: keep the real signature, swap the stored
+    /// `module_hash` to whatever the attacker wants the verifier to
+    /// recompute over. The hash check passes (we tampered the field to
+    /// match), but the ECDSA verify must still reject — because
+    /// `signature` was made over the genuine hash, not the substituted
+    /// one. This protects against an attacker who can recompute hashes
+    /// but not forge ECDSA signatures.
+    #[test]
+    fn test_verify_artifact_binding_rejects_substituted_module_hash() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.module_hash = vec![0xAA; 32];
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("hash substitution must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Replace the leaf cert with an unrelated valid cert (different
+    /// keypair). The hash check passes (artifact unchanged), but ECDSA
+    /// verify under the new public key must fail.
+    #[test]
+    fn test_verify_artifact_binding_rejects_substituted_cert() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.cert_chain = vec![fx.other_cert_pem.clone()];
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("cert substitution must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// If the module has no signature section at all,
+    /// `verify_artifact_binding` must surface that as `NoSignatures`
+    /// rather than silently passing or returning a confusing error.
+    #[test]
+    fn test_verify_artifact_binding_rejects_module_without_signature_section() {
+        let fx = build_artifact_binding_fixture();
+        let (unsigned_module, _) = fx
+            .signed_module
+            .clone()
+            .detach_signature()
+            .expect("fixture is signed");
+
+        let err = fx
+            .keyless_sig
+            .verify_artifact_binding(&unsigned_module)
+            .expect_err("unsigned module must be rejected");
+        assert!(
+            matches!(err, WSError::NoSignatures),
+            "expected NoSignatures, got: {:?}",
+            err
+        );
+    }
+
+    /// Empty cert chain must be rejected (defense in depth — the chain
+    /// check in `verify()` already catches this, but the binding method
+    /// is a public API and must fail-closed independently).
+    #[test]
+    fn test_verify_artifact_binding_rejects_empty_cert_chain() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.cert_chain.clear();
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("empty cert chain must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    // -----------------------------------------------------------------
+    // Rekor body-binding tests for issue #135 UCA-2
+    //
+    // verify_artifact_binding (above) closes the "cert+sig+module
+    // mutually consistent" gap. These tests close the orthogonal gap:
+    // the embedded Rekor entry's `body` must actually reference *this*
+    // bundle. Each test takes the fully-bound fixture, mutates one
+    // field of the body (artifact hash, signature, or public key), and
+    // asserts rejection.
+    // -----------------------------------------------------------------
+
+    /// Re-encode a hashedrekord body after applying a mutation to its
+    /// JSON value. Returns the new base64-encoded body string.
+    fn remunge_body<F: FnOnce(&mut serde_json::Value)>(body_b64: &str, mutate: F) -> String {
+        let raw = BASE64.decode(body_b64).expect("body is base64");
+        let mut body: serde_json::Value = serde_json::from_slice(&raw).expect("body is JSON");
+        mutate(&mut body);
+        BASE64.encode(serde_json::to_vec(&body).expect("body to JSON"))
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_accepts_consistent_body() {
+        let fx = build_artifact_binding_fixture();
+        fx.keyless_sig
+            .verify_rekor_body_binds_to_bundle()
+            .expect("consistent hashedrekord body must verify");
+    }
+
+    /// Attacker takes a legitimately-signed module's signature blob but
+    /// embeds an unrelated Rekor entry that logged a *different* artifact.
+    /// `verify_artifact_binding` accepts the bundle (cert+sig+module are
+    /// self-consistent), but the body's `data.hash.value` does not
+    /// match the bundle's `module_hash` — must reject.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_artifact_hash_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["data"]["hash"]["value"] = serde_json::json!(
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+            );
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body artifact-hash mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Body's recorded signature differs from the bundle's signature —
+    /// catches the case where an attacker borrows a Rekor entry whose
+    /// logged signature came from a different signing event over the
+    /// same hash.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_signature_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            // Substitute a different base64 blob of the same length.
+            let bogus = BASE64.encode(vec![0x42u8; 64]);
+            body["spec"]["signature"]["content"] = serde_json::json!(bogus);
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body signature mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Body's recorded public key refers to a different cert than the
+    /// bundle's leaf — catches the case where an attacker borrows a
+    /// Rekor entry that logged a different identity's signature over
+    /// the same hash and signature blob.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_public_key_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        let other_pubkey_b64 = BASE64.encode(fx.other_cert_pem.as_bytes());
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["signature"]["publicKey"]["content"] =
+                serde_json::json!(other_pubkey_b64);
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body public-key mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Unsupported kind / apiVersion / hash algorithm must reject —
+    /// guards against future Rekor types whose semantics this verifier
+    /// hasn't been taught to interpret.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_unsupported_kind() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["kind"] = serde_json::json!("intoto");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("unsupported kind must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_unsupported_api_version() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["apiVersion"] = serde_json::json!("99.0.0");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("unsupported apiVersion must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_non_sha256_hash_algorithm() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["data"]["hash"]["algorithm"] = serde_json::json!("md5");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("non-sha256 hash must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Malformed inputs (non-base64 body, non-JSON body, malformed
+    /// inner base64 fields) must fail-closed with the same error
+    /// variant — never panic, never accept.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_garbage_body() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = "this is not base64 either".to_string();
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("garbage body must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_non_json_body() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = BASE64.encode(b"not json at all");
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("non-JSON body must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Case-insensitivity check: Rekor sometimes returns hex hashes
+    /// uppercase or mixed case. The check must accept those (genuine
+    /// data) but still reject when bytes truly differ.
+    #[test]
+    fn test_verify_rekor_body_binding_accepts_uppercase_hex_hash() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            let v = body["spec"]["data"]["hash"]["value"]
+                .as_str()
+                .unwrap()
+                .to_ascii_uppercase();
+            body["spec"]["data"]["hash"]["value"] = serde_json::json!(v);
+        });
+
+        tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect("uppercase hex hash must still verify");
     }
 }
