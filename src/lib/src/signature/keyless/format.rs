@@ -1,6 +1,8 @@
+use crate::Module;
 use crate::error::WSError;
 use crate::wasm_module::varint;
 use serde_json;
+use sha2::{Digest, Sha256};
 use std::io::{Cursor, Write};
 use x509_parser::prelude::*;
 
@@ -45,13 +47,17 @@ pub const MAX_CHAIN_DEPTH: usize = 8;
 /// ```
 #[derive(Debug, Clone)]
 pub struct KeylessSignature {
-    /// Ed25519 signature over the module hash
+    /// ECDSA P-256 signature over `SHA256(module_bytes_without_signature_section)`,
+    /// produced by the ephemeral key whose public half is in the leaf of
+    /// [`cert_chain`](Self::cert_chain). Serialized in IEEE P1363 form (r || s).
     pub signature: Vec<u8>,
     /// X.509 certificate chain from Fulcio (PEM format)
     pub cert_chain: Vec<String>,
     /// Rekor transparency log entry
     pub rekor_entry: RekorEntry,
-    /// SHA256 hash of the WASM module that was signed
+    /// SHA256 of the module **before** the keyless signature custom section
+    /// was attached. Verifiers must recompute this from the candidate module
+    /// (after stripping the signature section) and reject on mismatch.
     pub module_hash: Vec<u8>,
 }
 
@@ -448,6 +454,121 @@ impl KeylessSignature {
         log::debug!("Rekor inclusion proof verified successfully");
         Ok(())
     }
+
+    /// Verify that this signature actually binds to the given module.
+    ///
+    /// This is the artifact-integrity step of keyless verification. It is
+    /// **independent of** certificate chain validation and Rekor SET
+    /// verification, which only attest to "this Fulcio cert exists and is
+    /// known to the transparency log." Without this check, an attacker who
+    /// obtains any valid Fulcio cert + Rekor entry can splice the signature
+    /// blob onto an arbitrary module and the verifier will accept it
+    /// (issue #135).
+    ///
+    /// Two checks run in sequence; failing either rejects the module:
+    ///
+    /// 1. **Hash binding.** Strip the embedded signature custom section,
+    ///    serialize the remaining module, recompute its SHA-256, and require
+    ///    it to equal [`Self::module_hash`]. This proves the candidate
+    ///    module's bytes are the bytes the signer covered.
+    /// 2. **Signature authenticity.** Extract the ECDSA P-256 public key
+    ///    from the leaf certificate and verify [`Self::signature`] is a
+    ///    valid signature over `SHA256(stripped_module_bytes)`. This proves
+    ///    the cert's holder actually signed *this* hash, not someone else's.
+    ///
+    /// On any failure, returns [`WSError::VerificationFailed`] and emits a
+    /// `log::error!` with the specific reason. The error variant does not
+    /// distinguish hash vs. signature failure to avoid leaking which check
+    /// a tampered artifact tripped.
+    pub fn verify_artifact_binding(&self, module: &Module) -> Result<(), WSError> {
+        use ecdsa::signature::DigestVerifier;
+        use p256::ecdsa::{Signature as P256Signature, VerifyingKey};
+
+        // Step 1: Recompute the module hash over the bytes the signer
+        // covered (i.e., the module with the signature custom section
+        // removed). The sign path computes the hash *before* attaching the
+        // signature, so verify must mirror that by stripping it.
+        let (unsigned_module, _stripped_signature_bytes) = module
+            .clone()
+            .detach_signature()
+            .map_err(|_| WSError::NoSignatures)?;
+
+        let mut unsigned_bytes = Vec::new();
+        unsigned_module.serialize(&mut unsigned_bytes).map_err(|e| {
+            WSError::InternalError(format!("Failed to serialize stripped module: {}", e))
+        })?;
+
+        let recomputed_hash = Sha256::digest(&unsigned_bytes);
+        if &recomputed_hash[..] != self.module_hash.as_slice() {
+            log::error!(
+                "Keyless artifact binding rejected: module hash mismatch \
+                 (expected {}, recomputed {})",
+                hex::encode(&self.module_hash),
+                hex::encode(recomputed_hash),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // Step 2: Extract the leaf cert's SPKI as a P-256 verifying key and
+        // verify the signature blob against the recomputed digest. The sign
+        // path uses `signing_key.sign_digest(Sha256)` with the same module
+        // bytes — verify must use `verify_digest` symmetrically.
+        let leaf_pem = self.cert_chain.first().ok_or_else(|| {
+            log::error!("Keyless artifact binding rejected: empty certificate chain");
+            WSError::VerificationFailed
+        })?;
+
+        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes()).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: failed to parse leaf cert PEM: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+        let cert = pem.parse_x509().map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: failed to parse leaf X.509: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        // Fulcio issues ECDSA P-256 keys (matching the sign path at
+        // signer.rs `SigningKey::<p256::NistP256>::random`). The SPKI's
+        // BIT STRING `data` field is the SEC1-encoded uncompressed point
+        // (0x04 || x || y) for P-256, which `from_sec1_bytes` accepts.
+        let spki_bits = cert.public_key().subject_public_key.data.as_ref();
+        let verifying_key = VerifyingKey::from_sec1_bytes(spki_bits).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: leaf cert SPKI is not a valid \
+                 ECDSA P-256 key: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let signature = P256Signature::from_slice(&self.signature).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: signature blob is not a valid \
+                 ECDSA P-256 signature: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let mut hasher = Sha256::new();
+        hasher.update(&unsigned_bytes);
+        verifying_key.verify_digest(hasher, &signature).map_err(|e| {
+            log::error!(
+                "Keyless artifact binding rejected: ECDSA verify failed: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        log::debug!("Keyless artifact binding verified successfully");
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -765,5 +886,261 @@ mod tests {
 
         assert_eq!(deserialized.module_hash.len(), 32);
         assert_eq!(deserialized.module_hash, sig.module_hash);
+    }
+
+    // -----------------------------------------------------------------
+    // Artifact-binding tests for issue #135
+    //
+    // These tests reproduce the class of tampering the original verifier
+    // accepted (signature blob present and well-formed, but the artifact
+    // bytes don't match what the cert holder actually signed). Each test
+    // builds a real cert with a real ECDSA P-256 keypair, signs a real
+    // module, then mutates one piece of the bundle and asserts rejection.
+    // -----------------------------------------------------------------
+
+    /// Test fixture: a real WASM module + a KeylessSignature whose cert,
+    /// signature, and module_hash all consistently bind to that module.
+    /// Calling [`verify_artifact_binding`] on `(signed_module, keyless_sig)`
+    /// must succeed; tamper any one piece and it must fail.
+    struct ArtifactBindingFixture {
+        signed_module: crate::Module,
+        keyless_sig: KeylessSignature,
+        /// A second, independently-generated cert chain (with a different
+        /// public key) for the "swap the cert" tamper test.
+        other_cert_pem: String,
+    }
+
+    fn build_artifact_binding_fixture() -> ArtifactBindingFixture {
+        use crate::wasm_module::{Module, Section, StandardSection, SectionId};
+        use ecdsa::signature::DigestSigner;
+        use p256::pkcs8::DecodePrivateKey;
+
+        // 1. Build a realistic-enough module: WASM magic + version, plus a
+        // standard section so the hash covers more than just the header.
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(
+                    SectionId::Type,
+                    vec![0x01, 0x60, 0x00, 0x00],
+                )),
+                Section::Standard(StandardSection::new(
+                    SectionId::Function,
+                    vec![0x01, 0x00],
+                )),
+                Section::Standard(StandardSection::new(
+                    SectionId::Code,
+                    vec![0x01, 0x04, 0x00, 0x41, 0x2a, 0x0b],
+                )),
+            ],
+        };
+
+        // 2. Generate an ECDSA P-256 keypair via rcgen, then re-import the
+        // PKCS#8 PEM into p256 so we can both (a) mint a real cert that
+        // embeds the public key and (b) sign the module hash with the
+        // matching private key. Going rcgen→p256 avoids hand-rolling
+        // PKCS#8 export from p256.
+        let cert_keypair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .expect("rcgen keypair generation");
+        let signing_key_pem = cert_keypair.serialize_pem();
+        let secret = p256::SecretKey::from_pkcs8_pem(&signing_key_pem)
+            .expect("p256 import of rcgen PKCS8 PEM");
+        let signing_key = ecdsa::SigningKey::<p256::NistP256>::from(&secret);
+
+        let params = rcgen::CertificateParams::new(vec!["fixture.local".to_string()])
+            .expect("cert params");
+        let cert = params.self_signed(&cert_keypair).expect("self-signed cert");
+        let cert_pem = cert.pem();
+
+        // 3. Sign the module hash exactly the way `KeylessSigner::sign_module` does.
+        let mut module_bytes = Vec::new();
+        module
+            .clone()
+            .serialize(&mut module_bytes)
+            .expect("module serialize");
+
+        let mut hasher = Sha256::new();
+        hasher.update(&module_bytes);
+        let signature: p256::ecdsa::Signature = signing_key.sign_digest(hasher.clone());
+        let module_hash = hasher.finalize().to_vec();
+
+        // 4. Build the KeylessSignature blob and embed it. The Rekor entry
+        // is fixture data — `verify_artifact_binding` does not consult it.
+        let rekor_entry = RekorEntry {
+            uuid: "fixture-rekor-uuid".to_string(),
+            log_index: 1,
+            body: String::new(),
+            log_id: "fixture-log-id".to_string(),
+            inclusion_proof: vec![],
+            signed_entry_timestamp: String::new(),
+            integrated_time: "2026-01-01T00:00:00Z".to_string(),
+        };
+        let keyless_sig = KeylessSignature::new(
+            signature.to_bytes().to_vec(),
+            vec![cert_pem.clone()],
+            rekor_entry,
+            module_hash,
+        );
+
+        let sig_blob = keyless_sig.to_bytes().expect("keyless sig serialize");
+        let signed_module = module.attach_signature(&sig_blob).expect("attach signature");
+
+        // 5. Mint an unrelated cert with a different keypair for the
+        // cert-substitution test.
+        let other_keypair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)
+            .expect("other keypair");
+        let other_params = rcgen::CertificateParams::new(vec!["other.local".to_string()])
+            .expect("other params");
+        let other_cert = other_params
+            .self_signed(&other_keypair)
+            .expect("other self-signed");
+
+        ArtifactBindingFixture {
+            signed_module,
+            keyless_sig,
+            other_cert_pem: other_cert.pem(),
+        }
+    }
+
+    #[test]
+    fn test_verify_artifact_binding_accepts_genuine_signed_module() {
+        let fx = build_artifact_binding_fixture();
+        fx.keyless_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect("genuine signed module must verify");
+    }
+
+    /// Reproduces issue #135 exactly: flip a byte inside the signed
+    /// payload (not in the signature section), keep the signature blob
+    /// intact, assert verification rejects.
+    #[test]
+    fn test_verify_artifact_binding_rejects_byte_flipped_module() {
+        use crate::wasm_module::{Section, SectionLike, StandardSection};
+
+        let fx = build_artifact_binding_fixture();
+
+        // Tamper a byte inside the Code section's payload — well outside
+        // the signature custom section, so the signature blob still
+        // parses and the cert/Rekor checks would still succeed. We
+        // rebuild the section (rather than mutating in place) because
+        // `StandardSection`'s fields are private.
+        let tampered_sections: Vec<Section> = fx
+            .signed_module
+            .sections
+            .iter()
+            .map(|s| match s {
+                Section::Standard(std_sec) if std_sec.id() == crate::SectionId::Code => {
+                    let mut payload = std_sec.payload().to_vec();
+                    assert!(!payload.is_empty(), "Code section has bytes");
+                    payload[0] ^= 0xFF;
+                    Section::Standard(StandardSection::new(std_sec.id(), payload))
+                }
+                other => other.clone(),
+            })
+            .collect();
+        let tampered = crate::Module {
+            header: fx.signed_module.header,
+            sections: tampered_sections,
+        };
+
+        let err = fx
+            .keyless_sig
+            .verify_artifact_binding(&tampered)
+            .expect_err("tampered module must be rejected");
+        assert!(
+            matches!(err, WSError::VerificationFailed),
+            "expected VerificationFailed, got: {:?}",
+            err
+        );
+    }
+
+    /// Tampering the signature blob (not the artifact) must also be
+    /// rejected — proves the ECDSA verify leg fires even when the hash
+    /// check would pass.
+    #[test]
+    fn test_verify_artifact_binding_rejects_corrupted_signature() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        // Flip the high bit of the first signature byte — keeps the
+        // length valid (so `Signature::from_slice` succeeds) but breaks
+        // the cryptographic check.
+        tampered_sig.signature[0] ^= 0x80;
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("corrupted signature must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Pre-image attack: keep the real signature, swap the stored
+    /// `module_hash` to whatever the attacker wants the verifier to
+    /// recompute over. The hash check passes (we tampered the field to
+    /// match), but the ECDSA verify must still reject — because
+    /// `signature` was made over the genuine hash, not the substituted
+    /// one. This protects against an attacker who can recompute hashes
+    /// but not forge ECDSA signatures.
+    #[test]
+    fn test_verify_artifact_binding_rejects_substituted_module_hash() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.module_hash = vec![0xAA; 32];
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("hash substitution must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Replace the leaf cert with an unrelated valid cert (different
+    /// keypair). The hash check passes (artifact unchanged), but ECDSA
+    /// verify under the new public key must fail.
+    #[test]
+    fn test_verify_artifact_binding_rejects_substituted_cert() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.cert_chain = vec![fx.other_cert_pem.clone()];
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("cert substitution must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// If the module has no signature section at all,
+    /// `verify_artifact_binding` must surface that as `NoSignatures`
+    /// rather than silently passing or returning a confusing error.
+    #[test]
+    fn test_verify_artifact_binding_rejects_module_without_signature_section() {
+        let fx = build_artifact_binding_fixture();
+        let (unsigned_module, _) = fx
+            .signed_module
+            .clone()
+            .detach_signature()
+            .expect("fixture is signed");
+
+        let err = fx
+            .keyless_sig
+            .verify_artifact_binding(&unsigned_module)
+            .expect_err("unsigned module must be rejected");
+        assert!(
+            matches!(err, WSError::NoSignatures),
+            "expected NoSignatures, got: {:?}",
+            err
+        );
+    }
+
+    /// Empty cert chain must be rejected (defense in depth — the chain
+    /// check in `verify()` already catches this, but the binding method
+    /// is a public API and must fail-closed independently).
+    #[test]
+    fn test_verify_artifact_binding_rejects_empty_cert_chain() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered_sig = fx.keyless_sig.clone();
+        tampered_sig.cert_chain.clear();
+
+        let err = tampered_sig
+            .verify_artifact_binding(&fx.signed_module)
+            .expect_err("empty cert chain must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
     }
 }

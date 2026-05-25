@@ -3,6 +3,28 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed (security)
+
+- **`wsc verify --keyless` now actually binds the signature to the
+  artifact** (#135). Previous versions back through v0.9.0 verified the
+  Fulcio certificate chain and the Rekor SET, then accepted the module
+  without recomputing its hash or checking the embedded ECDSA signature
+  against the leaf cert's public key. Any tampered module — including
+  one with a byte flipped inside its signed payload, or one whose
+  signature section was spliced in from a different artifact — would
+  return exit 0. The new `KeylessSignature::verify_artifact_binding`
+  closes both halves of the gap (hash recompute + ECDSA verify under
+  the leaf cert's SPKI) and is wired into `KeylessVerifier::verify` as
+  a mandatory step between Rekor SET verification and identity claims.
+  Seven new tamper-rejection unit tests in
+  `src/lib/src/signature/keyless/format.rs` cover the byte-flip,
+  signature-substitution, hash-substitution, cert-substitution,
+  missing-signature-section, and empty-chain cases. Downstream consumers
+  (synth #140) that asserted the tampered-rejection property as an
+  xfail can now flip back to a positive assertion.
+
 ## [0.9.0] — 2026-05-20
 
 Cleanup-cycle release: a criterion benchmark regression gate and a
