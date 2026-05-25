@@ -3,27 +3,66 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [0.9.1] — 2026-05-25
+
+Security release. Closes two verification-bypass gaps in the keyless
+verify path that allowed `wsc verify --keyless` to return exit 0 on
+modules the cert holder did not sign. Both gaps were of the same
+"load-bearing property never enforced" class — the verifier had
+*structure* matching the intended checks but was missing the actual
+hash / cross-reference comparisons.
 
 ### Fixed (security)
 
-- **`wsc verify --keyless` now actually binds the signature to the
-  artifact** (#135). Previous versions back through v0.9.0 verified the
-  Fulcio certificate chain and the Rekor SET, then accepted the module
-  without recomputing its hash or checking the embedded ECDSA signature
-  against the leaf cert's public key. Any tampered module — including
-  one with a byte flipped inside its signed payload, or one whose
-  signature section was spliced in from a different artifact — would
-  return exit 0. The new `KeylessSignature::verify_artifact_binding`
-  closes both halves of the gap (hash recompute + ECDSA verify under
-  the leaf cert's SPKI) and is wired into `KeylessVerifier::verify` as
-  a mandatory step between Rekor SET verification and identity claims.
-  Seven new tamper-rejection unit tests in
-  `src/lib/src/signature/keyless/format.rs` cover the byte-flip,
-  signature-substitution, hash-substitution, cert-substitution,
-  missing-signature-section, and empty-chain cases. Downstream consumers
-  (synth #140) that asserted the tampered-rejection property as an
-  xfail can now flip back to a positive assertion.
+- **Artifact binding** (#135 / PR #136). `KeylessVerifier::verify`
+  verified the Fulcio cert chain and Rekor SET but never recomputed
+  the module hash or ECDSA-verified the signature against the leaf
+  cert. A tampered module — byte flipped, signature section spliced in
+  from a different artifact — returned exit 0. The new
+  `KeylessSignature::verify_artifact_binding` strips the signature
+  section, recomputes `SHA256`, and `verify_digest`s the signature
+  under the leaf cert's SPKI. Wired as step 4 of `verify()`.
+- **Rekor body binding (UCA-2)** (#135 / PR #136). The verify path
+  proved the Rekor entry was logged by Rekor, but never decoded the
+  entry's `body` to check that the logged `(hash, signature, public
+  key)` triple actually referenced *this* bundle. An attacker holding
+  any legitimate Fulcio cert could sign a malicious module and embed
+  any unrelated public Rekor entry to pass verification — the original
+  attack class re-emerges one layer up. The new
+  `KeylessSignature::verify_rekor_body_binds_to_bundle` decodes the
+  hashedrekord JSON body and asserts (a) `body.spec.data.hash.value ==
+  hex(module_hash)`, (b) `body.spec.signature.content == signature`,
+  (c) the leaf cert DER from `body.spec.signature.publicKey.content`
+  byte-equals the bundle's leaf cert DER. Wired as step 5 of `verify()`.
+
+Both checks emit `WSError::VerificationFailed` with a `log::error!`
+identifying the specific mismatch; the error variant deliberately does
+not discriminate, so an attacker cannot probe which leg of the check
+rejected their forgery. Seventeen new tamper-rejection unit tests in
+`src/lib/src/signature/keyless/format.rs` cover byte-flip,
+signature-substitution, hash-substitution, cert-substitution,
+missing-signature-section, empty-chain, artifact-hash mismatch,
+signature-content mismatch, public-key mismatch, unsupported
+kind / apiVersion / hash-algorithm, garbage / non-JSON body, and
+uppercase-hex-hash acceptance.
+
+Downstream consumers (synth #140 case 3) that asserted the tampered-
+rejection property as an xfail can flip back to a positive assertion
+once they pick up this release.
+
+### Documented
+
+- New STPA-Sec report at `docs/security/stpa-keyless-2026-05-25.md` enumerating
+  the five UCAs identified in the analysis that produced this release:
+  UCA-1 (Rekor inclusion proof never run on verify path), UCA-2 (fixed
+  here), UCA-3 (cert validity bound to attacker-pickable
+  `integrated_time`), UCA-4 (cache hit skips SET re-verify without
+  bundle-equality check), UCA-5 (audit log records hash from
+  silently-discarded serialize error). Each UCA includes a code
+  citation, the STPA-4 questions, a loss scenario, suggested fix, and
+  the verification trail that confirms the finding against HEAD.
+  UCA-1, UCA-3, UCA-4, UCA-5 remain open and are tracked as follow-up
+  issues.
 
 ## [0.9.0] — 2026-05-20
 

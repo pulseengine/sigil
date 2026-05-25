@@ -1,6 +1,8 @@
 use crate::Module;
 use crate::error::WSError;
 use crate::wasm_module::varint;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use serde::Deserialize;
 use serde_json;
 use sha2::{Digest, Sha256};
 use std::io::{Cursor, Write};
@@ -10,6 +12,49 @@ use x509_parser::prelude::*;
 use super::cert_verifier::CertificatePool;
 pub use super::rekor::RekorEntry;
 use super::rekor_verifier::RekorKeyring;
+
+/// Deserialization view of the Rekor `hashedrekord/0.0.1` entry body.
+///
+/// Only the fields needed to bind the entry to a candidate
+/// [`KeylessSignature`] bundle are modeled — extra fields in the body are
+/// permitted and ignored. The signer side at `rekor.rs::upload_entry`
+/// produces this exact shape.
+#[derive(Debug, Deserialize)]
+struct HashedrekordBody {
+    kind: String,
+    #[serde(rename = "apiVersion")]
+    api_version: String,
+    spec: HashedrekordSpec,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordSpec {
+    signature: HashedrekordSignature,
+    data: HashedrekordData,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordSignature {
+    content: String,
+    #[serde(rename = "publicKey")]
+    public_key: HashedrekordPublicKey,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordPublicKey {
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordData {
+    hash: HashedrekordHash,
+}
+
+#[derive(Debug, Deserialize)]
+struct HashedrekordHash {
+    algorithm: String,
+    value: String,
+}
 
 /// Binary format version for keyless signatures
 pub const KEYLESS_VERSION: u8 = 0x02;
@@ -569,6 +614,186 @@ impl KeylessSignature {
         log::debug!("Keyless artifact binding verified successfully");
         Ok(())
     }
+
+    /// Verify that the Rekor entry's body binds to *this* bundle.
+    ///
+    /// [`verify_artifact_binding`](Self::verify_artifact_binding) proves
+    /// the signature, leaf cert and module are mutually consistent.
+    /// [`verify_rekor_inclusion`](Self::verify_rekor_inclusion) (and the
+    /// SET check used by [`KeylessVerifier`](super::signer::KeylessVerifier))
+    /// prove the Rekor entry was logged by Rekor. Neither proves the
+    /// Rekor entry actually references *this* bundle — without that
+    /// binding, an attacker with any valid Fulcio cert can sign a
+    /// malicious module and stuff in **any unrelated** Rekor entry, and
+    /// `verify --keyless` returns exit 0 (issue #135 UCA-2).
+    ///
+    /// This check decodes the entry body — a base64'd `hashedrekord/0.0.1`
+    /// JSON document — and asserts three equalities against the bundle:
+    ///
+    /// 1. `body.spec.data.hash.algorithm == "sha256"` and
+    ///    `body.spec.data.hash.value == hex(self.module_hash)`.
+    /// 2. `base64_decode(body.spec.signature.content) == self.signature`.
+    /// 3. The leaf certificate parsed from
+    ///    `base64_decode(body.spec.signature.publicKey.content)` matches
+    ///    `self.cert_chain[0]` byte-for-byte at the DER level.
+    ///
+    /// All failures return [`WSError::VerificationFailed`] with a
+    /// `log::error!` describing the specific mismatch; the error variant
+    /// itself does not discriminate, to avoid giving an attacker an
+    /// oracle for which leg of the check rejected their forgery.
+    pub fn verify_rekor_body_binds_to_bundle(&self) -> Result<(), WSError> {
+        // 1. Decode the body and shape-check kind/version. Rekor's API
+        // returns the body as base64-encoded JSON; the signer side at
+        // `rekor.rs::upload_entry` builds it as `hashedrekord/0.0.1`.
+        let body_bytes = BASE64.decode(&self.rekor_entry.body).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body is not valid base64: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let body: HashedrekordBody = serde_json::from_slice(&body_bytes).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body is not a hashedrekord JSON: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+
+        if body.kind != "hashedrekord" {
+            log::error!(
+                "Rekor body binding rejected: unexpected kind '{}', want 'hashedrekord'",
+                body.kind
+            );
+            return Err(WSError::VerificationFailed);
+        }
+        if body.api_version != "0.0.1" {
+            log::error!(
+                "Rekor body binding rejected: unsupported hashedrekord apiVersion '{}', \
+                 want '0.0.1'",
+                body.api_version
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 2. Artifact hash equality: body says what was logged, bundle
+        // carries what was signed. Without this, an attacker can pair
+        // their signature over module M' with someone else's Rekor
+        // entry that logged a different hash for module M.
+        if body.spec.data.hash.algorithm.to_ascii_lowercase() != "sha256" {
+            log::error!(
+                "Rekor body binding rejected: unsupported hash algorithm '{}', want 'sha256'",
+                body.spec.data.hash.algorithm
+            );
+            return Err(WSError::VerificationFailed);
+        }
+        let bundle_hash_hex = hex::encode(&self.module_hash);
+        if !body
+            .spec
+            .data
+            .hash
+            .value
+            .eq_ignore_ascii_case(&bundle_hash_hex)
+        {
+            log::error!(
+                "Rekor body binding rejected: body artifact hash '{}' does not match bundle \
+                 module_hash '{}'",
+                body.spec.data.hash.value,
+                bundle_hash_hex,
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 3. Signature blob equality: body says which signature was
+        // logged, bundle carries which signature is being presented.
+        // Without this, an attacker can splice a body whose hash happens
+        // to match but whose recorded signature came from a different
+        // signing event.
+        let body_sig = BASE64.decode(&body.spec.signature.content).map_err(|e| {
+            log::error!(
+                "Rekor body binding rejected: body signature is not valid base64: {}",
+                e
+            );
+            WSError::VerificationFailed
+        })?;
+        if body_sig.as_slice() != self.signature.as_slice() {
+            log::error!(
+                "Rekor body binding rejected: body signature bytes do not match bundle \
+                 signature (body_len={}, bundle_len={})",
+                body_sig.len(),
+                self.signature.len(),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        // 4. Public-key binding: the body's publicKey.content is a
+        // base64'd PEM that the signer uploaded as
+        // `cert_chain.join("\n")`. Different Rekor clients could
+        // serialize cert chain joining differently, so the robust check
+        // is to extract the leaf CERTIFICATE block from the decoded
+        // bytes, parse it to DER, and compare to the bundle's leaf cert
+        // (also normalised via PEM→DER). Direct byte equality on the
+        // raw PEM would over-reject on benign whitespace / line-ending
+        // differences.
+        let body_pubkey_bytes = BASE64
+            .decode(&body.spec.signature.public_key.content)
+            .map_err(|e| {
+                log::error!(
+                    "Rekor body binding rejected: body publicKey is not valid base64: {}",
+                    e
+                );
+                WSError::VerificationFailed
+            })?;
+        let body_leaf_der = first_certificate_der(&body_pubkey_bytes).ok_or_else(|| {
+            log::error!(
+                "Rekor body binding rejected: body publicKey contains no CERTIFICATE PEM block"
+            );
+            WSError::VerificationFailed
+        })?;
+
+        let bundle_leaf_pem = self.cert_chain.first().ok_or_else(|| {
+            log::error!("Rekor body binding rejected: bundle has no leaf certificate");
+            WSError::VerificationFailed
+        })?;
+        let bundle_leaf_der =
+            first_certificate_der(bundle_leaf_pem.as_bytes()).ok_or_else(|| {
+                log::error!(
+                    "Rekor body binding rejected: bundle leaf cert is not a parseable PEM \
+                     CERTIFICATE block"
+                );
+                WSError::VerificationFailed
+            })?;
+
+        if body_leaf_der != bundle_leaf_der {
+            log::error!(
+                "Rekor body binding rejected: body leaf cert DER differs from bundle leaf \
+                 cert DER (body_len={}, bundle_len={})",
+                body_leaf_der.len(),
+                bundle_leaf_der.len(),
+            );
+            return Err(WSError::VerificationFailed);
+        }
+
+        log::debug!("Rekor body binding verified successfully");
+        Ok(())
+    }
+}
+
+/// Parse a PEM-encoded byte slice and return the DER bytes of the first
+/// CERTIFICATE block. Returns `None` if no CERTIFICATE block is present
+/// or the PEM is malformed. Used to normalise leaf-cert comparison
+/// across serializations that may differ on whitespace or trailing
+/// concatenated certs.
+fn first_certificate_der(pem_bytes: &[u8]) -> Option<Vec<u8>> {
+    // Use the absolute path `::pem` because `x509_parser::prelude::*`
+    // brings in a `pem` module that would otherwise shadow the crate.
+    for entry in ::pem::parse_many(pem_bytes).ok()?.into_iter() {
+        if entry.tag() == "CERTIFICATE" {
+            return Some(entry.contents().to_vec());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -964,19 +1189,24 @@ mod tests {
         let signature: p256::ecdsa::Signature = signing_key.sign_digest(hasher.clone());
         let module_hash = hasher.finalize().to_vec();
 
-        // 4. Build the KeylessSignature blob and embed it. The Rekor entry
-        // is fixture data — `verify_artifact_binding` does not consult it.
+        // 4. Build the hashedrekord body matching the bundle so the
+        // Rekor body-binding check has a real document to validate.
+        // The signer side at `rekor.rs::upload_entry` constructs this
+        // exact shape; we mirror it byte-for-byte.
+        let sig_bytes_vec = signature.to_bytes().to_vec();
+        let body_json = build_hashedrekord_body(&sig_bytes_vec, &cert_pem, &module_hash);
+
         let rekor_entry = RekorEntry {
             uuid: "fixture-rekor-uuid".to_string(),
             log_index: 1,
-            body: String::new(),
+            body: body_json,
             log_id: "fixture-log-id".to_string(),
             inclusion_proof: vec![],
             signed_entry_timestamp: String::new(),
             integrated_time: "2026-01-01T00:00:00Z".to_string(),
         };
         let keyless_sig = KeylessSignature::new(
-            signature.to_bytes().to_vec(),
+            sig_bytes_vec,
             vec![cert_pem.clone()],
             rekor_entry,
             module_hash,
@@ -1000,6 +1230,34 @@ mod tests {
             keyless_sig,
             other_cert_pem: other_cert.pem(),
         }
+    }
+
+    /// Build a `hashedrekord/0.0.1` body JSON matching the inputs and
+    /// return it base64-encoded (as the Rekor API returns it).
+    fn build_hashedrekord_body(
+        signature_bytes: &[u8],
+        leaf_cert_pem: &str,
+        module_hash: &[u8],
+    ) -> String {
+        let body = serde_json::json!({
+            "kind": "hashedrekord",
+            "apiVersion": "0.0.1",
+            "spec": {
+                "signature": {
+                    "content": BASE64.encode(signature_bytes),
+                    "publicKey": {
+                        "content": BASE64.encode(leaf_cert_pem.as_bytes()),
+                    },
+                },
+                "data": {
+                    "hash": {
+                        "algorithm": "sha256",
+                        "value": hex::encode(module_hash),
+                    },
+                },
+            },
+        });
+        BASE64.encode(serde_json::to_vec(&body).expect("body to JSON"))
     }
 
     #[test]
@@ -1142,5 +1400,186 @@ mod tests {
             .verify_artifact_binding(&fx.signed_module)
             .expect_err("empty cert chain must be rejected");
         assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    // -----------------------------------------------------------------
+    // Rekor body-binding tests for issue #135 UCA-2
+    //
+    // verify_artifact_binding (above) closes the "cert+sig+module
+    // mutually consistent" gap. These tests close the orthogonal gap:
+    // the embedded Rekor entry's `body` must actually reference *this*
+    // bundle. Each test takes the fully-bound fixture, mutates one
+    // field of the body (artifact hash, signature, or public key), and
+    // asserts rejection.
+    // -----------------------------------------------------------------
+
+    /// Re-encode a hashedrekord body after applying a mutation to its
+    /// JSON value. Returns the new base64-encoded body string.
+    fn remunge_body<F: FnOnce(&mut serde_json::Value)>(body_b64: &str, mutate: F) -> String {
+        let raw = BASE64.decode(body_b64).expect("body is base64");
+        let mut body: serde_json::Value = serde_json::from_slice(&raw).expect("body is JSON");
+        mutate(&mut body);
+        BASE64.encode(serde_json::to_vec(&body).expect("body to JSON"))
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_accepts_consistent_body() {
+        let fx = build_artifact_binding_fixture();
+        fx.keyless_sig
+            .verify_rekor_body_binds_to_bundle()
+            .expect("consistent hashedrekord body must verify");
+    }
+
+    /// Attacker takes a legitimately-signed module's signature blob but
+    /// embeds an unrelated Rekor entry that logged a *different* artifact.
+    /// `verify_artifact_binding` accepts the bundle (cert+sig+module are
+    /// self-consistent), but the body's `data.hash.value` does not
+    /// match the bundle's `module_hash` — must reject.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_artifact_hash_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["data"]["hash"]["value"] = serde_json::json!(
+                "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+            );
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body artifact-hash mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Body's recorded signature differs from the bundle's signature —
+    /// catches the case where an attacker borrows a Rekor entry whose
+    /// logged signature came from a different signing event over the
+    /// same hash.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_signature_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            // Substitute a different base64 blob of the same length.
+            let bogus = BASE64.encode(vec![0x42u8; 64]);
+            body["spec"]["signature"]["content"] = serde_json::json!(bogus);
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body signature mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Body's recorded public key refers to a different cert than the
+    /// bundle's leaf — catches the case where an attacker borrows a
+    /// Rekor entry that logged a different identity's signature over
+    /// the same hash and signature blob.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_public_key_mismatch() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        let other_pubkey_b64 = BASE64.encode(fx.other_cert_pem.as_bytes());
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["signature"]["publicKey"]["content"] =
+                serde_json::json!(other_pubkey_b64);
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("body public-key mismatch must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Unsupported kind / apiVersion / hash algorithm must reject —
+    /// guards against future Rekor types whose semantics this verifier
+    /// hasn't been taught to interpret.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_unsupported_kind() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["kind"] = serde_json::json!("intoto");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("unsupported kind must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_unsupported_api_version() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["apiVersion"] = serde_json::json!("99.0.0");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("unsupported apiVersion must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_non_sha256_hash_algorithm() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            body["spec"]["data"]["hash"]["algorithm"] = serde_json::json!("md5");
+        });
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("non-sha256 hash must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Malformed inputs (non-base64 body, non-JSON body, malformed
+    /// inner base64 fields) must fail-closed with the same error
+    /// variant — never panic, never accept.
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_garbage_body() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = "this is not base64 either".to_string();
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("garbage body must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    #[test]
+    fn test_verify_rekor_body_binding_rejects_non_json_body() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = BASE64.encode(b"not json at all");
+
+        let err = tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect_err("non-JSON body must be rejected");
+        assert!(matches!(err, WSError::VerificationFailed));
+    }
+
+    /// Case-insensitivity check: Rekor sometimes returns hex hashes
+    /// uppercase or mixed case. The check must accept those (genuine
+    /// data) but still reject when bytes truly differ.
+    #[test]
+    fn test_verify_rekor_body_binding_accepts_uppercase_hex_hash() {
+        let fx = build_artifact_binding_fixture();
+        let mut tampered = fx.keyless_sig.clone();
+        tampered.rekor_entry.body = remunge_body(&tampered.rekor_entry.body, |body| {
+            let v = body["spec"]["data"]["hash"]["value"]
+                .as_str()
+                .unwrap()
+                .to_ascii_uppercase();
+            body["spec"]["data"]["hash"]["value"] = serde_json::json!(v);
+        });
+
+        tampered
+            .verify_rekor_body_binds_to_bundle()
+            .expect("uppercase hex hash must still verify");
     }
 }

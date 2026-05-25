@@ -522,7 +522,12 @@ impl KeylessVerifier {
     ///    the leaf certificate's public key. Without this, an attacker who
     ///    obtains any valid Fulcio cert can splice a signature blob onto an
     ///    arbitrary module and the other steps will still pass (issue #135).
-    /// 5. Optionally validates identity and issuer claims
+    /// 5. **Verifies the Rekor body binding** — decodes the hashedrekord
+    ///    body and asserts its `data.hash`, `signature.content`, and
+    ///    `signature.publicKey` all match the bundle. Without this, the
+    ///    embedded Rekor entry can be any unrelated public entry and
+    ///    steps 3 and 4 still pass (issue #135 UCA-2).
+    /// 6. Optionally validates identity and issuer claims
     ///
     /// When a proof cache is configured, verified Rekor proofs are cached
     /// so that subsequent verifications can succeed during transient Rekor
@@ -633,11 +638,23 @@ impl KeylessVerifier {
         keyless_sig.verify_artifact_binding(module)?;
         log::info!("Artifact binding verified successfully");
 
-        // Step 5: Extract identity and issuer from certificate
+        // Step 5: Verify the Rekor entry's body actually references this
+        // bundle. Step 3 only proves "this Rekor entry was logged by
+        // Rekor" and step 4 only proves "this signature, cert, and module
+        // are mutually consistent" — neither proves the Rekor entry binds
+        // to *this* triple. Without this check an attacker who holds a
+        // legitimate Fulcio cert can sign a malicious module and embed
+        // any unrelated public Rekor entry to pass verification
+        // (issue #135 UCA-2).
+        log::debug!("Verifying Rekor body binding to bundle");
+        keyless_sig.verify_rekor_body_binds_to_bundle()?;
+        log::info!("Rekor body binding verified successfully");
+
+        // Step 6: Extract identity and issuer from certificate
         let identity = keyless_sig.get_identity()?;
         let issuer = keyless_sig.get_issuer()?;
 
-        // Step 6: Validate identity if expected
+        // Step 7: Validate identity if expected
         if let Some(expected) = expected_identity {
             if identity != expected {
                 return Err(WSError::CertificateError(format!(
@@ -648,7 +665,7 @@ impl KeylessVerifier {
             log::info!("Identity verified: {}", identity);
         }
 
-        // Step 7: Validate issuer if expected
+        // Step 8: Validate issuer if expected
         if let Some(expected) = expected_issuer {
             if issuer != expected {
                 return Err(WSError::CertificateError(format!(
