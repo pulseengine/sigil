@@ -516,7 +516,9 @@ impl KeylessVerifier {
     /// This method performs comprehensive verification:
     /// 1. Extracts the keyless signature from the module
     /// 2. Verifies the certificate chain against Fulcio roots
-    /// 3. Verifies the Rekor SET (Signed Entry Timestamp)
+    /// 3. Verifies the Rekor SET (Signed Entry Timestamp). NOTE: the Merkle
+    ///    inclusion proof is not yet verified here — see #137 / UCA-1, blocked
+    ///    on a verifier bug against current (Rekor v2) production proofs.
     /// 4. **Verifies the artifact binding** — recomputes the hash of the
     ///    stripped module and ECDSA-verifies the signature against it using
     ///    the leaf certificate's public key. Without this, an attacker who
@@ -571,9 +573,16 @@ impl KeylessVerifier {
         log::debug!("Extracting keyless signature from module");
         let keyless_sig = Self::extract_signature(module)?;
 
-        // Compute artifact hash for audit logging
+        // Compute artifact hash for audit logging.
+        // UCA-5: propagate a serialization failure instead of swallowing it
+        // with `.ok()`. Swallowing left `module_bytes` empty and recorded the
+        // SHA-256 of zero bytes in the audit log and proof-cache key — a false
+        // artifact identity that corrupts post-incident forensics and collides
+        // all error cases into one cache slot.
         let mut module_bytes = Vec::new();
-        module.serialize(&mut module_bytes).ok();
+        module.serialize(&mut module_bytes).map_err(|e| {
+            WSError::InternalError(format!("Failed to serialize module for hashing: {}", e))
+        })?;
         let module_hash = Sha256::digest(&module_bytes);
         let artifact_hash = format!("sha256:{}", hex::encode(&module_hash));
 
@@ -585,7 +594,7 @@ impl KeylessVerifier {
         keyless_sig.verify_cert_chain()?;
         log::info!("Certificate chain verified successfully");
 
-        // Step 3: Verify Rekor SET (Signed Entry Timestamp)
+        // Step 3: Verify the Rekor transparency-log proof.
         // Fail-closed: Rekor verification is MANDATORY for keyless signatures (DD-2).
         // A missing or skipped Rekor entry means the signature lacks transparency
         // proof and MUST be rejected.
@@ -595,17 +604,21 @@ impl KeylessVerifier {
             ));
         }
 
-        // Check proof cache before network call
+        // Check the proof cache before the network call.
+        // UCA-4: the cache key binds the *full* entry content (not just the
+        // UUID), so a hit means this exact entry was already SET-verified —
+        // making it sound to skip the SET re-check below. Mutating any entry
+        // field changes the key and forces re-verification.
         let cache_key = {
             let hash_hex = hex::encode(&module_hash);
-            super::proof_cache::CacheKey::from_hash(&hash_hex, &keyless_sig.rekor_entry.uuid)
+            super::proof_cache::CacheKey::from_entry(&hash_hex, &keyless_sig.rekor_entry)
         };
         let mut cache_hit = false;
         if let Some(ref cache) = self.config.proof_cache {
-            if let Some(_cached_proof) = cache.get(&cache_key) {
-                // Cache hit — proof was already validated when it was cached.
-                // The certificate chain verification above still runs on every
-                // call, so we only skip the Rekor network round-trip.
+            if cache.get(&cache_key).is_some() {
+                // Cache hit — this exact entry (SET + inclusion proof) was
+                // already verified. The certificate chain and artifact/body
+                // binding checks still run on every call below.
                 log::info!("Using cached Rekor proof for {}", keyless_sig.rekor_entry.uuid);
                 cache_hit = true;
             }
@@ -617,7 +630,17 @@ impl KeylessVerifier {
             verifier.verify_set(&keyless_sig.rekor_entry)?;
             log::info!("Rekor SET verified successfully");
 
-            // After successful Rekor verification, cache the proof
+            // NOTE: Merkle inclusion-proof verification (UCA-1 / #137) is NOT
+            // wired in here yet. The verifier (`verify_rekor_inclusion`)
+            // exists but recomputes the wrong Merkle root for fresh
+            // production Rekor entries on the `log2025-*` shards (Rekor v2 /
+            // tiled-log migration), so enabling it fail-closed would reject
+            // legitimate signatures. Tracked in #137 until the verifier is
+            // fixed against current Rekor.
+
+            // Cache the proof after the SET verifies. The cache key binds the
+            // full entry content (UCA-4), so a future hit can only occur for a
+            // byte-identical entry that already passed this check.
             if let Some(ref cache) = self.config.proof_cache {
                 let cached = super::proof_cache::cache_verified_proof(
                     &keyless_sig.rekor_entry,

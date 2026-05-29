@@ -1024,6 +1024,27 @@ mod tests {
     }
 
     #[test]
+    fn test_verify_rekor_inclusion_rejects_missing_proof() {
+        // Fail-closed building block for UCA-1 (#137): `verify_rekor_inclusion`
+        // rejects an entry that carries no inclusion proof. NOTE: this method
+        // is not yet wired into the production verify() path — it is blocked on
+        // a verifier bug against current (Rekor v2) production proofs. This test
+        // guards the fail-closed contract for when it is enabled.
+        let mut sig = create_test_signature();
+        sig.rekor_entry.inclusion_proof = vec![];
+        match sig.verify_rekor_inclusion() {
+            Err(WSError::RekorError(msg)) => {
+                assert!(
+                    msg.contains("Missing inclusion proof"),
+                    "expected a missing-proof error, got: {msg}"
+                );
+            }
+            Err(e) => panic!("Expected RekorError(Missing inclusion proof), got: {:?}", e),
+            Ok(_) => panic!("Expected fail-closed rejection of a missing inclusion proof"),
+        }
+    }
+
+    #[test]
     fn test_get_identity_no_certs() {
         let mut sig = create_test_signature();
         sig.cert_chain = vec![];
