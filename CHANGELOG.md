@@ -3,6 +3,56 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] — 2026-05-29
+
+Security hardening release. Closes two further STPA-Sec findings from
+[`docs/security/stpa-keyless-2026-05-25.md`](docs/security/stpa-keyless-2026-05-25.md)
+that v0.9.1 left open (UCA-4, UCA-5).
+
+UCA-1 (#137) was scoped into this release but **deferred**: wiring the
+Rekor Merkle inclusion proof into the verify path revealed that the
+existing inclusion-proof verifier recomputes the wrong Merkle root for
+fresh production Rekor entries on the `log2025-*` shards (the Rekor v2 /
+tiled-log migration). Because the verifier had never been on the
+production path, the bug had never surfaced. Enabling it fail-closed
+would reject legitimate signatures, so it stays unwired until the
+verifier is fixed against current Rekor — tracked in #137. UCA-3 (#138,
+cert validity bound to attacker-pickable `integrated_time`) remains
+deferred pending a clock-policy decision.
+
+### Fixed (security)
+
+- **Proof cache key now binds the full Rekor entry (UCA-4)** (#139).
+  The cache key was `(module_hash, rekor_uuid)` — both attacker-supplied
+  in the bundle. On a cache hit the Rekor SET re-verification was skipped
+  while the verifier still trusted the attacker-controlled `body` /
+  `signed_entry_timestamp` / log fields, and the cached known-good proof
+  was discarded. `CacheKey::from_entry` now folds **every** entry field
+  (uuid, log index, body, SET, log id, integrated time, inclusion proof)
+  into the key with length-prefixed, unambiguous encoding, so a cache hit
+  can only occur for a byte-identical entry that already passed SET
+  verification. Removes the defence-in-depth loss where a mutated entry
+  could ride a stale cache slot past the SET check.
+
+### Fixed (correctness / audit integrity)
+
+- **Audit log no longer records an empty-input hash on serialize
+  failure (UCA-5)** (#140). The artifact-hash computation in `verify()`
+  used `module.serialize(&mut buf).ok()`, swallowing any error and
+  hashing a zero-length buffer — recording
+  `sha256:e3b0c442…b855` (the SHA-256 of no bytes) as the artifact
+  identity in the audit log and collapsing all such cases into one
+  proof-cache slot. The error is now propagated with `?`, so a module
+  that cannot be serialized aborts verification instead of writing a
+  false identity to the forensic trail.
+
+### Tests
+
+Three new cache-key unit tests (full-entry binding — every field
+mutation changes the key; field-boundary-ambiguity resistance; key
+stability) plus a fail-closed building-block test for the (still
+unwired) inclusion-proof verifier. 609 library tests pass.
+
 ## [0.9.1] — 2026-05-25
 
 Security release. Closes two verification-bypass gaps in the keyless

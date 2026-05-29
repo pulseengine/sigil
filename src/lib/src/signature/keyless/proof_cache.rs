@@ -6,11 +6,15 @@
 //!
 //! # Security Properties
 //!
-//! - Cache entries are keyed by module hash + Rekor UUID
-//! - Only successfully verified proofs are cached
+//! - Cache entries are keyed by module hash + a digest over the **full**
+//!   Rekor entry content (body, SET, log id/index, integrated time,
+//!   inclusion proof, uuid). A hit therefore means "an entry
+//!   byte-identical to this one was already fully verified", so skipping
+//!   re-verification on hit is sound (issue #139 / UCA-4).
+//! - Only successfully verified proofs are cached (after the Rekor SET
+//!   passes). Merkle inclusion-proof verification is not yet on this path —
+//!   see issue #137 / UCA-1.
 //! - TTL-based expiry prevents stale proofs
-//! - Cache poisoning is prevented because we store the full
-//!   `RekorEntry` and re-validate structure on cache hit
 //! - Fail-closed: if both cache miss and Rekor unavailable,
 //!   verification fails
 //!
@@ -32,12 +36,23 @@ use std::time::{Duration, Instant};
 use super::rekor::RekorEntry;
 
 /// Key for cached proof entries.
+///
+/// Equality and hashing cover **all** fields. `entry_digest` binds the full
+/// Rekor entry content so that a cache hit cannot be forged by keeping the
+/// artifact hash + UUID while mutating the body, SET, or inclusion proof
+/// (issue #139 / UCA-4). The `new`/`from_hash` constructors leave it empty
+/// (legacy/weakly-bound keys, used only in tests); the production verify
+/// path uses [`CacheKey::from_entry`].
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheKey {
     /// SHA-256 hex digest of the signed artifact
     pub artifact_hash: String,
-    /// Rekor entry UUID
+    /// Rekor entry UUID (human-readable; not sufficient for binding on its own)
     pub rekor_uuid: String,
+    /// SHA-256 hex digest over the full Rekor entry content. Empty for keys
+    /// built via [`CacheKey::new`] / [`CacheKey::from_hash`].
+    #[serde(default)]
+    pub entry_digest: String,
 }
 
 impl CacheKey {
@@ -47,6 +62,7 @@ impl CacheKey {
         Self {
             artifact_hash: hex::encode(hash),
             rekor_uuid: rekor_uuid.to_string(),
+            entry_digest: String::new(),
         }
     }
 
@@ -55,6 +71,38 @@ impl CacheKey {
         Self {
             artifact_hash: artifact_hash.to_string(),
             rekor_uuid: rekor_uuid.to_string(),
+            entry_digest: String::new(),
+        }
+    }
+
+    /// Create a cache key bound to the full Rekor entry content.
+    ///
+    /// The `entry_digest` is a SHA-256 over every security-relevant field of
+    /// the entry, with a domain separator between fields so that no field
+    /// boundary can be shifted. A hit on this key therefore proves the cached
+    /// proof was produced for a byte-identical entry — making it safe to skip
+    /// SET + inclusion-proof re-verification on hit (issues #137 / #139).
+    pub fn from_entry(artifact_hash: &str, entry: &RekorEntry) -> Self {
+        let mut hasher = Sha256::new();
+        let log_index = entry.log_index.to_le_bytes();
+        // Length-prefix + separate every field so concatenations are
+        // unambiguous (no byte can shift across a field boundary).
+        for field in [
+            entry.uuid.as_bytes(),
+            entry.body.as_bytes(),
+            entry.signed_entry_timestamp.as_bytes(),
+            entry.log_id.as_bytes(),
+            entry.integrated_time.as_bytes(),
+            entry.inclusion_proof.as_slice(),
+            log_index.as_slice(),
+        ] {
+            hasher.update((field.len() as u64).to_le_bytes());
+            hasher.update(field);
+        }
+        Self {
+            artifact_hash: artifact_hash.to_string(),
+            rekor_uuid: entry.uuid.clone(),
+            entry_digest: hex::encode(hasher.finalize()),
         }
     }
 }
@@ -286,6 +334,69 @@ mod tests {
         let k3 = CacheKey::from_hash("def", "uuid");
         assert_eq!(k1, k2);
         assert_ne!(k1, k3);
+    }
+
+    #[test]
+    fn test_cache_key_from_entry_is_stable() {
+        // Identical entries must produce identical keys (cache hits work).
+        let k1 = CacheKey::from_entry("artifacthash", &sample_rekor_entry());
+        let k2 = CacheKey::from_entry("artifacthash", &sample_rekor_entry());
+        assert_eq!(k1, k2);
+        assert!(!k1.entry_digest.is_empty());
+        assert_eq!(k1.rekor_uuid, "test-uuid-1234");
+    }
+
+    #[test]
+    fn test_cache_key_from_entry_binds_every_field() {
+        // UCA-4: mutating ANY security-relevant entry field must change the
+        // key, so an attacker cannot force a hit (and thus skip SET +
+        // inclusion-proof re-verification) by reusing the artifact hash +
+        // UUID while swapping the body / SET / log fields / inclusion proof.
+        let base = CacheKey::from_entry("artifacthash", &sample_rekor_entry());
+
+        let mutators: Vec<(&str, fn(&mut RekorEntry))> = vec![
+            ("uuid", |e| e.uuid = "different-uuid".to_string()),
+            ("log_index", |e| e.log_index = 43),
+            ("body", |e| e.body = "tampered==".to_string()),
+            ("log_id", |e| e.log_id = "different-log".to_string()),
+            ("inclusion_proof", |e| e.inclusion_proof = vec![9, 9, 9]),
+            ("signed_entry_timestamp", |e| {
+                e.signed_entry_timestamp = "forged==".to_string()
+            }),
+            ("integrated_time", |e| {
+                e.integrated_time = "2030-01-01T00:00:00Z".to_string()
+            }),
+        ];
+
+        for (field, mutate) in mutators {
+            let mut entry = sample_rekor_entry();
+            mutate(&mut entry);
+            let mutated = CacheKey::from_entry("artifacthash", &entry);
+            assert_ne!(
+                base, mutated,
+                "mutating `{field}` must change the cache key but did not"
+            );
+        }
+
+        // And changing the artifact hash alone must also change the key.
+        let other_artifact = CacheKey::from_entry("otherhash", &sample_rekor_entry());
+        assert_ne!(base, other_artifact);
+    }
+
+    #[test]
+    fn test_cache_key_from_entry_no_field_boundary_ambiguity() {
+        // Length-prefixing must prevent shifting a byte across a field
+        // boundary from yielding the same key.
+        let mut a = sample_rekor_entry();
+        a.body = "ab".to_string();
+        a.log_id = "c".to_string();
+        let mut b = sample_rekor_entry();
+        b.body = "a".to_string();
+        b.log_id = "bc".to_string();
+        assert_ne!(
+            CacheKey::from_entry("h", &a),
+            CacheKey::from_entry("h", &b)
+        );
     }
 
     #[test]

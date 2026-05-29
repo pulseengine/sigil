@@ -8,14 +8,18 @@ verified against the code at HEAD of branch `fix/keyless-verify-binds-artifact`
 before being reported here.
 
 PRs landing fixes from this analysis:
-- **PR #136** (this branch): closes the original #135 finding +
-  **UCA-2** below.
+- **PR #136** (v0.9.1): closes the original #135 finding + **UCA-2** below.
+- **v0.9.2**: closes **UCA-4** (#139) and **UCA-5** (#140) below.
 
 Outstanding work tracked as separate issues:
-- **UCA-1** → see #137 (file when triaging)
-- **UCA-3** → see #138
-- **UCA-4** → see #139
-- **UCA-5** → see #140
+- **UCA-1** → #137 — **still open, reclassified.** Wiring the existing
+  inclusion-proof verifier into the verify path (v0.9.2 attempt) revealed
+  the verifier recomputes the wrong Merkle root for fresh production Rekor
+  entries (`log2025-*` shards, Rekor v2 / tiled-log migration). Blocked on
+  fixing the verifier; until then verify relies on the SET alone.
+- **UCA-3** → see #138 — **still open** (needs a clock-policy decision).
+- **UCA-4** → #139 — **closed in v0.9.2.**
+- **UCA-5** → #140 — **closed in v0.9.2.**
 
 ## 1. Subsystem under analysis
 
@@ -81,7 +85,18 @@ Feedback consumed:
 
 ### UCA-1 — Rekor Merkle inclusion proof is never verified on the production verify path
 
-**Status:** open. Tracked as issue.
+**Status:** open, reclassified (#137). The v0.9.2 attempt to wire
+`verify_rekor_inclusion()` into the verify path showed the existing
+inclusion-proof verifier (`RekorKeyring::verify_inclusion_proof`)
+recomputes the wrong Merkle root for fresh production Rekor entries on the
+`log2025-*` shards — the SET verifies, but the computed root does not match
+the proof's `root_hash` (observed e.g. computed `a3dd3a1b…` vs expected
+`b32b6966…` for log index 1672253805). This is the Rekor v2 / tiled-log
+migration: the leaf-index→Merkle-path mapping (and/or leaf-hash derivation)
+the verifier uses no longer matches the live log. The gap is therefore
+broader than "verifier unwired" — the verifier itself does not work against
+current Rekor. Wiring it in fail-closed would reject all legitimate
+keyless signatures, so it stays unwired until fixed.
 
 - **Mapped losses:** L4, L5
 - **Code citation:** `signer.rs:583–623` (`KeylessVerifier::verify`); the
@@ -212,7 +227,9 @@ Feedback consumed:
 
 ### UCA-4 — Proof cache hit skips SET re-verification with no bundle-equality check
 
-**Status:** open. Tracked as issue.
+**Status:** closed in v0.9.2 (#139). `CacheKey::from_entry` now binds the
+full entry content (all fields, length-prefixed), so a hit can only occur
+for a byte-identical, already-fully-verified entry.
 
 - **Mapped losses:** L4, L5
 - **Code citation:** `signer.rs:593–623`; cache key construction at
@@ -261,7 +278,9 @@ Feedback consumed:
 
 ### UCA-5 — Audit log records artifact hash from silently-discarded serialize error
 
-**Status:** open. Tracked as issue.
+**Status:** closed in v0.9.2 (#140). The artifact-hash computation now
+propagates the serialize error with `?` instead of `.ok()`, so no
+empty-input hash is ever recorded.
 
 - **Mapped losses:** L6
 - **Code citation:** `signer.rs:569–573`:
