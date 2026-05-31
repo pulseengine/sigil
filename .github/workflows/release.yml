@@ -39,6 +39,9 @@ jobs:
       with:
         theme: dark
         rivet-version: v0.3.0
+        # Emit artifacts.yaml (generic-yaml) into the bundle so the website's
+        # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
+        include-data-formats: true
 
     - uses: actions/upload-artifact@v4
       with:
