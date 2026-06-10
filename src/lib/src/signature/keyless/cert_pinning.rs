@@ -105,7 +105,13 @@ const FULCIO_PRODUCTION_PINS: &[&str] = &[
 ///
 /// Rekor uses the same Google Trust Services infrastructure as Fulcio.
 const REKOR_PRODUCTION_PINS: &[&str] = &[
-    // rekor.sigstore.dev leaf SPKI (updated 2026-04-14)
+    // rekor.sigstore.dev leaf SPKI (added 2026-06-10 after Sigstore rotated
+    // the leaf again — same class as #117 on the Fulcio side; verified via
+    // direct `openssl s_client` fetch, issuer = Google Trust Services / WR3,
+    // notAfter 2026-09-02. The chain-match fix below makes the WR3
+    // intermediate pin survive future leaf rotations on its own.)
+    "710dd397e55ca148baf8e0e69e54ef763fea611a91f11573dc6d3a2a7110187e",
+    // rekor.sigstore.dev previous leaf SPKI (kept for transition/rollback)
     "356aacac31f1dda36c418426c4fad25071f849fdaccda221cca9a41b9ddb140d",
     // Google Trust Services WR3 intermediate CA SPKI
     "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
@@ -305,10 +311,12 @@ impl PinningConfig {
         }
 
         // Parse the X.509 certificate to extract SPKI
-        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref())
-            .map_err(|e| WSError::CertificatePinningError(format!(
-                "Failed to parse certificate for SPKI extraction: {:?}", e
-            )))?;
+        let (_, cert) = x509_parser::parse_x509_certificate(cert_der.as_ref()).map_err(|e| {
+            WSError::CertificatePinningError(format!(
+                "Failed to parse certificate for SPKI extraction: {:?}",
+                e
+            ))
+        })?;
 
         // Hash the raw SubjectPublicKeyInfo DER bytes
         let spki_der = cert.public_key().raw;
@@ -417,23 +425,30 @@ impl ServerCertVerifier for PinnedCertVerifier {
             now,
         )?;
 
-        // Step 2: Verify certificate pinning
-        // Check if the leaf certificate matches one of our pins
-        self.pinning
-            .verify_certificate(end_entity)
-            .map_err(|e| TlsError::General(e.to_string()))?;
-
-        // Step 3: Also check intermediate certificates (defense in depth)
-        // This protects against attacks that use a valid leaf but compromised intermediate
-        for intermediate in intermediates {
-            if let Err(e) = self.pinning.verify_certificate(intermediate) {
-                log::debug!(
-                    "Intermediate certificate pin check: {} (this is informational only)",
-                    e
-                );
-                // Don't fail on intermediate mismatch - only leaf cert is critical
+        // Step 2: Verify certificate pinning with CHAIN-MATCH semantics
+        // (HPKP, RFC 7469): the connection passes if the LEAF *or ANY
+        // intermediate* in the presented chain matches a configured pin.
+        // Pinning the issuing CA's SPKI (e.g. Google Trust Services WR3,
+        // valid to 2029) is the supported way to survive the ~90-day leaf
+        // rotations that broke CI twice (Fulcio #117 on 2026-05-19, Rekor on
+        // 2026-06-10) — the previous leaf-must-match rule guaranteed a red
+        // Signing E2E on every rotation even though the intermediate pin was
+        // present and correct. WebPKI validation (Step 1) already proved the
+        // chain is coherent and anchored, so a pinned intermediate vouches
+        // for the leaf it issued.
+        let mut pin_result = self.pinning.verify_certificate(end_entity);
+        if pin_result.is_err() {
+            for intermediate in intermediates {
+                if self.pinning.verify_certificate(intermediate).is_ok() {
+                    log::debug!(
+                        "Pin matched on an intermediate certificate (leaf rotated);                          consider refreshing the leaf pin set"
+                    );
+                    pin_result = Ok(());
+                    break;
+                }
             }
         }
+        pin_result.map_err(|e| TlsError::General(e.to_string()))?;
 
         Ok(rustls::client::danger::ServerCertVerified::assertion())
     }
