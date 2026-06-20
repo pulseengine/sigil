@@ -1,8 +1,14 @@
 # witness MC/DC harness for `wsc-verify-core`
 
-Phase-1 proof-of-concept harness for running
-[`pulseengine/witness`](https://github.com/pulseengine/witness) — an MC/DC
-branch-coverage tool for WebAssembly — against sigil's verification core.
+Harness for running [`pulseengine/witness`](https://github.com/pulseengine/witness)
+— an MC/DC branch-coverage tool for WebAssembly — against sigil's
+verification core.
+
+| Phase | Target | Status |
+|---|---|---|
+| 1 | `varint::get32` (LEB128 decoder) | done |
+| 2 | `Module::init_from_reader` (WASM header parser) | done |
+| 3 | `PublicKey::verify_multi` (full verification with signed-module fixtures) | tracked on #128 |
 
 This crate is **excluded from the main workspace** (`workspace.exclude` in
 the root `Cargo.toml`) because it builds for a wasm target and would
@@ -39,35 +45,45 @@ WASM=target/wasm32-wasip1/debug/wsc_witness_harness.wasm
 mkdir -p out
 witness instrument "$WASM" -o out/instrumented.wasm
 witness run out/instrumented.wasm \
+    # Phase 1: varint decoder scenarios — continuation-bit at each position
     --invoke-with-args 'decode_varint_5:1,0,0,0,0' \
     --invoke-with-args 'decode_varint_5:128,1,0,0,0' \
     --invoke-with-args 'decode_varint_5:128,128,1,0,0' \
     --invoke-with-args 'decode_varint_5:128,128,128,1,0' \
     --invoke-with-args 'decode_varint_5:128,128,128,128,1' \
     --invoke-with-args 'decode_varint_5:128,128,128,128,128' \
+    # Phase 2: WASM-header parser scenarios — valid + flip each magic/version byte
+    --invoke-with-args 'try_parse_wasm:0,97,115,109,1,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:255,97,115,109,1,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:0,255,115,109,1,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:0,97,255,109,1,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:0,97,115,255,1,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:0,97,115,109,255,0,0,0' \
+    --invoke-with-args 'try_parse_wasm:0,0,0,0,0,0,0,0' \
     -o out/run.json
 witness report --input out/run.json --format mcdc
 ```
 
-## Observed output (Phase 1)
+## Observed output (Phases 1 + 2)
 
 ```
-decisions: 0/162 full MC/DC; conditions: 1 proved, 13 gap, 582 dead
+decisions: 0/164 full MC/DC; conditions: 2 proved, 19 gap, 583 dead
 
-decision #1 varint.rs:28: NoWitness
-  truth table:
-    row 1:  {c0=F, c1=T, c2=T} -> T
-    row 10: {c0=F, c1=T, c2=T} -> T
-    ...
+decision #0 mod.rs:456: NoWitness     ← Module::init_from_reader  (Phase 2)
+decision #2 varint.rs:26: Partial     ← LEB128 decoder           (Phase 1)
+decision #3 mod.rs:387: Unreached     ← wasm_module parser path
 ```
 
-`varint.rs:28` is sigil's actual LEB128 decoder — that decision is being
-instrumented through the carved `wsc-verify-core`. The high "dead" count
-(582) is mostly `std::result`/formatting machinery reachable from the
-harness; what matters for Phase 1 is that witness can *see* sigil-core
-decisions at all. Phase 2 will design scenarios that drive the
-`decode_varint_5` and (later) `verify_multi` decisions to **full MC/DC**
-rather than just demonstrating reachability.
+`varint.rs:26` and `mod.rs:456` are sigil's own code — instrumented through
+the carved `wsc-verify-core`. The high "dead" count (583) is mostly
+`std::result` / formatting / panic-runtime machinery reachable from the
+harness; what matters for Phases 1 + 2 is that witness can *see* multiple
+sigil-core decisions at all.
+
+Phase 3 (#128) will design scenarios that drive `verify_multi` to full MC/DC
+with crafted signed-module fixtures — that is the test-corpus design work
+the [curl-comparison writeup](../../audit/witness-wasm-inspection.md) called
+out as the actual cost of MC/DC adoption (the tool is the cheap part).
 
 ## Notes on target choice
 
