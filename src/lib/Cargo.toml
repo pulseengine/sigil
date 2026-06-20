@@ -61,7 +61,7 @@ const-oid = { version = "0.9", default-features = false, features = ["db"] }
 # X.509 certificate generation for provisioning
 rcgen = { version = "0.13", features = ["pem", "x509-parser"] }
 # Policy file parsing (TOML format)
-toml = "0.8"
+toml = "0.9"
 
 # Async/sync abstraction - compile-time switch
 # is_sync feature enabled by default (WASM requires sync, native can override)
