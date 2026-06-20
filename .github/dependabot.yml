@@ -1,0 +1,38 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: cargo
+    directory: /fuzz
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: cargo
+    directory: /examples/wasmtime-loader
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: cargo
+    directory: /src/attestation
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+  - package-ecosystem: cargo
+    directory: /src/cli
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
