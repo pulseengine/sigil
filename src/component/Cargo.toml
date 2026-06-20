@@ -15,4 +15,4 @@ crate-type = ["cdylib"]
 wsc = { version = "0.9.2", path = "../lib" }
 
 # WIT bindings generation
-wit-bindgen = { version = "0.47.0", default-features = false, features = ["realloc"] }
+wit-bindgen = { version = "0.51.0", default-features = false, features = ["realloc"] }
