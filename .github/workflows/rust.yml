@@ -300,7 +300,7 @@ jobs:
         cargo llvm-cov -p wsc --html --output-dir coverage-html
     - name: Upload LCOV to Codecov
       if: env.CODECOV_TOKEN != ''
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v7
       with:
         files: lcov.info
         fail_ci_if_error: false
