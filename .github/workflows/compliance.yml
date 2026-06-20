@@ -54,7 +54,7 @@ jobs:
         rivet-version: v0.3.0
 
     - name: Upload archive
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: compliance-report
         path: ${{ steps.report.outputs.archive-path }}

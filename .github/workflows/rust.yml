@@ -136,7 +136,7 @@ jobs:
 
     - name: Upload Build Artifacts (Bazel)
       if: matrix.build-system == 'bazel'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: bazel-outputs-${{ matrix.os }}
         path: |
@@ -242,7 +242,7 @@ jobs:
         echo "Verified keyless signature"
 
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: signed-wasm-artifacts
         path: |
@@ -276,7 +276,7 @@ jobs:
 
     - name: Upload Rekor Data (on failure)
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: rekor-fresh-data
         path: rekor-data.txt
@@ -307,7 +307,7 @@ jobs:
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     - name: Upload HTML coverage report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: coverage-html
         path: coverage-html/
