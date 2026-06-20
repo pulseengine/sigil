@@ -122,15 +122,9 @@ jobs:
         mkdir -p artifacts
         cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
 
-    - name: Create checksum
-      shell: bash
-      run: |
-        cd artifacts
-        if [[ "$RUNNER_OS" == "Windows" ]]; then
-          certutil -hashfile ${{ matrix.asset_name }} SHA256 > ${{ matrix.asset_name }}.sha256
-        else
-          shasum -a 256 ${{ matrix.asset_name }} > ${{ matrix.asset_name }}.sha256
-        fi
+    # Per-file .sha256 sidecars are intentionally NOT generated here.
+    # The release-publish job (build-and-release) emits a single signed
+    # SHA256SUMS.txt covering every asset — matches the synth release flow.
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -149,7 +143,8 @@ jobs:
     permissions:
       contents: write
       packages: write
-      id-token: write  # For Cosign keyless signing
+      id-token: write       # Cosign keyless signing + SLSA provenance OIDC
+      attestations: write   # actions/attest-build-provenance@v2
     needs: [build-native-cli]
     if: always() && needs.build-native-cli.result == 'success'
 
@@ -276,16 +271,8 @@ jobs:
         echo "  - Certificate: Short-lived from Fulcio"
         echo "  - Transparency: Logged in Rekor"
 
-    - name: Create SHA256 checksums
-      run: |
-        # Create checksums AFTER signing so they match the signed files
-        sha256sum wsc-component.wasm > wsc-component.wasm.sha256
-        cat wsc-component.wasm.sha256
-
-        if [ -f wsc-cli.wasm ]; then
-          sha256sum wsc-cli.wasm > wsc-cli.wasm.sha256
-          cat wsc-cli.wasm.sha256
-        fi
+    # Per-file .sha256 sidecars dropped: the unified signed SHA256SUMS.txt
+    # below covers wsc-component.wasm, wsc-cli.wasm, and every other asset.
 
     - name: Log in to Container Registry
       uses: docker/login-action@v3
@@ -487,14 +474,9 @@ jobs:
 
         echo "Signature verification completed"
 
-    - name: Capture build environment
-      run: |
-        echo "rustc: $(rustc --version)" >> build-env.txt
-        echo "cargo: $(cargo --version)" >> build-env.txt
-        echo "bazel: $(cat .bazelversion)" >> build-env.txt
-        echo "cosign: $(cosign version 2>&1 | head -1)" >> build-env.txt
-        echo "platform: $(uname -sm)" >> build-env.txt
-        cat build-env.txt
+    # build-env.txt is captured later, alongside SBOM + SHA256SUMS, so it
+    # lands in release-assets/ and its digest is captured by the signed
+    # SHA256SUMS.txt below.
 
     - name: Download Native CLI Artifacts
       uses: actions/download-artifact@v4
@@ -548,101 +530,163 @@ jobs:
         ls -la native-cli/*.sig 2>/dev/null || echo "No .sig files generated"
       continue-on-error: true
 
-    - name: Upload Release Assets
-      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
-      uses: softprops/action-gh-release@v2
+    # ── Gather every release asset into release-assets/ ───────────────────
+    # The synth release pattern: one flat directory of assets, then a
+    # single signed SHA256SUMS.txt that covers all of them. Everything
+    # below — SBOM, sums, provenance, cosign bundle, build-env — lands
+    # in release-assets/ and is uploaded as a unit.
+    - name: Gather release assets
+      run: |
+        set -euo pipefail
+        mkdir -p release-assets
+
+        # WASM artifacts produced earlier in this job
+        cp wsc-component.wasm release-assets/
+        if [ -f wsc-cli.wasm ]; then
+          cp wsc-cli.wasm release-assets/
+        fi
+
+        # Native CLI binaries + sigil-self-signed detached signatures
+        # (the .sig files are intentionally preserved — they're the
+        # sigil-dogfooded ELF signatures, not the SHA256SUMS cosign sig)
+        for f in native-cli/*; do
+          [ -f "$f" ] || continue
+          case "$f" in
+            *.sha256) continue ;;   # legacy sidecars from older runs — drop
+          esac
+          cp "$f" release-assets/
+        done
+
+        # Compliance report (complementary to SHA256SUMS — separate audit
+        # artifact, not redundant with the per-asset checksum manifest)
+        if [ -d compliance ]; then
+          cp -r compliance/* release-assets/ 2>/dev/null || true
+        fi
+
+        echo "Gathered release assets:"
+        ls -la release-assets/
+
+    # Phase 6: CycloneDX SBOM for the wsc toolchain itself. The SBOM is
+    # generated *before* SHA256SUMS so its digest is captured in the
+    # checksum manifest; the cosign signature over SHA256SUMS.txt
+    # transitively covers the SBOM.
+    - name: Install cargo-cyclonedx
+      run: cargo install --locked cargo-cyclonedx
+
+    - name: Generate toolchain SBOM (CycloneDX)
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        # Tag resolution mirrors the other steps in this job.
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${INPUT_TAG}"
+        elif [ "${{ github.event_name }}" = "release" ]; then
+          VERSION="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          VERSION="${{ github.ref_name }}"
+        else
+          VERSION="${{ github.ref_name }}-${GITHUB_SHA:0:7}"
+        fi
+        BARE="${VERSION#v}"
+        # cargo-cyclonedx doesn't proxy cargo's `-p` flag — use
+        # --manifest-path pointed at the wsc-cli crate (publishes the
+        # `wsc` binary). Output drops next to that Cargo.toml.
+        cargo cyclonedx \
+          --manifest-path src/cli/Cargo.toml \
+          --format json \
+          --spec-version 1.5
+        SBOM_SRC=$(find src/cli -maxdepth 2 -name '*.cdx.json' | head -1)
+        test -n "$SBOM_SRC" && test -f "$SBOM_SRC"
+        cp "$SBOM_SRC" "release-assets/wsc-${BARE}.cdx.json"
+        echo "::notice::Toolchain SBOM written to release-assets/wsc-${BARE}.cdx.json"
+        ls -la release-assets/
+
+    - name: Generate SHA256 checksums
+      run: |
+        set -euo pipefail
+        cd release-assets
+        sha256sum ./* > SHA256SUMS.txt
+        cat SHA256SUMS.txt
+
+    # ── SLSA build provenance (GitHub-native) ─────────────────────────────
+    # actions/attest-build-provenance generates an in-toto SLSA v1
+    # provenance statement for every release asset, signs it keyless via
+    # Sigstore (Fulcio cert bound to this workflow's OIDC identity), and
+    # records it in the Rekor transparency log. Consumers verify with:
+    #   gh attestation verify <file> --repo pulseengine/sigil
+    - name: Generate SLSA build provenance
+      uses: actions/attest-build-provenance@v2
       with:
-        files: |
-          wsc-component.wasm
-          wsc-component.wasm.sha256
-          wsc-cli.wasm
-          wsc-cli.wasm.sha256
-          native-cli/wsc-linux-x86_64
-          native-cli/wsc-linux-x86_64.sha256
-          native-cli/wsc-linux-x86_64-tpm2
-          native-cli/wsc-linux-x86_64-tpm2.sha256
-          native-cli/wsc-linux-aarch64
-          native-cli/wsc-linux-aarch64.sha256
-          native-cli/wsc-linux-x86_64.sig
-          native-cli/wsc-linux-x86_64-tpm2.sig
-          native-cli/wsc-linux-aarch64.sig
-          native-cli/wsc-macos-x86_64
-          native-cli/wsc-macos-x86_64.sha256
-          native-cli/wsc-macos-aarch64
-          native-cli/wsc-macos-aarch64.sha256
-          native-cli/wsc-windows-x86_64.exe
-          native-cli/wsc-windows-x86_64.exe.sha256
-          compliance/*
-        body: |
-          ## 🎉 wsc v${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }} Release
+        subject-path: "release-assets/*"
 
-          ### 📦 Native CLI Binaries
+    # ── Sigstore keyless signing of the sums file (cosign) ────────────────
+    # Signs SHA256SUMS.txt so a consumer can verify the checksum file
+    # itself was produced by this workflow (closes the gap where an
+    # attacker who can replace a release asset could also replace the
+    # plain checksum file). Mirrors the synth / witness / rivet pattern.
+    # Verify with:
+    #   cosign verify-blob \
+    #     --certificate-identity-regexp \
+    #       'https://github.com/pulseengine/sigil/.github/workflows/release.yml@.*' \
+    #     --certificate-oidc-issuer \
+    #       'https://token.actions.githubusercontent.com' \
+    #     --bundle SHA256SUMS.txt.cosign.bundle \
+    #     SHA256SUMS.txt
+    - name: Sign SHA256SUMS with cosign (keyless OIDC)
+      run: |
+        set -euo pipefail
+        cd release-assets
+        cosign sign-blob \
+          --yes \
+          --bundle SHA256SUMS.txt.cosign.bundle \
+          --output-signature SHA256SUMS.txt.sig \
+          --output-certificate SHA256SUMS.txt.pem \
+          SHA256SUMS.txt
+        echo "::notice::SHA256SUMS signed via Sigstore keyless flow."
+        ls -la ./*
 
-          | Platform | Binary | TPM2 Support |
-          |----------|--------|--------------|
-          | Linux x86_64 | `wsc-linux-x86_64` | ❌ |
-          | Linux x86_64 | `wsc-linux-x86_64-tpm2` | ✅ |
-          | Linux aarch64 | `wsc-linux-aarch64` | ❌ |
-          | macOS x86_64 (Intel) | `wsc-macos-x86_64` | ❌ |
-          | macOS aarch64 (Apple Silicon) | `wsc-macos-aarch64` | ❌ |
-          | Windows x86_64 | `wsc-windows-x86_64.exe` | ❌ |
+    - name: Capture build environment
+      run: |
+        set -euo pipefail
+        {
+          echo "rustc: $(rustc --version)"
+          echo "cargo: $(cargo --version)"
+          echo "bazel: $(cat .bazelversion)"
+          echo "cosign: $(cosign version 2>&1 | head -1)"
+          echo "runner: $(uname -srm)"
+        } > release-assets/build-env.txt
+        cat release-assets/build-env.txt
 
-          ### 📦 WebAssembly Components
-
-          **Component Library (WIT Interface):**
-          - `wsc-component.wasm` - WebAssembly component with WIT bindings
-          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}`
-
-          **CLI Tool (WASI Binary):**
-          - `wsc-cli.wasm` - WASI command-line tool for Wasmtime
-          - Signed OCI artifact: `${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}-cli`
-
-          ### 🔐 Security Features
-
-          - ✅ **WASM Module Signing** - Signed with wsc keyless signing (dogfooding!)
-          - ✅ **OCI Artifact Signing** - Signed with Cosign using GitHub OIDC (keyless)
-          - ✅ **SLSA Provenance** - Build attestation included
-          - ✅ **SHA256 Checksums** - For download verification
-
-          **Keyless Signing:**
-          - Identity: GitHub Actions OIDC
-          - Certificate: Short-lived from Fulcio (Sigstore)
-          - Transparency: Logged in Rekor
-
-          ### 🚀 Quick Start
-
-          ```bash
-          # Download native CLI for your platform
-          TAG=${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-
-          # Linux x86_64
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc-linux-x86_64
-          chmod +x wsc-linux-x86_64
-          ./wsc-linux-x86_64 --version
-
-          # macOS Apple Silicon
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${TAG}/wsc-macos-aarch64
-          chmod +x wsc-macos-aarch64
-          ./wsc-macos-aarch64 --version
-          ```
-
-          ### 🔍 Verify Signatures
-
-          ```bash
-          # Verify WASM module signature
-          wsc verify --keyless -i wsc-component.wasm
-
-          # Verify OCI artifact signature
-          cosign verify \
-            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}
-          ```
-
-          ### 📚 Documentation
-
-          See [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for full documentation.
-        tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    - name: Create or update GitHub Release
+      if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || github.ref_type == 'tag'
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Untrusted-input safety: tag flows in via env: and is dereferenced
+        # through $VERSION, never expanded into the shell.
+        INPUT_TAG: ${{ inputs.tag }}
+      run: |
+        set -euo pipefail
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${INPUT_TAG}"
+        elif [ "${{ github.event_name }}" = "release" ]; then
+          VERSION="${{ github.event.release.tag_name }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        # Idempotent: re-running for an existing release uploads/overwrites
+        # assets rather than failing. --clobber lets a re-run replace assets
+        # a previous partial run left behind.
+        if gh release view "$VERSION" >/dev/null 2>&1; then
+          echo "::notice::Release $VERSION exists; uploading assets"
+          gh release upload "$VERSION" --clobber release-assets/*
+        else
+          echo "::notice::Creating Release $VERSION with assets"
+          gh release create "$VERSION" \
+            --title "wsc $VERSION" \
+            --generate-notes \
+            release-assets/*
+        fi
 
     - name: Create Release Summary
       run: |
