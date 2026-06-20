@@ -781,7 +781,7 @@ artifacts:
   - id: CD-11
     type: cybersecurity-design
     title: Structured Audit Log Emitter
-    status: draft
+    status: implemented
     description: >
       JSON-structured audit log emitter producing records with timestamp,
       signer identity, module hash, key ID, Rekor UUID, and operation result
@@ -826,7 +826,7 @@ artifacts:
   - id: CV-10
     type: cybersecurity-verification
     title: Audit Log Format Verification
-    status: draft
+    status: implemented
     description: >
       Verify that audit records are JSON-structured with all required fields
       present and emitted for every sign and verify operation.
@@ -1362,7 +1362,7 @@ artifacts:
   - id: CD-20
     type: cybersecurity-design
     title: Cosign binary integrity verification before delegation
-    status: draft
+    status: implemented
     description: >
       CosignDelegator verifies cosign binary SHA-256 hash against
       expected value before subprocess invocation. Version check ensures
@@ -1374,7 +1374,7 @@ artifacts:
   - id: CD-21
     type: cybersecurity-design
     title: Tag-to-digest resolution for container signing
-    status: draft
+    status: implemented
     description: >
       ImageReference type enforces digest-bound signing by resolving
       mutable tags to immutable digests via crane/skopeo before cosign
@@ -1386,12 +1386,14 @@ artifacts:
   - id: CD-22
     type: cybersecurity-design
     title: Rekor proof cache with TTL expiry
-    status: draft
+    status: implemented
     description: >
-      MemoryProofCache stores verified Rekor inclusion proofs keyed
-      by artifact hash + Rekor UUID with configurable TTL. Thread-safe
-      via Mutex. Pluggable backend via ProofCacheBackend trait.
-      Cache is optimization-only per DD-2 fail-closed guarantee.
+      MemoryProofCache stores verified Rekor proofs keyed by artifact hash
+      plus a SHA-256 digest over the full Rekor entry content (issue #139,
+      length-prefixed: uuid, log index, body, SET, log id, integrated time,
+      inclusion proof) with configurable TTL. Thread-safe via Mutex.
+      Pluggable backend via ProofCacheBackend trait. Cache is
+      optimization-only per the fail-closed guarantee.
     links:
       - type: satisfies
         target: CR-5
@@ -1399,7 +1401,7 @@ artifacts:
   - id: CV-28
     type: cybersecurity-verification
     title: Container signing delegation tests
-    status: draft
+    status: implemented
     description: >
       20 tests covering image reference parsing, tag/digest handling,
       cosign config serialization, binary integrity checks, and
@@ -1416,7 +1418,7 @@ artifacts:
   - id: CV-29
     type: cybersecurity-verification
     title: Rekor proof cache tests
-    status: draft
+    status: implemented
     description: >
       13 tests covering cache insert/get, TTL expiry, eviction,
       invalidation, multiple entries, key serialization, and
@@ -1644,7 +1646,7 @@ artifacts:
   - id: CD-27
     type: cybersecurity-design
     title: SigstoreBundle with schema validation
-    status: draft
+    status: implemented
     description: >
       Sigstore bundle serialization with strict schema validation ensuring
       all verification material fields (certificates, inclusion proofs,
@@ -1713,7 +1715,7 @@ artifacts:
   - id: CV-34
     type: cybersecurity-verification
     title: Bundle format conformance tests
-    status: draft
+    status: implemented
     description: >
       Verify that Sigstore bundle serialization roundtrips preserve all
       fields and that schema validation rejects bundles with missing
