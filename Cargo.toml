@@ -9,6 +9,7 @@ members = [
 ]
 exclude = [
     "examples/wasmtime-loader",
+    "verification/torture-runner",
     "verification/witness-harness",
 ]
 

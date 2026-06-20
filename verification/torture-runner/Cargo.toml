@@ -1,0 +1,17 @@
+[package]
+name = "wsc-torture-runner"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "I/O fault-injection torture runner for wsc-verify-core — curl-style torture testing adapted for Rust's error model. Excluded from the main workspace; run with `cargo run --manifest-path verification/torture-runner/Cargo.toml --bin <target>`."
+
+[[bin]]
+name = "torture_module_parser"
+path = "src/torture_module_parser.rs"
+
+[[bin]]
+name = "torture_sig_parser"
+path = "src/torture_sig_parser.rs"
+
+[dependencies]
+wsc-verify-core = { path = "../../src/verify-core" }
