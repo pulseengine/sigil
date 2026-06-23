@@ -10,6 +10,8 @@ on:
     paths:
       - 'src/lib/src/**'
       - 'src/lib/tests/**'
+      - 'src/verify-core/**'
+      - 'verification/witness-harness/**'
       - 'lean/**'
       - 'MODULE.bazel'
       - 'Cargo.toml'
@@ -18,6 +20,8 @@ on:
     paths:
       - 'src/lib/src/**'
       - 'src/lib/tests/**'
+      - 'src/verify-core/**'
+      - 'verification/witness-harness/**'
       - 'lean/**'
       - 'MODULE.bazel'
       - 'Cargo.toml'
@@ -171,3 +175,24 @@ jobs:
       # stub, not a real Rocq proof. continue-on-error stays until a `.v`
       # file is wired in.
       continue-on-error: true
+
+  # MC/DC branch-coverage gate on wsc-verify-core via the witness harness
+  # (#165 Track C / #128). Unlike the WIP proof jobs above, this is a real
+  # gate (no continue-on-error): it fails only if the MC/DC gap count rises
+  # past the committed baseline, so it cannot block on incomplete proofs —
+  # only on an actual coverage regression.
+  witness-mcdc:
+    name: Witness MC/DC gate
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    # Installs the pinned toolchain (1.94.0) from rust-toolchain.toml.
+    - name: Install pinned Rust toolchain
+      run: rustup show
+
+    - name: Run witness MC/DC regression gate
+      run: bash verification/witness-harness/witness-gate.sh
+      env:
+        # `gh release download` (to fetch the pinned witness binary) needs a token.
+        GH_TOKEN: ${{ github.token }}

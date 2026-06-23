@@ -23,12 +23,27 @@ mechanic with crafted signed-module fixtures over `verify_multi` so the
 truth tables show MC/DC of the full verification decision logic, not just
 the varint decoder.
 
-## Running
+## CI gate
+
+[`witness-gate.sh`](witness-gate.sh) runs the whole flow below and **fails
+if the MC/DC gap count rises past the committed baseline** (`BASELINE_GAP`,
+currently 16, witness `v0.37.0`). It is wired as the gating `witness-mcdc`
+job in `.github/workflows/formal-verification.yml` (#165 Track C / #128) —
+a real gate (no `continue-on-error`), but a *regression* gate, so it cannot
+block on the still-incomplete Phase 3 coverage. Closing gaps lowers the
+count; then refresh `out/mcdc-report.txt` and `BASELINE_GAP`.
+
+```sh
+# One-shot: build + instrument + run + report + gate (auto-downloads witness)
+bash verification/witness-harness/witness-gate.sh
+```
+
+## Running manually
 
 ```sh
 # 1. Install witness (or use a checkout-local copy)
-gh release download v0.22.0 --repo pulseengine/witness \
-    --pattern '*aarch64-apple-darwin.tar.gz' --output - | tar -xz
+gh release download v0.37.0 --repo pulseengine/witness \
+    --pattern '*aarch64-apple-darwin.tar.gz' --dir . && tar -xzf witness-*.tar.gz
 export PATH="$PWD:$PATH"
 xattr -d com.apple.quarantine witness witness-viz 2>/dev/null || true
 
