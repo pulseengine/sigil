@@ -68,7 +68,7 @@ jobs:
 
     - name: Open a tracking issue on drift
       if: failure()
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       env:
         # Passed via env (not ${{ }} interpolation) so the report text can
         # never break out of the script — workflow-injection-safe pattern.
