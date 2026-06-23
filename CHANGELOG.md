@@ -3,6 +3,38 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] — 2026-06-23
+
+Dependency-maintenance release. Bumps the dependency and CI-action set to
+current versions and re-greens the build. All 609 library tests pass.
+
+### Changed (toolchain — MSRV)
+
+- **MSRV raised to rustc 1.94** (`rust-toolchain.toml` 1.91.0 → 1.94.0).
+  Required because wasmtime 45/46 (cranelift) raised their minimum
+  supported Rust to 1.93/1.94. Library consumers now need rustc ≥ 1.94.
+  The `examples/wasmtime-loader` demo was migrated for wasmtime 46's
+  error type (anyhow interop).
+
+### Changed (dependencies)
+
+- **wasmtime** 43 → 45 (`runtime` feature) and the `wasmtime-loader`
+  example → 46.
+- **clap** 4.5.50 → 4.6.1
+- **regorus** 0.10.0 → 0.10.1 (`rego` feature)
+- **regex** 1.12.3 → 1.12.4
+- **toml** 0.8 → 0.9
+- **wat** (dev) → 1.252.0
+- **wit-bindgen** 0.47.0 → 0.51.0
+- **ed25519-compact** 2.1.1 → 2.3.1
+
+### Changed (CI actions)
+
+- `softprops/action-gh-release` 1 → 3, `actions/upload-artifact` 4 → 7,
+  `actions/github-script` 7 → 9, `cachix/install-nix-action` 30 → 31,
+  `pulseengine/rivet` action 0.6.0 → 0.17.0, `codecov/codecov-action`
+  4 → 7, `docker/login-action` 3 → 4.
+
 ## [0.9.2] — 2026-05-29
 
 Security hardening release. Closes two further STPA-Sec findings from
