@@ -24,6 +24,11 @@ jobs:
     runs-on: [self-hosted, linux, x64, lean-mem]
     strategy:
       fail-fast: false
+      # Cap concurrency: the lean-mem pool is 4 runners shared with rivet's
+      # nightly mutants-core. Without this, all 10 targets fire at once,
+      # queue for up to ~10 h, and collide with mutants-core (#146). Two at a
+      # time bounds the fuzz window to a few hours and leaves 2 runners free.
+      max-parallel: 2
       matrix:
         # All 10 cargo-fuzz targets declared in `fuzz/Cargo.toml`. The
         # matrix had silently fallen behind as new targets were added —
