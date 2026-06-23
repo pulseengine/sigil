@@ -79,8 +79,12 @@ fn load_verified_component(
         }
     }
 
-    // Parse and validate component
+    // Parse and validate component.
+    // wasmtime 46's `wasmtime::Error` is not the same `anyhow::Error` as this
+    // crate's, so `Context::with_context` does not apply directly; map it into
+    // our anyhow first (the `From<wasmtime::Error>` impl that `?` uses).
     Component::new(engine, &bytes)
+        .map_err(anyhow::Error::from)
         .with_context(|| format!("Failed to parse component: {}", path.display()))
 }
 
