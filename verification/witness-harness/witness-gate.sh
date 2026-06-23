@@ -13,7 +13,12 @@
 set -euo pipefail
 
 WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
-BASELINE_GAP="${BASELINE_GAP:-16}"   # committed baseline; bump when gaps are closed
+# Committed baseline = the gap count on the CI host (ubuntu-latest / linux-x86_64),
+# which is the authoritative gate. NOTE: wasm codegen is mildly host-dependent —
+# the same toolchain+witness yields ~16 gaps on macOS/aarch64 vs 12 on linux/x86_64
+# (the instrumented .wasm differs by a few bytes). Lower this when #128's Phase 3
+# fixtures close gaps. Override via the BASELINE_GAP env var for local runs.
+BASELINE_GAP="${BASELINE_GAP:-12}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 

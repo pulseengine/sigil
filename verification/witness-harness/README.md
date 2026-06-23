@@ -27,7 +27,8 @@ the varint decoder.
 
 [`witness-gate.sh`](witness-gate.sh) runs the whole flow below and **fails
 if the MC/DC gap count rises past the committed baseline** (`BASELINE_GAP`,
-currently 16, witness `v0.37.0`). It is wired as the gating `witness-mcdc`
+currently 12 on the CI host, witness `v0.37.0`; ~16 on macOS/aarch64 due
+to host-dependent wasm codegen — override `BASELINE_GAP` for local runs). It is wired as the gating `witness-mcdc`
 job in `.github/workflows/formal-verification.yml` (#165 Track C / #128) —
 a real gate (no `continue-on-error`), but a *regression* gate, so it cannot
 block on the still-incomplete Phase 3 coverage. Closing gaps lowers the
