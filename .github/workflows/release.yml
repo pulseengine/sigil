@@ -160,7 +160,7 @@ jobs:
     # Nix is required for rules_rocq_rust toolchain registered in MODULE.bazel
     # (Bazel evaluates all toolchains during loading, even for non-Rocq builds)
     - name: Install Nix
-      uses: cachix/install-nix-action@v30
+      uses: cachix/install-nix-action@v31
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
