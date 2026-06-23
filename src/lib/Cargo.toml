@@ -14,9 +14,9 @@ categories = ["cryptography", "wasm"]
 [dependencies]
 # Verification core (carved out so it builds for wasm32 with no TLS/X.509 deps).
 # wsc re-exports its public API for backwards compatibility.
-wsc-verify-core = { version = "0.9.2", path = "../verify-core" }
+wsc-verify-core = { version = "0.9.3", path = "../verify-core" }
 # Re-export attestation types from minimal crate
-wsc-attestation = { version = "0.9.2", path = "../attestation" }
+wsc-attestation = { version = "0.9.3", path = "../attestation" }
 anyhow = "1.0.100"
 ct-codecs = "1.1.6"
 ed25519-compact = { version = "2.1.1", features = ["pem"] }
