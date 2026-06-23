@@ -43,7 +43,7 @@ jobs:
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: compliance-report
         path: ${{ steps.report.outputs.archive-path }}
@@ -127,7 +127,7 @@ jobs:
     # SHA256SUMS.txt covering every asset — matches the synth release flow.
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.asset_name }}
         path: artifacts/*

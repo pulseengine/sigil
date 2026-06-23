@@ -64,7 +64,7 @@ jobs:
 
     - name: Upload profiling data
       if: success() || failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: bytehound-profiles
         path: memory-profiling_*.dat
@@ -219,7 +219,7 @@ jobs:
 
     - name: Upload summaries
       if: success() || failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: bytehound-summaries
         path: |
