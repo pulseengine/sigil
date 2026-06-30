@@ -348,7 +348,7 @@ jobs:
         echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
 
     - name: Install crane
-      uses: imjasonh/setup-crane@v0.4
+      uses: imjasonh/setup-crane@v0.7
 
     - name: Resolve image digests
       id: digest
