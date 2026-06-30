@@ -165,7 +165,7 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@0.15.0
+      uses: bazel-contrib/setup-bazel@0.19.0
       with:
         bazelisk-cache: true
         # Use a shared cache key across all builds for better reuse
