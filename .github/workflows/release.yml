@@ -479,14 +479,14 @@ jobs:
     # SHA256SUMS.txt below.
 
     - name: Download Native CLI Artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: native-cli
         pattern: wsc-*
         merge-multiple: true
 
     - name: Download Compliance Report
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: compliance-report
         path: compliance/
