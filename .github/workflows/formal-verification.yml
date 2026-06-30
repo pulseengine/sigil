@@ -34,7 +34,7 @@ jobs:
     # Stays on ubuntu-latest: uses bazel-contrib/setup-bazel; Bazel is not installed on smithy (tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Setup Bazel
       uses: bazel-contrib/setup-bazel@0.14.0
@@ -123,7 +123,7 @@ jobs:
             harness: wasm_module::component_proofs
             tolerate_failure: true
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install Rust
       run: |
@@ -152,7 +152,7 @@ jobs:
     # Stays on ubuntu-latest: uses cachix/install-nix-action + bazel-contrib/setup-bazel + Rocq/Coq toolchain; none of Nix, Bazel, or Rocq are installed on smithy (all tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install Nix
       uses: cachix/install-nix-action@v31
@@ -185,7 +185,7 @@ jobs:
     name: Witness MC/DC gate
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     # Installs the pinned toolchain (1.94.0) from rust-toolchain.toml.
     - name: Install pinned Rust toolchain

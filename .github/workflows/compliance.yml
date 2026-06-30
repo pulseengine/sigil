@@ -43,7 +43,7 @@ jobs:
       archive-path: ${{ steps.report.outputs.archive-path }}
       validation-result: ${{ steps.report.outputs.validation-result }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Generate compliance report
       id: report

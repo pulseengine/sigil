@@ -27,7 +27,7 @@ jobs:
     name: Cargo Vet
     runs-on: [self-hosted, linux, x64, light]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install Rust
       run: rustup update stable && rustup default stable
     - name: Install cargo-vet
@@ -41,7 +41,7 @@ jobs:
     # Stays on ubuntu-latest: smithy-shipped cargo-audit's bundled rustsec parser rejects RUSTSEC-2026-0037 ("unsupported CVSS version: 4.0"). Move back once smithy bumps cargo-audit to 0.22.1+.
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Install Rust
       run: rustup update stable && rustup default stable
     - name: Install cargo-audit
@@ -66,7 +66,7 @@ jobs:
     name: Cargo Deny
     runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@stable
     # EmbarkStudios/cargo-deny-action@v2 runs in a musl container that can't
     # install the toolchain pinned by rust-toolchain.toml (issue #103). Also
@@ -83,7 +83,7 @@ jobs:
     name: Mutation Testing
     runs-on: [self-hosted, linux, x64, lean-mem]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@nightly
     - uses: Swatinem/rust-cache@v2
     - name: Install cargo-mutants
