@@ -560,3 +560,16 @@ artifacts:
         target: FEAT-12
       - type: traces-to
         target: DD-8
+
+  - id: REQ-18
+    type: requirement
+    title: "Certificate-checked varint overflow rejection for the embedded verifier (ordeal, #190/#88)"
+    status: draft
+    tags: [embedded, verification, ordeal, soundness]
+    fields:
+      description: "Prove wasm_module/varint.rs overflow/bounds (bvmul/bvadd at widths 8/32/64, QF_BV) with ordeal for a cert.recheck()-able certificate, upgrading #88 from Kani-bounded to a machine-checkable proof. varint.rs is in wsc-verify-core = the on-target parser (REQ-15), so this hardens the secure-boot admission path: witness MC/DC (#169) + overflow certificate on the same code. Boundary is honest QF_BV only; Ed25519 (#145/#32) and Rekor Merkle (#137) are out of fragment. Gated on ordeal prove_valid API (ordeal#66, v0.12.0); additive, no urgency. Certificate later becomes a gating CI check + a rivet-typed certificate artifact per ordeal#67."
+    links:
+      - type: traces-to
+        target: FEAT-12
+      - type: traces-to
+        target: REQ-15
