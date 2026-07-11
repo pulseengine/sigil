@@ -52,8 +52,28 @@ swap `std::io::Read`/`Cursor` (~18) for a slice reader, `alloc` collections +
 
 | Release | Scope |
 |---|---|
-| sigil **v0.10.0** | `no_std` carve of verify-core behind a default `std` feature; `thumbv7em-none-eabi` staticlib in CI; key-based verify reachable no_std (`REQ-15`). |
-| sigil **v0.11.0** | require-signed-`kiln.resource_limits` + reject-at-load contract; integration test against kiln's loader (`REQ-16`). |
+| sigil **v0.10.0** | `no_std` carve of verify-core behind a default `std` feature; `thumbv7em-none-eabi` staticlib in CI; **curve-agile** key-based verify (Ed25519 + ECDSA-P256) reachable no_std (`REQ-15`). |
+| sigil **v0.11.0** | require-signed-`kiln.resource_limits` + reject-at-load contract; `wsc:crypto hardware-verify` interface (`REQ-17`); integration test against kiln's loader (`REQ-16`). |
+
+## Feedback incorporated (2026-07-11) — kiln#421 (accepted), gale#164 (target locked)
+
+- **Target locked**: Pixhawk 6X-RT = **i.MX RT1176 (Cortex-M7, `thumbv7em`, 2 MB
+  SRAM) + EdgeLock SE051 (EAL 6+)**. `alloc` fine, `panic=abort`, ISA matches the
+  staticlib — confirmed.
+- **Curve agility (NEW, `REQ-17`)**: SE051's Ed25519 applet is SKU-specific;
+  **ECDSA-P256 is the universal fallback curve**, so the verifier is curve-agile
+  and `wsc:crypto` gains a **`hardware-verify`** interface (mirror of
+  `hardware-signing`) that negotiates the curve. **Spike 2026-07-11**: `p256`
+  (ecdsa, `default-features=false`) builds `no_std` for `thumbv7em`; P256 *verify*
+  needs no RNG — clean SW fallback on entropy-less bench MCUs.
+- **Dual anchor, one interface**: SE051 secure storage (target) / OTP-flash
+  (bench), both behind `wsc:crypto` (`EXTERNALANCHOR-001`, gale supplier boundary).
+- **kiln boundary decided**: Rust `staticlib`, **no C ABI** (both Rust); the hook
+  is kiln's **SR-45** stub (`extract_resource_limits_from_binary` execution.rs:144
+  ← `load_module`). Reject-at-load composes with landed SR-43/SR-41/SR-44.
+- **gale on-ramp**: SE051-over-`i2c-thin` driver (gale#163) → `wsc:crypto
+  hardware-verify`. gale's gap is the i.MX RT BSP + board; sigil's SW-fallback is
+  correctness-complete so the chain is bench-testable before the RT1176 arrives.
 
 ---
 

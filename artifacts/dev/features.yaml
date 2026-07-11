@@ -542,7 +542,21 @@ artifacts:
     tags: [embedded, secure-boot, crypto]
     fields:
       description: "Embedded verify profile decision for #187 / kiln#415 (AD-WCMC-001)."
-      rationale: "Secure-boot path (reject-at-load = boot-admission gate) on air-gapped gale/gust: keyless is impossible offline (needs network), so verification must be KEY-BASED with embedded public keys. Crypto is HW-where-possible via gale's wsc:crypto hardware interface (accelerated Ed25519 verify / secure key storage), SW fallback ed25519-compact where the BSP lacks it; verify uses only public keys so the SW fallback is correctness-complete without a secure element. Spike 2026-07-11 confirmed ed25519-compact+ct-codecs build no_std for thumbv7em-none-eabi."
+      rationale: "Secure-boot path on Pixhawk 6X-RT (i.MX RT1176 M7 thumbv7em + EdgeLock SE051 EAL6+). KEY-BASED (embedded public keys; keyless impossible offline). CURVE-AGILE - Ed25519 preferred, ECDSA-P256 universal fallback (SE051 Ed25519 is SKU-specific). HW-where-possible (SE051 secure storage + accelerated verify) / SW-fallback (ed25519-compact + p256, correctness-complete since verify uses only public keys, RNG-free). Dual anchor (SE051 / OTP flash) under one wsc:crypto hardware-verify interface. Both curves spike-validated no_std/thumbv7em 2026-07-11."
     links:
       - type: traces-to
         target: EXTERNALANCHOR-001
+
+  - id: REQ-17
+    type: requirement
+    title: wsc:crypto hardware-verify interface with curve negotiation (Ed25519 / ECDSA-P256)
+    status: draft
+    tags: [embedded, crypto, gale, wit]
+    fields:
+      description: "Add a hardware-verify interface to wit/deps/wsc-crypto/crypto.wit mirroring hardware-signing: opaque key-handle, security-level (software..hardware-certified), and CURVE NEGOTIATION — Ed25519 preferred, ECDSA-P256 universal fallback (EdgeLock SE051 ships Ed25519 only on some SKUs; P256 is universal). One interface, two anchors: SE051 secure storage on the i.MX RT1176 target / OTP flash on bench MCUs. gale binds the SE051-over-i2c-thin backend (gale#164/#163); sigil no_std verify uses it or falls back to software. Both curves spike-validated no_std for thumbv7em 2026-07-11 (p256 verify is RNG-free)."
+      release: v0.11.0
+    links:
+      - type: traces-to
+        target: FEAT-12
+      - type: traces-to
+        target: DD-8
