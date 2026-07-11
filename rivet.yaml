@@ -23,6 +23,13 @@ externals:
   synth:
     path: ../synth
     prefix: synth
+  # kiln owns the resource-limits section + on-board loader for the embedded
+  # trust chain (FEAT-12 / #187 ← kiln#415, AD-WCMC-001). Cross-repo linkable.
+  kiln:
+    path: ../kiln
+    prefix: kiln
+  # gale (OS/BSP/HW-crypto) has no rivet setup yet — link via gale#164 for now;
+  # add as an external here when it gains rivet artifacts ("when it arrives").
 
 commits:
   format: trailers

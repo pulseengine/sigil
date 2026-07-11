@@ -495,3 +495,54 @@ artifacts:
       of all component sections during the signing process.
     fields:
       phase: phase-2
+
+  - id: FEAT-12
+    type: feature
+    title: "Embedded on-target trust chain: no_std verifier + signed kiln.resource_limits (reject-at-load)"
+    status: draft
+    tags: [embedded, no_std, kiln, gale, trust-chain]
+    fields:
+      description: "On-target (thumbv7em-none-eabi, gale/gust) offline key-based verification so kiln's loader can trust the signed kiln.resource_limits bounds for reject-at-load. Reuses kiln's existing ResourceLimitsSection (already no_std/bounded) and sigil's existing key-based Ed25519 path in wsc-verify-core; HW-crypto via the wsc:crypto hardware interface provided by gale. Tracks #187; kiln#415/AD-WCMC-001."
+    links:
+      - type: traces-to
+        target: EXTERNALANCHOR-001
+
+  - id: REQ-15
+    type: requirement
+    title: no_std wsc-verify-core staticlib for thumbv7em-none-eabi (secure-boot verify)
+    status: draft
+    tags: [embedded, no_std]
+    fields:
+      description: "Carve wsc-verify-core to #![no_std]+alloc behind a default 'std' feature so the host CLI is unaffected. Feature-gate file-IO (std::fs/os::unix/env::temp_dir/Path ~30 uses); replace std::io::Read/Cursor (~18) with a slice reader; alloc collections + core::fmt. Ship a thumbv7em-none-eabi staticlib mirroring kiln-async. Deps already no_std-viable (spike). Key-based Ed25519 verify (signature/multi.rs,simple.rs) becomes on-target reachable. Enabling release for #187."
+      release: v0.10.0
+    links:
+      - type: traces-to
+        target: FEAT-12
+
+      - type: traces-to
+        target: DD-8
+  - id: REQ-16
+    type: requirement
+    title: Signed reject-at-load of kiln.resource_limits (bounds covered by whole-module signature)
+    status: draft
+    tags: [embedded, kiln, secure-boot]
+    fields:
+      description: "Reuse kiln's existing ResourceLimitsSection (kiln.resource_limits v1, already no_std/BoundedMap). sigil's whole-module signed hash already covers it (only the sig section is stripped). Pipeline: kiln embed_limits -> sigil signs -> target verifies. Verify+loader MUST reject if signature invalid OR section absent OR signed bounds (max_memory_usage/max_call_depth/...) exceed the provisioned RAM/stack budget. Hooks kiln's extract_resource_limits_from_binary / resource_limits_loader. Closes the 'trust an unsigned size claim' gap in #187."
+      release: v0.11.0
+    links:
+      - type: traces-to
+        target: FEAT-12
+
+      - type: traces-to
+        target: DD-8
+  - id: DD-8
+    type: design-decision
+    title: "Embedded secure-boot verify profile: key-based Ed25519, HW-preferred with SW fallback"
+    status: draft
+    tags: [embedded, secure-boot, crypto]
+    fields:
+      description: "Embedded verify profile decision for #187 / kiln#415 (AD-WCMC-001)."
+      rationale: "Secure-boot path (reject-at-load = boot-admission gate) on air-gapped gale/gust: keyless is impossible offline (needs network), so verification must be KEY-BASED with embedded public keys. Crypto is HW-where-possible via gale's wsc:crypto hardware interface (accelerated Ed25519 verify / secure key storage), SW fallback ed25519-compact where the BSP lacks it; verify uses only public keys so the SW fallback is correctness-complete without a secure element. Spike 2026-07-11 confirmed ed25519-compact+ct-codecs build no_std for thumbv7em-none-eabi."
+    links:
+      - type: traces-to
+        target: EXTERNALANCHOR-001
