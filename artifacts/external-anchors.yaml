@@ -1,0 +1,12 @@
+artifacts:
+
+  - id: EXTERNALANCHOR-001
+    type: external-anchor
+    title: gale OS/BSP/HW-crypto boundary (embedded verify) — awaiting gale#164
+    status: draft
+    tags: [embedded, gale, supplier-boundary]
+    fields:
+      description: "Supplier boundary: gale provides OS/BSP + optional HW Ed25519 verify + embedded trust-anchor public-key provisioning for the on-target secure-boot verify (FEAT-12/DD-8). gale has no rivet store yet; chain intentionally not followed past here. Tracked at gale#164; flip received-status when they respond ('when it arrives')."
+      expected-derived-types: hardware-verify-impl,trust-anchor-provisioning,bsp-nostd-contract
+      received-status: not-received
+      source-of-truth: repo:gale
