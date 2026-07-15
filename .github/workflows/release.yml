@@ -245,23 +245,21 @@ jobs:
         # Create a detached signature for verification
         mv wsc-component.signed.wasm wsc-component.wasm
 
-        # Sign the CLI WASM if it exists and is a parseable core module / component.
-        # The CLI WASM is built with wasm32-wasip2 which produces a format that
-        # wsc's own parser does not currently recognize. This is a known limitation
-        # and the CLI WASM is an optional artifact, so we tolerate sign failures.
+        # Sign the CLI WASM if the wasip2 build produced it. wsc's parser
+        # DOES handle the wasm32-wasip2 component format (verified 2026-07:
+        # sign + verify round-trip on a real 3.98 MB component with an
+        # embedded core module — #164), and wsc-component.wasm (also wasip2)
+        # is already signed unconditionally above. So this is a HARD
+        # requirement: a sign failure fails the release loudly instead of
+        # silently dropping the unsigned artifact (no continue-on-error theatre).
         if [ -f wsc-cli.wasm ]; then
           echo "Signing wsc-cli.wasm..."
-          if ./target/release/wsc sign --keyless \
-               --input-file wsc-cli.wasm \
-               --output-file wsc-cli.signed.wasm; then
-            mv wsc-cli.signed.wasm wsc-cli.wasm
-            echo "  ✅ wsc-cli.wasm signed"
-          else
-            echo "  ⚠️  wsc-cli.wasm could not be signed (parser does not yet"
-            echo "      support the wasm32-wasip2 output format). Removing"
-            echo "      unsigned CLI artifact from release."
-            rm -f wsc-cli.wasm wsc-cli.signed.wasm
-          fi
+          ./target/release/wsc sign --keyless \
+            --input-file wsc-cli.wasm \
+            --output-file wsc-cli.signed.wasm \
+            || { echo "::error::wsc-cli.wasm (wasm32-wasip2) failed to sign — component-parser regression (#164)"; exit 1; }
+          mv wsc-cli.signed.wasm wsc-cli.wasm
+          echo "  ✅ wsc-cli.wasm signed"
         fi
 
         echo "✅ WASM files signed with wsc (keyless)"
