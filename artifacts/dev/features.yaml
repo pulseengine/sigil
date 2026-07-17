@@ -513,7 +513,7 @@ artifacts:
     status: draft
     tags: [embedded, no_std]
     fields:
-      description: "Carve wsc-verify-core to #![no_std]+alloc behind a default 'std' feature so the host CLI is unaffected. Feature-gate file-IO (std::fs/os::unix/env::temp_dir/Path ~30 uses); replace std::io::Read/Cursor (~18) with a slice reader; alloc collections + core::fmt. Ship a thumbv7em-none-eabi staticlib mirroring kiln-async. Deps already no_std-viable (spike). Key-based Ed25519 verify (signature/multi.rs,simple.rs) becomes on-target reachable. Enabling release for #187."
+      description: "Carve wsc-verify-core to #![no_std] behind a default 'std' feature so the host CLI is unaffected: feature-gate file-IO (std::fs/os::unix/env::temp_dir/Path ~30 uses); replace std::io::Read/Cursor (~18) with a slice reader; core::fmt. PRIMARY embedding is as a WASM COMPONENT compiled to Cortex-M via meld to loom to synth (DD-9), not a hand-carved thumbv7em staticlib — the direct thumbv7em build stays as a dep-viability check. Curve-agile: Ed25519 + ECDSA-P256 (signature/multi.rs,simple.rs). gale#164 constraints on the final artifact (synth output): no-alloc preferred or bounded+documented heap, panic=abort/no-unwind, plain extern C entry, pre-partition-start with no OS services. Alloc-free-verify spike pending. Enabling release for #187."
       release: v0.10.0
     links:
       - type: traces-to
@@ -521,6 +521,8 @@ artifacts:
 
       - type: traces-to
         target: DD-8
+      - type: traces-to
+        target: DD-9
   - id: REQ-16
     type: requirement
     title: Signed reject-at-load of kiln.resource_limits (bounds covered by whole-module signature)
@@ -573,3 +575,15 @@ artifacts:
         target: FEAT-12
       - type: traces-to
         target: REQ-15
+
+  - id: DD-9
+    type: design-decision
+    title: Embedded verifier delivered as a wasm component compiled to Cortex-M via meld to loom to synth (not a hand-carved no_std staticlib)
+    status: draft
+    tags: [embedded, wasm-component, meld, loom, synth, gale]
+    fields:
+      description: "Delivery-path decision for the embedded verifier (FEAT-12 / #187). meld+loom+synth to embedded already exist; mechanism differs from a Rust carve."
+      rationale: "Final target is the WASM Component Model. The verifier (wsc-verify-core, already wasm-buildable per #129) is a wasm component that goes meld (compose+attest) then loom (optimize) then synth (AOT to Cortex-M native), reusing the existing pulseengine embedded path rather than a separate hand-written no_std thumbv7em Rust carve. Ties to #164 (the component must be signable). gale/gust constraints (gale#164) become the CONTRACT ON SYNTH OUTPUT: no-alloc preferred or bounded+documented heap (gust cores are no-alloc by discipline, no global allocator generally present), panic=abort/no-unwind, plain extern C ABI, runs pre-partition-start with no OS services. thumbv7em direct-build spike (2026-07) still valid as a dep-viability check; delivery is via synth. First proof: qemu/Renode gust-image end-to-end demo (sigil-signed image to on-target verify to reject-at-load)."
+    links:
+      - type: traces-to
+        target: FEAT-12
