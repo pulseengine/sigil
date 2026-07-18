@@ -40,7 +40,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     # Cargo build and test
     - name: Cargo Build
@@ -156,7 +156,7 @@ jobs:
       contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Run Keyless Integration Tests
       run: cargo test --test keyless_integration -- --ignored --nocapture
@@ -172,7 +172,7 @@ jobs:
       contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Run Air-Gapped Unit Tests
       run: cargo test --test airgapped_e2e -- --nocapture
@@ -193,7 +193,7 @@ jobs:
       contents: read
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Build CLI
       run: cargo build --release
@@ -257,7 +257,7 @@ jobs:
     runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Fetch Fresh Rekor Data
       id: update-rekor
@@ -287,7 +287,7 @@ jobs:
     needs: [build-matrix]
     runs-on: [self-hosted, linux, x64, rust-cpu]
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - uses: dtolnay/rust-toolchain@nightly
     - uses: Swatinem/rust-cache@v2
     - name: Install cargo-llvm-cov
