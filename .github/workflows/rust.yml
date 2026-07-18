@@ -76,7 +76,7 @@ jobs:
 
     - name: Setup Bazel
       if: matrix.build-system == 'bazel'
-      uses: bazel-contrib/setup-bazel@0.15.0
+      uses: bazel-contrib/setup-bazel@0.19.0
       with:
         bazelisk-cache: true
         disk-cache: ${{ runner.os }}-bazel
