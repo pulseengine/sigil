@@ -144,7 +144,7 @@ jobs:
       contents: write
       packages: write
       id-token: write       # Cosign keyless signing + SLSA provenance OIDC
-      attestations: write   # actions/attest-build-provenance@v2
+      attestations: write   # actions/attest-build-provenance@v4
     needs: [build-native-cli]
     if: always() && needs.build-native-cli.result == 'success'
 
@@ -614,7 +614,7 @@ jobs:
     # records it in the Rekor transparency log. Consumers verify with:
     #   gh attestation verify <file> --repo pulseengine/sigil
     - name: Generate SLSA build provenance
-      uses: actions/attest-build-provenance@v2
+      uses: actions/attest-build-provenance@v4
       with:
         subject-path: "release-assets/*"
 
