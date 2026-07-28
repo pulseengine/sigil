@@ -47,7 +47,7 @@ uuid = { version = "1.11", features = ["v4"] }
 # ureq is only used on native (cfg-guarded), but must be unconditional for Bazel
 ureq = "3.1.2"
 # SPKI encoding for public keys
-spki = { version = "0.7", features = ["alloc"] }
+spki = { version = "0.8", features = ["alloc"] }
 # ECDSA P-256 for keyless signing (required by Sigstore/Rekor hashedrekord)
 p256 = { version = "0.13", features = ["ecdsa", "pem"] }
 ecdsa = { version = "0.16", features = ["signing"] }
