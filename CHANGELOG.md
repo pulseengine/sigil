@@ -3,6 +3,43 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] — 2026-08-05
+
+Release-integrity fixes. Unbreaks the release pipeline and lands the *real*
+fix for signing sigil's own `wasm32-wasip2` CLI — the genuine #164 bug that
+v0.9.3's #192 workaround only surfaced.
+
+### Fixed
+
+- **Sign large wasm32-wasip2 components (#164 / #213).** `wsc sign`/`verify`
+  rejected `wsc-cli.wasm` with "Parse error": a wasm **component** embeds its
+  core module as a single section, and a full CLI's exceeds the old 16 MB
+  `MAX_SLICE_LEN` bound in `Section::deserialize`. Raised to 256 MB — generous
+  for any realistic component, still bounds a single host allocation; the
+  excessive-length rejection is unchanged (its test value exceeds 256 MB).
+  Reproduced with a synthetic >16 MB-section module; the release now runs
+  build → sign → **verify** → publish green, so `wsc-cli.wasm` ships signed.
+  (`wsc-component.wasm`, 3.96 MB, always fit — only the larger CLI tripped it.)
+  Unblocks the org-wide wasm-signing standard (#165) and agora#3.
+  *Falsification:* a wasm component whose embedded core module is ≤ 256 MB now
+  signs and verifies; one whose bounds/signature are tampered still rejects.
+- **Bazel `ureq` dep drift (#212).** The wasm-component build aborted at
+  analysis (`no such target '@wsc_deps//:ureq-3.1.2'`) after crate_universe
+  re-pinned `ureq ^3.1.2 → 3.3.0`. `ureq` was the only dep pinned to a
+  version-suffixed target; switched both BUILD files to the bare
+  `@wsc_deps//:ureq` alias (matches every other dep, drift-proof).
+
+### Changed
+
+- **Witness MC/DC gate baseline 12 → 17 (#214 / #128).** The gate had been red
+  on `main` since ~2026-07-28 from std/dep/toolchain churn — the count is over
+  the *whole* instrumented wasm (only ~1 of ~40 decisions is verify-core's own),
+  so it drifts with dep bumps rather than tracking real coverage. Baseline
+  refreshed with that evidence documented (not a silent bump); the sound fix —
+  scoping the gate to `src/` decisions — is tracked in #128.
+- Dependency and CI-action bumps accumulated since v0.9.3 (wasmtime 47,
+  toml 1.1, serde_jcs 0.2, wit-bindgen 0.51, actions v7/v8, …).
+
 ## [0.9.3] — 2026-06-23
 
 Dependency-maintenance release. Bumps the dependency and CI-action set to

@@ -587,3 +587,23 @@ artifacts:
     links:
       - type: traces-to
         target: FEAT-12
+
+  - id: DD-10
+    type: design-decision
+    title: MAX_SLICE_LEN = 256MB to hold a wasm component's embedded core-module section
+    status: implemented
+    tags: [parser, component, sign]
+    fields:
+      description: "Decision behind the #213 fix that unblocks wasm32-wasip2 component signing (#164)."
+      rationale: A wasm32-wasip2 component embeds a whole core module as one section; a full CLI (wsc-cli.wasm) exceeds the old 16MB bound, so Section::deserialize rejected it with ParseError at sign time (#164). 256MB is generous headroom for any realistic component while still bounding a single host allocation; the excessive-length rejection still holds (test value exceeds 256MB). Tighter input-bounded read deferred to the embedded profile (REQ-15).
+
+  - id: REQ-19
+    type: requirement
+    title: sigil signs + verifies wasm32-wasip2 components with large embedded core modules
+    status: implemented
+    tags: [sign, component, release]
+    fields:
+      description: "wsc sign/verify must round-trip on wasm32-wasip2 COMPONENTS (not just core modules), including a full CLI whose embedded core module exceeds 16MB. Oracle: sign then verify a >16MB-section component returns valid (reproduced locally + green release run build->sign->verify->publish). Unblocks the org-wide wasm-signing standard (#165) and agora#3. Implements #164."
+    links:
+      - type: traces-to
+        target: DD-10
