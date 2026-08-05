@@ -56,11 +56,21 @@ pub fn put_slice(writer: &mut impl Write, bytes: impl AsRef<[u8]>) -> Result<(),
     Ok(())
 }
 
-/// Maximum size for a length-prefixed slice (16 MB)
+/// Maximum size for a length-prefixed slice (256 MB)
 ///
 /// This limit prevents denial-of-service attacks via malformed length prefixes
-/// that could cause excessive memory allocation.
-pub const MAX_SLICE_LEN: usize = 16 * 1024 * 1024;
+/// that could cause excessive memory allocation. It must be large enough to
+/// hold a WASM **component's** embedded core-module section: a full CLI built
+/// for `wasm32-wasip2` (e.g. `wsc-cli.wasm`) embeds a core module far larger
+/// than the old 16 MB bound, which rejected it with a spurious `ParseError`
+/// at sign time (#164). 256 MB is generous headroom for any realistic
+/// component while still bounding a single allocation on the host.
+///
+/// NOTE: the embedded verifier profile (REQ-15) wants a tighter, input-bounded
+/// read (cap the allocation by the actual remaining input, not a fixed
+/// constant) so a malformed length prefix cannot allocate on a constrained
+/// target — tracked with the no_std carve.
+pub const MAX_SLICE_LEN: usize = 256 * 1024 * 1024;
 
 pub fn get_slice(reader: &mut impl Read) -> Result<Vec<u8>, CoreError> {
     let len = get32(reader)? as usize;
