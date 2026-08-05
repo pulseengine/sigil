@@ -4628,7 +4628,7 @@ checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
 
 [[package]]
 name = "wsc"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "base64",
@@ -4679,7 +4679,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-attestation"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "base64",
  "chrono",
@@ -4695,7 +4695,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-cli"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "clap",
  "env_logger",
@@ -4708,7 +4708,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-component"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "wit-bindgen 0.51.0",
  "wsc",
@@ -4716,7 +4716,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-verify-core"
-version = "0.9.3"
+version = "0.9.4"
 dependencies = [
  "ct-codecs",
  "ed25519-compact",
