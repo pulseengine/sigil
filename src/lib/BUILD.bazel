@@ -52,7 +52,7 @@ rust_library(
         "@wsc_deps//:serde_json",
         "@wsc_deps//:spki",
         "@wsc_deps//:time",
-        "@wsc_deps//:ureq-3.1.2",
+        "@wsc_deps//:ureq",
         "@wsc_deps//:webpki-roots",
         "@wsc_deps//:x509-parser",
          # Certificate provisioning dependencies
