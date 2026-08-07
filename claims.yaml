@@ -1,0 +1,57 @@
+# claims.yaml — load-bearing public claims, bound to re-derivable evidence.
+# Gated by verification/claim-check/claim-check.py in CI (.github/workflows/claim-check.yml).
+# See the `claim-verification` skill: mark -> bind -> gate. Truth-over-time is a
+# property of THIS GATE, not of whoever last edited the docs.
+#
+# Add a claim here whenever a doc asserts what the system *is / does / proves*
+# (verification status, capability, compliance level, a trusted-base count).
+# Bind it to a predicate a machine re-derives from source — never a number typed
+# in prose.
+
+claims:
+  # --- SLSA compliance (issue #216 / REQ-20 sibling REQ-21) ----------------
+  # Ground truth: SLSA v1.0's Build track defines Build L0-L3 ONLY. "Level 4"
+  # existed in the superseded v0.1 draft and was dropped in v1.0. Claiming
+  # "SLSA Level 4 ACHIEVED" against v1.0 asserts a level the spec does not define.
+
+  - id: SLSA-NO-PHANTOM-L4
+    doc: README.md                     # anchor doc (must exist); the gate is the glob below
+    evidence:
+      # The phantom claim must stay absent across ALL public surfaces. `count-max: 0`
+      # greens at zero matches and goes RED the instant "SLSA Level 4"/"SLSA L4"/
+      # "SLSA-L4" reappears. The mandatory `SLSA` adjacency is deliberate: it does
+      # NOT match STPA loss identifiers ("L4"/"L5" with no SLSA prefix) in
+      # docs/security/stpa-*.md, which are a different concept entirely.
+      - kind: count-max
+        pattern: 'SLSA[ -](Level ?4|L4)'
+        glob: ['README.md', 'docs/**/*.md', 'examples/**/*.md', 'src/**/*.rs']
+        max: 0
+
+  - id: SLSA-BADGE-HONEST
+    doc: README.md
+    # The README SLSA badge must state the level v1.0 defines and we meet (Build L3),
+    # not the phantom L4. The badge IS the evidence — relabel it, don't fake it.
+    evidence:
+      - kind: verbatim
+        text: 'SLSA-Build_L3'
+
+  - id: SLSA-L3-DISCLAIMER-PRESENT
+    doc: docs/slsa-compliance.md
+    # The honest scoping sentence must not be quietly deleted. count-min is the
+    # presence dual of count-max (which would green a 0-match). Regex '.' spans the
+    # en-dash in "L0-L3" so the encoding can't drift the check.
+    evidence:
+      - kind: count-min
+        pattern: 'SLSA v1\.0 defines Build L0.L3 only'
+        glob: ['docs/slsa-compliance.md']
+        min: 1
+
+  - id: SLSA-L3-EVIDENCE
+    doc: docs/slsa-compliance.md
+    # The Build-L3 claim rests on real artifacts: build-platform provenance emitted
+    # by the release workflow, and material-pinning reproducibility tracking.
+    evidence:
+      - kind: file-exists
+        path: .github/workflows/release.yml
+      - kind: file-exists
+        path: src/attestation/src/reproducibility.rs

@@ -15,7 +15,14 @@ on:
 
 jobs:
   publish:
-    if: github.repository == 'pulseengine/sigil'
+    # Disarmed until crates.io publishing is actually configured. Set the repo
+    # variable CRATES_PUBLISH_ENABLED=true once EITHER a crates.io Trusted
+    # Publisher is registered for pulseengine/sigil (OIDC, tokenless — preferred)
+    # OR a CRATES_IO_TOKEN secret with publish scope exists. Until then this job
+    # SKIPS (neutral) rather than failing red on every tag — a perpetually-red
+    # publish job is a dead signal, not a gate (#220). Arming it re-publishes the
+    # registry, which has lagged at 0.9.0 since the auth broke at v0.9.1.
+    if: github.repository == 'pulseengine/sigil' && vars.CRATES_PUBLISH_ENABLED == 'true'
     # Stays on ubuntu-latest: crates.io trusted publishing via OIDC; keep release publication on a vetted, well-known runner image until self-hosted publication path is independently audited.
     runs-on: ubuntu-latest
     permissions:

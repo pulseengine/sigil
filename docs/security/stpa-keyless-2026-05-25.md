@@ -115,7 +115,7 @@ keyless signatures, so it stays unwired until fixed.
   does **not** prove inclusion in the Merkle tree. A misbehaving Rekor
   instance, a Rekor key-compromise, or a Rekor operator producing
   parallel "side log" entries that are signed but never integrated would
-  pass `verify_set`. SLSA L4 non-falsifiability is dropped.
+  pass `verify_set`. SLSA Build L3 non-falsifiability is dropped.
 - **Suggested fix:** After `verify_set` succeeds at `signer.rs:612`, also
   call `verifier.verify_inclusion_proof(&keyless_sig.rekor_entry)?`. Cache
   the verified inclusion proof in the same cache slot (see UCA-4 for

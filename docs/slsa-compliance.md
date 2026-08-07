@@ -1,4 +1,4 @@
-# SLSA Compliance for wsc - Levels 3 & 4
+# SLSA Compliance for wsc — Build L3 (v1.0) + beyond-L3 hardening
 
 **Document Version**: 1.0
 **Last Updated**: November 15, 2025
@@ -8,13 +8,13 @@
 
 ## Overview
 
-This document describes how wsc (WebAssembly Signature Component) achieves SLSA (Supply Chain Levels for Software Artifacts) Level 3 and Level 4 compliance for WebAssembly component composition and signing.
+This document describes how wsc (WebAssembly Signature Component) meets SLSA Build L3 (v1.0), with beyond-L3 reproducibility & offline-attestation hardening, for WebAssembly component composition and signing.
 
-**SLSA** is a security framework that defines levels of supply chain security guarantees:
-- **Level 1**: Documentation of build process
-- **Level 2**: Tamper-resistant build service
-- **Level 3**: Extra resistance to specific threats
-- **Level 4**: Highest levels of confidence and trust
+**SLSA** is a security framework whose v1.0 Build track defines the following levels. Note: `SLSA v1.0 defines Build L0–L3 only` — there is no "Level 4" in v1.0 (the superseded v0.1 draft defined an L4, dropped in v1.0 pending redefinition).
+- **Build L0**: No guarantees
+- **Build L1**: Provenance exists (documented build process)
+- **Build L2**: Hosted build platform + signed provenance
+- **Build L3**: Hardened build platform, non-falsifiable provenance
 
 ---
 
@@ -128,7 +128,7 @@ let result = graph.validate()?;
 
 ---
 
-## SLSA Level 4 (✅ ACHIEVED for Offline/Embedded)
+## Beyond L3: Reproducibility & Offline Attestation (the properties SLSA v0.1 called Level 4; SLSA v1.0 defines Build L0–L3 only)
 
 ### Additional Requirements
 
@@ -195,7 +195,7 @@ let hw_module = embed_device_attestation(module, &device_attestation)?;
 
 ---
 
-## Comparison: Online vs Offline SLSA Level 4
+## Comparison: Online vs Offline beyond-L3 hardening (v0.1 L4-class)
 
 ### Online (Keyless/Sigstore)
 
@@ -225,13 +225,13 @@ let hw_module = embed_device_attestation(module, &device_attestation)?;
 - ⚠️ No public transparency log (optional)
 - ⚠️ Requires PKI infrastructure
 
-**wsc Achievement**: First WASM tool to achieve SLSA Level 4 offline!
+**wsc Achievement**: First WASM tool to bring v0.1-L4-class reproducibility + offline attestation to component signing.
 
 ---
 
 ## Threat Mitigation Matrix
 
-| Threat | SLSA L2 | SLSA L3 | SLSA L4 |
+| Threat | SLSA L2 | SLSA L3 | Beyond-L3 (v0.1 L4-class) |
 |--------|---------|---------|---------|
 | Source tampering | Partial | ✅ Full | ✅ Full |
 | Build tampering | Partial | ✅ Full | ✅ Full |
@@ -290,7 +290,7 @@ for component in &manifest.components {
 println!("✅ SLSA Level 3 verified");
 ```
 
-### Verify SLSA Level 4 (Hardware-backed)
+### Verify beyond-L3 hardening (v0.1 L4-class, Hardware-backed)
 
 ```rust
 // Level 3 checks +
@@ -300,7 +300,7 @@ assert!(signatures.len() >= 2, "Two signatures required (owner + integrator)");
 
 // Verify hardware attestation
 let device_attestation = extract_device_attestation(&module)?
-    .ok_or("Device attestation required for Level 4")?;
+    .ok_or("Device attestation required for beyond-L3 (v0.1 L4-class) hardening")?;
 
 validate_device_attestation(&device_attestation, Some("expected-device-id"))?;
 
@@ -322,7 +322,7 @@ for cert in signatures.iter().map(|s| s.certificate()) {
     cert_policy.validate_certificate_der(cert, "Signing certificate")?;
 }
 
-println!("✅ SLSA Level 4 verified (Hardware-backed)");
+println!("✅ Beyond-L3 (v0.1 L4-class) hardening verified (Hardware-backed)");
 ```
 
 ---
@@ -344,14 +344,14 @@ println!("✅ SLSA Level 4 verified (Hardware-backed)");
 - [ ] Build environment documented
 - [ ] Version policy enforced
 
-### Level 4 (Online)
+### Beyond-L3 (v0.1 L4-class), Online
 - [ ] All Level 3 requirements
 - [ ] Two signatures (owner + integrator)
 - [ ] Transparency log entry (Rekor)
 - [ ] Keyless signing (Sigstore/Fulcio)
 - [ ] OIDC identity verification
 
-### Level 4 (Offline)
+### Beyond-L3 (v0.1 L4-class), Offline
 - [ ] All Level 3 requirements
 - [ ] Two signatures (owner + integrator)
 - [ ] Hardware-backed signing key
@@ -378,13 +378,15 @@ wac compose \
     --output app.wasm
 
 # Verify composition
+# NOTE: illustrative CLI only — the --slsa-level flag shown here is not a
+# literal wsc interface; SLSA v1.0 defines Build L0–L3 only.
 wsc verify \
     --slsa-level 3 \
     --keyless \
     app.wasm
 ```
 
-### Scenario 2: Embedded/IoT (Level 4 Hardware)
+### Scenario 2: Embedded/IoT (beyond-L3, v0.1 L4-class, Hardware)
 
 ```bash
 # Provision hardware secure element
@@ -408,8 +410,12 @@ wac compose \
     --output app.wasm
 
 # Verify (offline)
+# NOTE: illustrative CLI only — flags below (incl. --slsa-level) are not a
+# literal wsc interface. The highest SLSA v1.0 Build level is L3; beyond-L3
+# (v0.1 L4-class) reproducibility & offline-attestation properties are
+# reported separately, not as a v1.0 SLSA level.
 wsc verify \
-    --slsa-level 4 \
+    --slsa-level 3 \
     --offline \
     --expected-device device-12345 \
     app.wasm
@@ -422,7 +428,7 @@ wsc verify \
 ### SLSA
 - ✅ SLSA v1.0 specification
 - ✅ Provenance format v0.2
-- ✅ Build levels L2, L3, L4
+- ✅ Build levels L2, L3 (SLSA v1.0 defines Build L0–L3 only; beyond-L3 v0.1-L4-class properties reported separately)
 
 ### in-toto
 - ✅ Attestation framework v0.9
@@ -477,7 +483,7 @@ wsc verify \
 
 ## Conclusion
 
-**wsc achieves SLSA Level 4 compliance** through:
+**wsc meets SLSA Build L3 (v1.0), with beyond-L3 (v0.1 L4-class) reproducibility & offline-attestation hardening** through:
 
 1. ✅ **Complete Provenance**: SBOM, in-toto, manifest
 2. ✅ **Strong Authentication**: Multi-signature, hardware-backed
@@ -485,7 +491,7 @@ wsc verify \
 4. ✅ **Offline Capability**: Air-gapped, embedded deployment
 5. ✅ **Hardware Trust**: ATECC608, TPM integration
 
-**Unique Achievement**: First WASM tool with offline SLSA Level 4!
+**Unique Achievement**: First WASM tool to bring v0.1-L4-class reproducibility + offline attestation to component signing!
 
 ---
 

@@ -12,7 +12,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 # Core signing library
-wsc = { version = "0.9.4", path = "../lib" }
+wsc = { version = "0.10.0", path = "../lib" }
 
 # WIT bindings generation
 wit-bindgen = { version = "0.51.0", default-features = false, features = ["realloc"] }

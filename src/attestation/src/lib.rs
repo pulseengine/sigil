@@ -67,7 +67,7 @@ pub use in_toto_attestation;
 /// Dead Simple Signing Envelope (DSSE) for standards-compliant attestation signing
 pub mod dsse;
 
-/// SLSA L4 reproducibility tracking - build environment and material manifest
+/// reproducibility tracking — the material-pinning properties SLSA v0.1 called Level 4 (SLSA v1.0 defines Build L0–L3) — build environment and material manifest
 pub mod reproducibility;
 
 // ============================================================================

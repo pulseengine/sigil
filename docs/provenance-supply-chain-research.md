@@ -42,7 +42,7 @@ WebAssembly (WASM) component provenance is an emerging area at the intersection 
 
 ### 1.1 SLSA Framework (Supply-chain Levels for Software Artifacts)
 
-**What It Is**: A comprehensive framework defining 4 levels of supply chain security maturity, from Level 0 (no controls) to Level 4 (maximum security).
+**What It Is**: A supply-chain security framework. The current **v1.0 Build track defines Build L0–L3 only** (L0 no guarantees → L3 hardened build platform with non-falsifiable provenance). An earlier, superseded v0.1 draft defined an additional Level 4 (hermetic + reproducible + two-person review); that level was dropped in v1.0 pending redefinition.
 
 **Source**: https://slsa.dev/ (OpenSSF, 2021+)
 
@@ -54,7 +54,8 @@ WebAssembly (WASM) component provenance is an emerging area at the intersection 
 | **1** | Scripted | Unsigned provenance | Human review |
 | **2** | Automated CI/CD | Signed provenance (OIDC) | Automated |
 | **3** | Hardened CI/CD | Cryptographically signed | Key & policy verification |
-| **4** | Hermetic + air-gapped | Signed + reproducible | Hardware roots of trust |
+
+_SLSA v1.0 defines Build L0–L3 only. The hermetic + air-gapped + reproducible / hardware-root-of-trust properties above L3 are what v0.1 called Level 4 (v0.1-L4-class); v1.0 dropped that level pending redefinition._
 
 #### Applicability to wsc
 
@@ -63,7 +64,7 @@ WebAssembly (WASM) component provenance is an emerging area at the intersection 
 - ✅ Signed provenance (Sigstore/Rekor)
 - ✅ OIDC authentication
 
-**For Embedded/Provisioning Mode**: Can achieve **SLSA Level 4**:
+**For Embedded/Provisioning Mode**: Can achieve the **v0.1-L4-class properties beyond Build L3**:
 - ✅ Pre-signed certificates (no OIDC needed)
 - ✅ Hardware root of trust (ATECC608)
 - ✅ Offline verification (no internet dependency)
