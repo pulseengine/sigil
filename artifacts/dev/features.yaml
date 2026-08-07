@@ -639,7 +639,7 @@ artifacts:
   - id: REQ-22
     type: requirement
     title: crates.io publish rides the v* tag so the registry never lags a release
-    status: draft
+    status: verified
     description: "Per release-artifact-pipeline Track B: the release workflow publishes wsc (and member crates) to crates.io on the v* tag. Currently the registry serves 0.9.0 while v0.9.4 is released — four versions of library fixes invisible to cargo-add consumers (varve pinned 0.9.0). Publish must be gated (dry-run + verify) so a stale registry can no longer diverge from a tagged release."
     tags: [release, crates-io, supply-chain]
     fields:
@@ -648,4 +648,4 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-07T11:40:52Z
-    release: v0.11.0
+    release: v0.10.0
