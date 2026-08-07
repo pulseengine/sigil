@@ -3,6 +3,64 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] — 2026-08-07
+
+Provenance identity and claim honesty. Records *which qualified toolchain-set*
+produced an artifact, and corrects load-bearing SLSA claims to what the cited
+spec actually defines — each backed by a gate so the fix can't silently rot.
+
+### Added
+
+- **`ToolInfo` carries the toolchain-layer identity (#217 / #221).** Two
+  optional fields — `toolchain` and `toolchain_manifest_digest` — populated from
+  `VARVE_LAYER` / `VARVE_LAYER_MANIFEST_DIGEST` at each transformation hop via
+  `ToolInfo::with_varve_env()`, so an attestation records not just *which tool*
+  ran but *which qualified set* it came from (satisfies varve REQ-PROV-001).
+  Backward-compatible on both sides: the fields `skip_serializing_if` when
+  absent, so a non-varve attestation serializes **byte-identically** to before;
+  and no `deny_unknown_fields`, so a v0.9.x verifier accepts a new attestation
+  and simply ignores the added fields. *Falsification:* an attestation produced
+  outside a varve dispatch is byte-for-byte unchanged; one produced under varve
+  carries the layer identity in its signed payload, and an old signed
+  attestation still verifies.
+
+### Changed
+
+- **Honest SLSA claims — no phantom Level 4 (#216).** Docs claimed *"SLSA Level
+  4 ✅ ACHIEVED"* while citing SLSA **v1.0**, whose Build track defines **L0–L3
+  only** (Level 4 lived in the superseded v0.1 draft). Reframed every public
+  surface — the README badge (`SLSA-L4_provenance` → `SLSA-Build_L3`),
+  `docs/slsa-compliance.md`, the automotive/wac/research docs, and code comments
+  — to state what we meet (**Build L3**) and to describe the reproducibility +
+  offline/hardware-attestation work as *"the properties SLSA v0.1 called Level
+  4"* (beyond-L3 hardening), never as a v1.0 level. A fictional `--slsa-level 4`
+  CLI example (no such flag exists) was corrected and marked illustrative. STPA
+  loss identifiers (`L4`/`L5`) were left untouched — a different concept.
+  *Falsification:* the new `claim-check` gate re-derives `count-max: 0` on
+  `SLSA[ -](Level ?4|L4)` across README/docs/examples/src on every commit — the
+  claim reappearing fails the build; deleting the honest disclaimer fails a
+  `count-min` presence check. Proven potent by negative control before wiring.
+
+### Fixed
+
+- **crates.io publish no longer fails red on every tag (#220, groundwork).** The
+  publish workflow had failed on every tag since v0.9.1 (v0.9.0 was the last
+  success — hence the registry froze at 0.9.0). It's now **disarmed** behind
+  `vars.CRATES_PUBLISH_ENABLED` — it *skips* cleanly rather than a perpetual red
+  that reads as a dead gate — and re-arms with one variable once a crates.io
+  Trusted Publisher (OIDC) or `CRATES_IO_TOKEN` is configured. Actually
+  re-publishing the registry (backfilling 0.9.1→0.10.0) is tracked as REQ-22 in
+  v0.11.0. Also fixed a latent stale `wsc-crypto → wsc 0.9.0` internal pin.
+
+### Verification notes
+
+Feature-loop steps 1–2 (spar AADL → WIT) are **N/A** for this release — no
+architecture or interface change; both items are a struct-field addition, a
+docs/claim correction, and CI wiring. Step 5 (witness MC/DC) is unaffected:
+`ToolInfo`/`with_varve_env` live in the host-side `wsc-attestation` crate, not
+the no_std `verify-core` wasm path the gate instruments (confirmed by grep), so
+the baseline is untouched — no second bump.
+
 ## [0.9.4] — 2026-08-05
 
 Release-integrity fixes. Unbreaks the release pipeline and lands the *real*

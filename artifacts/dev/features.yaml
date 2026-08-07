@@ -607,3 +607,45 @@ artifacts:
     links:
       - type: traces-to
         target: DD-10
+
+  - id: REQ-20
+    type: requirement
+    title: wsc-attestation ToolInfo carries toolchain-layer identity
+    status: verified
+    description: "ToolInfo gains optional toolchain + toolchain_manifest_digest fields, populated from VARVE_LAYER / VARVE_LAYER_MANIFEST_DIGEST at each transformation hop, so an attestation records not just which tool ran but which qualified toolchain-set it came from. Satisfies varve REQ-PROV-001. Backward-compatible: fields serde-skip when absent; old attestations deserialize unchanged."
+    tags: [attestation, provenance, varve]
+    fields:
+      release: v0.10.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-07T11:40:52Z
+    release: v0.10.0
+
+  - id: REQ-21
+    type: requirement
+    title: SLSA level claims match the cited spec (no phantom L4)
+    status: verified
+    description: "Docs claiming 'SLSA Level 4 ACHIEVED' while citing SLSA v1.0 assert conformance to a level v1.0's Build track does not define (L0-L3 only; L4 is planned). The claim must state the highest level the cited spec defines and we actually meet (L3), with the L4 aspiration marked as not-yet-specified. Load-bearing: downstream compliance docs cite these."
+    tags: [docs, claim-honesty, slsa]
+    fields:
+      release: v0.10.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-07T11:40:52Z
+    release: v0.10.0
+
+  - id: REQ-22
+    type: requirement
+    title: crates.io publish rides the v* tag so the registry never lags a release
+    status: draft
+    description: "Per release-artifact-pipeline Track B: the release workflow publishes wsc (and member crates) to crates.io on the v* tag. Currently the registry serves 0.9.0 while v0.9.4 is released — four versions of library fixes invisible to cargo-add consumers (varve pinned 0.9.0). Publish must be gated (dry-run + verify) so a stale registry can no longer diverge from a tagged release."
+    tags: [release, crates-io, supply-chain]
+    fields:
+      release: v0.10.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-07T11:40:52Z
+    release: v0.11.0
