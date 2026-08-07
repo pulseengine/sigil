@@ -2724,7 +2724,9 @@ impl DeviceAttestation {
 
 /// Hardware-backed composition manifest
 ///
-/// Extends CompositionManifest with device attestation for SLSA Level 4
+/// Extends CompositionManifest with device attestation — the hardware-anchored
+/// reproducibility the superseded SLSA v0.1 draft called Level 4 (SLSA v1.0
+/// defines Build L0–L3 only; this is beyond-L3 hardening, not a v1.0 level).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HardwareCompositionManifest {
     /// Base composition manifest

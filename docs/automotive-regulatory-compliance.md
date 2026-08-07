@@ -464,7 +464,7 @@ println!("R155 supply chain verification passed");
 #### R156-H7: Reproducibility
 
 - **Regulation**: R156 7.1.7 -- Reproducible update process
-- **sigil Capability**: Build provenance enabling SLSA Level 4 reproducible builds
+- **sigil Capability**: Build provenance enabling beyond-L3 (v0.1-L4-class) offline reproducible builds
 - **Evidence Provided**: Deterministic, verifiable builds with pinned dependencies
 - **Traced Artifacts**: [[ASSET-020]], [[CR-8]], [[SP-6]] (reproducible builds), [[REQ-7]] (reproducible build requirement)
 - **Traceability**: R156 7.1.7 -> [[REQ-7]] -> [[CR-8]] -> [[ASSET-020]] -> Evidence: in-toto attestation with pinned materials enables independent reproduction
@@ -655,7 +655,7 @@ println!("R156 traceability complete");
 #### ISO-H7: Reproducible Builds (Clause 5.4.6)
 
 - **Regulation**: ISO 21434 Clause 5.4.6 -- Deterministic, verifiable build processes
-- **sigil Capability**: Build provenance enabling SLSA Level 4 reproducibility
+- **sigil Capability**: Build provenance enabling beyond-L3 (v0.1-L4-class) offline reproducibility
 - **Evidence Provided**: Deterministic, independently verifiable builds
 - **Traced Artifacts**: [[ASSET-020]], [[CR-8]], [[SP-6]], [[REQ-7]], [[DD-3]] (deterministic composition)
 - **Traceability**: ISO 21434 5.4.6 -> [[REQ-7]] -> [[DD-3]] -> [[CR-8]] -> Evidence: in-toto attestation with pinned materials and deterministic build process
@@ -1017,7 +1017,7 @@ Each tool integrates with sigil through specific data flow interfaces ([[DF-1]] 
 - Provenance and traceability -- [[CR-8]], [[CG-3]], [[ASSET-020]]
 - Cryptographic integrity -- [[CR-1]], [[CR-3]], [[CG-1]], [[CG-2]]
 - Standards alignment (SLSA, in-toto) -- [[REQ-1]] through [[REQ-5]]
-- **Unique**: Offline/embedded SLSA Level 4 -- [[DD-2]], [[CG-5]], [[CTRL-5]]
+- **Unique**: Offline/embedded beyond-L3 (v0.1-L4-class) reproducibility -- [[DD-2]], [[CG-5]], [[CTRL-5]]
 
 **Gaps** (10-40%):
 - Runtime monitoring and detection -- [[RR-1]], [[FEAT-5]]
@@ -1034,7 +1034,7 @@ Each tool integrates with sigil through specific data flow interfaces ([[DF-1]] 
 
 **2. sigil Excels at Build-Time Security**
 - Best-in-class provenance tracking for WASM components -- [[CR-8]], [[ASSET-020]]
-- Industry-leading offline/embedded support (SLSA L4) -- [[DD-2]], [[CG-5]]
+- Industry-leading offline/embedded support (beyond-L3, v0.1-L4-class) -- [[DD-2]], [[CG-5]]
 - Strong alignment with supply chain security requirements -- [[CR-11]], [[CTRL-3]]
 
 **3. sigil Requires Integration**
@@ -1047,7 +1047,7 @@ Each tool integrates with sigil through specific data flow interfaces ([[DF-1]] 
 For organizations pursuing automotive/EU compliance, **sigil provides**:
 
 1. **60-90% of supply chain security requirements** (vs 10-30% with traditional signing) -- [[CR-11]], [[CTRL-3]], [[ASSET-017]], [[ASSET-018]], [[ASSET-019]]
-2. **Unique offline SLSA Level 4** capability (no other WASM tool has this) -- [[DD-2]], [[CG-5]], [[CTRL-5]]
+2. **Unique offline beyond-L3 (v0.1-L4-class) reproducibility** capability (no other WASM tool has this) -- [[DD-2]], [[CG-5]], [[CTRL-5]]
 3. **Standards-based evidence** (CycloneDX, in-toto, SLSA) -- [[REQ-1]] through [[REQ-5]]
 4. **Audit-ready provenance** (embedded in artifacts, extractable for reports) -- [[CR-8]], [[ASSET-020]]
 5. **Hardware security integration** (ATECC608, TPM for R155/CRA) -- [[CTRL-5]], [[SP-7]], [[ASSET-004]]

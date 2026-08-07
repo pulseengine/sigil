@@ -1,7 +1,7 @@
-//! Reproducibility tracking for SLSA L4 compliance
+//! reproducibility tracking — the material-pinning properties SLSA v0.1 called Level 4 (SLSA v1.0 defines Build L0–L3)
 //!
 //! This module provides data structures for capturing everything needed to
-//! reproduce a build, following SLSA L4 requirements:
+//! reproduce a build, following the material-pinning properties SLSA v0.1 called Level 4 (SLSA v1.0 defines Build L0–L3):
 //!
 //! - **Build environment**: Compiler version, target, features, flags
 //! - **Material manifest**: All dependencies with exact versions and hashes
@@ -439,7 +439,7 @@ impl BuilderIdentity {
 
 /// Complete material manifest - all inputs to a build
 ///
-/// For SLSA L4, all materials must be pinned with cryptographic hashes.
+/// For the material-pinning properties SLSA v0.1 called Level 4 (SLSA v1.0 defines Build L0–L3), all materials must be pinned with cryptographic hashes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MaterialManifest {

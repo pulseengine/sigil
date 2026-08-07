@@ -1,0 +1,28 @@
+name: Claim Check
+
+# Gate the repo's load-bearing public claims (README badges, compliance docs)
+# against re-derivable evidence. Drift between a claim and the actual source
+# fails the build. See claims.yaml + the `claim-verification` skill.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  claim-check:
+    name: Documentation claims hold
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+      - name: Re-derive claims from source
+        run: python3 verification/claim-check/claim-check.py claims.yaml

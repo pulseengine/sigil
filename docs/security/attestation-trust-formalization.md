@@ -20,7 +20,7 @@ even those as second-hand until verified.
 
 Sigil today produces a flat chain of transformation attestations
 (`meld → loom → synth → kiln`) where each link carries a Sigstore-keyless
-OIDC + Fulcio + Rekor signature plus SLSA L4 provenance. Verification
+OIDC + Fulcio + Rekor signature plus SLSA Build L3 provenance. Verification
 walks the entire `TransformationAuditTrail` linearly. There is **no
 formal logic for how trust evolves across the chain** — every consumer
 question reduces to "did each link verify, yes/no?" with no compositional

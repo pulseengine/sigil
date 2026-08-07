@@ -545,8 +545,8 @@ External attestations and SBOM are referenced from manifest.
 
 | Standard | Level | Status After Implementation |
 |----------|-------|----------------------------|
-| **SLSA** | Level 3 | ✅ With cloud CI/CD |
-| **SLSA** | Level 4 | ✅ With offline hardware keys |
+| **SLSA** | Build L3 (v1.0) | ✅ With cloud CI/CD |
+| Beyond-L3 (v0.1 L4-class) | Reproducibility + offline attestation | ✅ With offline hardware keys (not a v1.0 SLSA level; SLSA v1.0 defines Build L0–L3 only) |
 | **in-toto** | Full | ✅ Attestation format |
 | **SBOM** | NTIA Minimum | ✅ CycloneDX format |
 | **SBOM** | Full | ✅ Dependencies + supplier |

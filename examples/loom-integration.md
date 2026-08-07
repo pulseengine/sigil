@@ -138,7 +138,7 @@ jobs:
 |-------------|---------------|------------|-----|
 | Local dev | `--key` | L2 | Signed provenance |
 | CI | `--keyless` | L3 | Transparency log + non-forgeable identity |
-| CI + all inputs signed | `--keyless` | L4 | Hermetic build |
+| CI + all inputs signed | `--keyless` | L3 (+ beyond-L3 hermetic build) | Hermetic build (SLSA v1.0 defines Build L0–L3 only) |
 
 ## Policy Files
 
