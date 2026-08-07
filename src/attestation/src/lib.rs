@@ -313,6 +313,39 @@ pub struct ToolInfo {
     /// Additional tool-specific parameters used
     #[serde(skip_serializing_if = "HashMap::is_empty", default)]
     pub parameters: HashMap<String, serde_json::Value>,
+
+    /// The toolchain layer this tool came from, e.g. "2026.07.0" — the
+    /// qualified set identity, not just the tool's own version. Populated
+    /// from the `VARVE_LAYER` environment variable the varve dispatcher
+    /// sets (see `ToolInfo::with_varve_env`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub toolchain: Option<String>,
+
+    /// Digest of that layer's signed manifest — the anchor that makes
+    /// "which toolchain produced this artifact?" answerable offline, from
+    /// the artifact alone. Populated from `VARVE_LAYER_MANIFEST_DIGEST`.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub toolchain_manifest_digest: Option<String>,
+}
+
+impl ToolInfo {
+    /// Fill the toolchain identity from the varve dispatch environment
+    /// (`VARVE_LAYER`, `VARVE_LAYER_MANIFEST_DIGEST`), when present. Tools
+    /// call this once while building their attestation; outside a varve
+    /// dispatch both fields stay `None` and serialization is unchanged.
+    pub fn with_varve_env(mut self) -> Self {
+        if let Ok(layer) = std::env::var("VARVE_LAYER") {
+            if !layer.is_empty() {
+                self.toolchain = Some(layer);
+            }
+        }
+        if let Ok(digest) = std::env::var("VARVE_LAYER_MANIFEST_DIGEST") {
+            if !digest.is_empty() {
+                self.toolchain_manifest_digest = Some(digest);
+            }
+        }
+        self
+    }
 }
 
 /// Signature on the attestation itself
@@ -704,7 +737,10 @@ impl TransformationAttestationBuilder {
                 version: self.tool_version,
                 tool_hash: self.tool_hash,
                 parameters: self.tool_parameters,
-            },
+                toolchain: None,
+                toolchain_manifest_digest: None,
+            }
+            .with_varve_env(),
             attestation_signature: AttestationSignature {
                 algorithm: "unsigned".to_string(),
                 signature: String::new(),
@@ -914,5 +950,44 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid Ed25519 secret key"));
+    }
+}
+
+#[cfg(test)]
+mod toolchain_identity_tests {
+    use super::*;
+
+    #[test]
+    fn toolinfo_serde_skips_absent_toolchain_identity() {
+        let tool = ToolInfo {
+            name: "loom".into(),
+            version: "0.1.0".into(),
+            tool_hash: None,
+            parameters: HashMap::new(),
+            toolchain: None,
+            toolchain_manifest_digest: None,
+        };
+        let json = serde_json::to_string(&tool).unwrap();
+        assert!(!json.contains("toolchain"), "absent identity must not appear: {json}");
+        // And old attestations (without the fields) still deserialize.
+        let old = r#"{"name":"loom","version":"0.1.0"}"#;
+        let parsed: ToolInfo = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.toolchain, None);
+    }
+
+    #[test]
+    fn toolinfo_round_trips_the_toolchain_identity() {
+        let tool = ToolInfo {
+            name: "loom".into(),
+            version: "0.1.0".into(),
+            tool_hash: None,
+            parameters: HashMap::new(),
+            toolchain: Some("2026.07.0".into()),
+            toolchain_manifest_digest: Some("sha256:abc".into()),
+        };
+        let json = serde_json::to_string(&tool).unwrap();
+        let parsed: ToolInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.toolchain.as_deref(), Some("2026.07.0"));
+        assert_eq!(parsed.toolchain_manifest_digest.as_deref(), Some("sha256:abc"));
     }
 }
