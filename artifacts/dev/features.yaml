@@ -611,7 +611,7 @@ artifacts:
   - id: REQ-20
     type: requirement
     title: wsc-attestation ToolInfo carries toolchain-layer identity
-    status: verified
+    status: accepted
     description: "ToolInfo gains optional toolchain + toolchain_manifest_digest fields, populated from VARVE_LAYER / VARVE_LAYER_MANIFEST_DIGEST at each transformation hop, so an attestation records not just which tool ran but which qualified toolchain-set it came from. Satisfies varve REQ-PROV-001. Backward-compatible: fields serde-skip when absent; old attestations deserialize unchanged."
     tags: [attestation, provenance, varve]
     fields:
@@ -625,7 +625,7 @@ artifacts:
   - id: REQ-21
     type: requirement
     title: SLSA level claims match the cited spec (no phantom L4)
-    status: verified
+    status: accepted
     description: "Docs claiming 'SLSA Level 4 ACHIEVED' while citing SLSA v1.0 assert conformance to a level v1.0's Build track does not define (L0-L3 only; L4 is planned). The claim must state the highest level the cited spec defines and we actually meet (L3), with the L4 aspiration marked as not-yet-specified. Load-bearing: downstream compliance docs cite these."
     tags: [docs, claim-honesty, slsa]
     fields:
