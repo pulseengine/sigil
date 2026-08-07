@@ -25,15 +25,25 @@ WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
 # with the crate VERSION STRING perturbing libc codegen — it rose 12 -> 17 (std
 # churn) and then 17 -> 19 purely on the 0.9.4 -> 0.10.0 bump, tracking noise, not
 # coverage. So the gate now counts gaps ONLY within src/-path decisions: that
-# number is a function of verify-core's own logic and its fixed scenario set, so
-# it is stable across host (linux/macOS) and dep churn. The whole-wasm total is
-# still printed, for information only.
+# number is a function of verify-core's own logic and its fixed scenario set —
+# far more stable than the whole-wasm total, though NOT perfectly host-invariant
+# (the compiler still lays out our own branches differently per target). The
+# whole-wasm total is still printed, for information only.
 #
-# Current scoped baseline: varint.rs:29 (3 gaps: c0,c3,c4) + wasm_module/mod.rs:455
-# (2 gaps: c0,c1) = 5. Both are `Partial` decisions; CLOSING them (adding witness
-# scenarios that supply the missing unique-cause rows) is follow-up MC/DC work on
-# #128 — the gate's job here is to stop a REGRESSION (a NEW gap in verify-core's
-# own code) from landing. Lower it whenever a scenario closes a gap.
+# HOST CALIBRATION: the baseline is set on the CI host (ubuntu-latest / linux
+# x86_64) — the authoritative gate host — where the scoped count is 5:
+# varint.rs:29 (3 gaps: c0,c3,c4) + wasm_module/mod.rs:455 (2 gaps: c0,c1). A
+# local macOS/aarch64 run yields FEWER (measured: 3 — mod.rs:455 is fully covered
+# there), which PASSES under the same baseline (3 <= 5), so no local override is
+# ever needed to go green. The SRC_BASELINE_GAP env knob is for re-calibrating on
+# CI when a scenario closes a gap, NOT for silencing a red locally: a host that
+# yields MORE than the baseline is a real finding (a new uncovered branch), not
+# an override target. Only lower the committed baseline from the CI (linux) count.
+#
+# Both baseline decisions are `Partial`; CLOSING them (adding witness scenarios
+# that supply the missing unique-cause rows) is follow-up MC/DC work on #128 —
+# the gate's job here is to stop a REGRESSION (a NEW gap in verify-core's own
+# code) from landing.
 SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-5}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
@@ -103,6 +113,6 @@ if [ "${SRC_GAP:-9999}" -gt "$SRC_BASELINE_GAP" ]; then
   exit 1
 fi
 if [ "${SRC_GAP}" -lt "$SRC_BASELINE_GAP" ]; then
-  echo "::notice:: verify-core MC/DC improved (${SRC_BASELINE_GAP} -> ${SRC_GAP}); refresh out/mcdc-report.txt and SRC_BASELINE_GAP to lock it in."
+  echo "::notice:: verify-core scoped gaps ${SRC_GAP} < baseline ${SRC_BASELINE_GAP}. On the CI host (linux) this means a scenario closed a gap — lower SRC_BASELINE_GAP to lock it in. On a non-CI host (e.g. macOS yields 3) this is just per-target codegen and the committed baseline should NOT be lowered from it."
 fi
 echo "witness MC/DC gate: OK (verify-core scoped)"
