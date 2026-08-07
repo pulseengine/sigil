@@ -10,9 +10,11 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-// List of crates to publish in dependency order
-// wsc-attestation MUST be first: wsc depends on it, wsc-cli depends on wsc
-const CRATES_TO_PUBLISH: &[&str] = &["wsc-attestation", "wsc", "wsc-cli"];
+// List of crates to publish in dependency order.
+// wsc-verify-core and wsc-attestation MUST precede wsc (wsc depends on both);
+// wsc-cli depends on wsc. wsc-component/wsc-crypto are not deps of any published
+// crate, so they are intentionally not published.
+const CRATES_TO_PUBLISH: &[&str] = &["wsc-verify-core", "wsc-attestation", "wsc", "wsc-cli"];
 
 struct Workspace {
     version: String,
@@ -45,7 +47,11 @@ fn main() {
         version: ws_version,
     };
 
-    // Add attestation crate (must be published first - wsc depends on it)
+    // Add verify-core crate first (leaf: wsc depends on it, no internal deps)
+    let verify_core_crate = read_crate(Some(&ws), "./src/verify-core/Cargo.toml".as_ref());
+    crates.push(verify_core_crate);
+
+    // Add attestation crate (leaf: wsc depends on it too)
     let attestation_crate = read_crate(Some(&ws), "./src/attestation/Cargo.toml".as_ref());
     crates.push(attestation_crate);
 
@@ -146,37 +152,70 @@ fn publish(krate: &Crate) -> bool {
         return true;
     }
 
-    // Check if already published at this version
-    let output = Command::new("curl")
-        .arg(&format!("https://crates.io/api/v1/crates/{}", krate.name))
-        .output()
-        .expect("failed to invoke `curl`");
-
-    if output.status.success()
-        && String::from_utf8_lossy(&output.stdout)
-            .contains(&format!("\"newest_version\":\"{}\"", krate.version))
-    {
+    // Fail-safe: skip if this EXACT version is already on crates.io. Query the
+    // version endpoint directly (crates.io requires a User-Agent — a bare curl
+    // gets 403, which is why the old newest_version check silently missed and
+    // then hard-failed on re-publish). e.g. wsc-verify-core 0.10.0 is already up.
+    if already_published(&krate.name, &krate.version) {
         println!(
-            "skip publish {} because {} is latest version",
+            "skip {}@{}: already published on crates.io",
             krate.name, krate.version,
         );
         return true;
     }
 
-    let status = Command::new("cargo")
+    let output = Command::new("cargo")
         .arg("publish")
         .current_dir(krate.manifest.parent().unwrap())
         .arg("--no-verify")
-        .status()
+        .output()
         .expect("failed to run cargo");
 
-    if !status.success() {
-        println!("FAIL: failed to publish `{}`: {}", krate.name, status);
+    // Preserve cargo's own output in the CI log regardless of outcome.
+    print!("{}", String::from_utf8_lossy(&output.stdout));
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+
+    if output.status.success() {
+        println!("✅ Successfully published {}@{}", krate.name, krate.version);
+        return true;
+    }
+
+    // Belt-and-suspenders fail-safe: if the upload failed *because* this version
+    // already exists (a race with the pre-check, or a prior partial run), that is
+    // not an error — treat it as a successful skip so the release stays green.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("already exists") || stderr.contains("already uploaded") {
+        println!(
+            "skip {}@{}: already published (detected at upload)",
+            krate.name, krate.version,
+        );
+        return true;
+    }
+
+    println!("FAIL: failed to publish `{}`: {}", krate.name, output.status);
+    false
+}
+
+// True only when this exact name@version is confirmed present on crates.io.
+// On any uncertainty (network error, non-200) returns false so the publish path
+// (and its own already-exists fail-safe) decides — we never skip on a maybe.
+fn already_published(name: &str, version: &str) -> bool {
+    let output = Command::new("curl")
+        .arg("-sS")
+        .arg("-H")
+        .arg("User-Agent: sigil-release (github.com/pulseengine/sigil)")
+        .arg(&format!("https://crates.io/api/v1/crates/{}/{}", name, version))
+        .output()
+        .expect("failed to invoke `curl`");
+
+    if !output.status.success() {
         return false;
     }
 
-    println!("✅ Successfully published {}@{}", krate.name, krate.version);
-    true
+    let body = String::from_utf8_lossy(&output.stdout);
+    // The version endpoint returns {"version":{"num":"X.Y.Z",...}} when present,
+    // or an {"errors":[...]} object when the version does not exist.
+    body.contains(&format!("\"num\":\"{}\"", version)) && !body.contains("\"errors\"")
 }
 
 // Verify the current tree is publish-able to crates.io

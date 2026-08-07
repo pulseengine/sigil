@@ -12,16 +12,20 @@ on:
   push:
     tags:
     - 'v*'
+  # Manual trigger: run against a chosen ref (e.g. the v0.10.0 tag) to publish or
+  # backfill the registry without cutting a new tag. Still gated by
+  # CRATES_PUBLISH_ENABLED below and by mandatory Trusted Publishing on crates.io.
+  workflow_dispatch:
 
 jobs:
   publish:
-    # Disarmed until crates.io publishing is actually configured. Set the repo
-    # variable CRATES_PUBLISH_ENABLED=true once EITHER a crates.io Trusted
-    # Publisher is registered for pulseengine/sigil (OIDC, tokenless — preferred)
-    # OR a CRATES_IO_TOKEN secret with publish scope exists. Until then this job
-    # SKIPS (neutral) rather than failing red on every tag — a perpetually-red
-    # publish job is a dead signal, not a gate (#220). Arming it re-publishes the
-    # registry, which has lagged at 0.9.0 since the auth broke at v0.9.1.
+    # Gated by the repo variable CRATES_PUBLISH_ENABLED. Publishing uses crates.io
+    # Trusted Publishing (OIDC, tokenless), which is mandatory-on for these crates.
+    # When the variable is unset the job SKIPS (neutral) rather than failing red —
+    # a perpetually-red publish job is a dead signal, not a gate (#220). The
+    # registry lagged at 0.9.0 after token auth broke at v0.9.1; arming this brings
+    # it current. Re-running with the same version is a no-op — publish() skips any
+    # name@version already on crates.io (fail-safe), so this is safe to re-run.
     if: github.repository == 'pulseengine/sigil' && vars.CRATES_PUBLISH_ENABLED == 'true'
     # Stays on ubuntu-latest: crates.io trusted publishing via OIDC; keep release publication on a vetted, well-known runner image until self-hosted publication path is independently audited.
     runs-on: ubuntu-latest
@@ -37,12 +41,12 @@ jobs:
     - name: Build publish script
       run: rustc scripts/publish.rs
     
+    # Trusted Publishing: exchanges the GitHub OIDC token (id-token: write, above)
+    # for a short-lived crates.io token. No CRATES_IO_TOKEN secret needed.
     - name: Authenticate with crates.io
       uses: rust-lang/crates-io-auth-action@v1
       id: auth
-      with:
-        crates-io-token: ${{ secrets.CRATES_IO_TOKEN }}
-    
+
     - name: Publish crates
       run: ./publish publish
       env:
