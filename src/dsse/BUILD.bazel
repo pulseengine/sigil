@@ -1,0 +1,26 @@
+"""DSSE (Dead Simple Signing Envelope) sign/verify for wsc.
+
+Carved out of `//src/lib:wsc` (issue #218 / REQ-24) as a `no_std` + `alloc`
+crate so embedded/offline consumers can verify DSSE envelopes with only
+base64/serde/serde_json/ed25519-compact — no registry, TLS or X.509. `wsc`
+re-exports its public API as `wsc::dsse` for backwards compatibility.
+"""
+
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "wsc-dsse",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "wsc_dsse",
+    edition = "2024",
+    deps = [
+        "@wsc_deps//:base64",
+        "@wsc_deps//:ed25519-compact",
+        "@wsc_deps//:serde",
+        "@wsc_deps//:serde_json",
+    ],
+)
+
+exports_files(["Cargo.toml"])

@@ -197,6 +197,24 @@ impl From<wsc_verify_core::CoreError> for WSError {
     }
 }
 
+// Lift errors from the DSSE crate (`wsc-dsse`) into `WSError` so call sites in
+// this crate (e.g. `composition::mod`) can keep using `?` through the carve
+// boundary without any change to their logic. Preserves the pre-carve behavior:
+// base64/JSON failures were previously bucketed into `WSError::InternalError`.
+impl From<wsc_dsse::DsseError> for WSError {
+    fn from(err: wsc_dsse::DsseError) -> Self {
+        use wsc_dsse::DsseError as D;
+        match err {
+            D::InvalidBase64(s) => WSError::InternalError(s),
+            D::VerificationFailed => WSError::VerificationFailed,
+            D::Json(s) => WSError::InternalError(s),
+            D::InvalidArgument => WSError::InvalidArgument,
+            D::CryptoError(e) => WSError::CryptoError(e),
+            D::InternalError(s) => WSError::InternalError(s),
+        }
+    }
+}
+
 // WASI HTTP error conversion for wasm32-wasip2 target
 #[cfg(all(target_arch = "wasm32", target_os = "wasi"))]
 impl From<wasi::http::types::ErrorCode> for WSError {

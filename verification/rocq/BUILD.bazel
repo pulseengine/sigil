@@ -1,7 +1,7 @@
 load("@rules_rocq_rust//coq_of_rust:defs.bzl", "rocq_rust_verified_library")
 
 # Translate PAE (Pre-Authentication Encoding) to Rocq via coq-of-rust (CV-22)
-# Self-contained extraction of compute_pae from dsse.rs — no external deps.
+# Self-contained extraction of compute_pae from src/dsse/src/lib.rs — no external deps.
 rocq_rust_verified_library(
     name = "pae_verified",
     rust_sources = ["pae.rs"],

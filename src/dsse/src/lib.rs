@@ -8,10 +8,15 @@
 //! - Multi-signature support
 //! - Format-agnostic payload handling
 //!
+//! This crate is `no_std` + `alloc`: embedded/offline consumers can verify
+//! DSSE envelopes with only base64/serde/serde_json/ed25519-compact — no
+//! registry, TLS or X.509. It is carved out of the `wsc` crate, which
+//! re-exports it as `wsc::dsse` for backwards compatibility.
+//!
 //! # Example
 //!
 //! ```ignore
-//! use wsc::dsse::{DsseEnvelope, DsseSigner};
+//! use wsc_dsse::{DsseEnvelope, DsseSigner};
 //!
 //! let payload = b"my attestation data";
 //! let envelope = DsseEnvelope::sign(
@@ -24,10 +29,66 @@
 //! let verified_payload = envelope.verify(&verifier)?;
 //! ```
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+#![no_std]
+
+extern crate alloc;
+
+#[cfg(test)]
+extern crate std;
+
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+
+use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 
-use crate::error::WSError;
+/// Errors returned by DSSE sign/verify operations.
+///
+/// Typed replacement for `wsc`'s `WSError` so this crate carries no dependency
+/// on the wider `wsc` error tree. `wsc` provides `From<DsseError> for WSError`
+/// so existing callers keep compiling.
+#[derive(Debug)]
+pub enum DsseError {
+    /// A base64 payload or signature field could not be decoded.
+    InvalidBase64(String),
+
+    /// No signature verified, or the envelope carried no signatures.
+    VerificationFailed,
+
+    /// JSON serialization or deserialization failed.
+    Json(String),
+
+    /// An argument was invalid (e.g. an empty signer list).
+    InvalidArgument,
+
+    /// An Ed25519 key or signature was malformed.
+    CryptoError(ed25519_compact::Error),
+
+    /// An otherwise-unclassified internal error.
+    InternalError(String),
+}
+
+impl core::fmt::Display for DsseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DsseError::InvalidBase64(msg) => write!(f, "{}", msg),
+            DsseError::VerificationFailed => write!(f, "No valid signatures"),
+            DsseError::Json(msg) => write!(f, "{}", msg),
+            DsseError::InvalidArgument => write!(f, "Invalid argument"),
+            DsseError::CryptoError(e) => write!(f, "Ed25519 signature function error: {}", e),
+            DsseError::InternalError(msg) => write!(f, "Internal error: [{}]", msg),
+        }
+    }
+}
+
+impl core::error::Error for DsseError {}
+
+impl From<ed25519_compact::Error> for DsseError {
+    fn from(e: ed25519_compact::Error) -> Self {
+        DsseError::CryptoError(e)
+    }
+}
 
 /// DSSE envelope containing a signed payload
 ///
@@ -60,7 +121,7 @@ pub struct DsseSignature {
 /// Trait for signing DSSE payloads
 pub trait DsseSigner {
     /// Sign the PAE-encoded data and return the signature bytes
-    fn sign(&self, pae: &[u8]) -> Result<Vec<u8>, WSError>;
+    fn sign(&self, pae: &[u8]) -> Result<Vec<u8>, DsseError>;
 
     /// Return the key ID (optional)
     fn key_id(&self) -> Option<String> {
@@ -71,7 +132,7 @@ pub trait DsseSigner {
 /// Trait for verifying DSSE signatures
 pub trait DsseVerifier {
     /// Verify the signature over PAE-encoded data
-    fn verify(&self, pae: &[u8], signature: &[u8]) -> Result<(), WSError>;
+    fn verify(&self, pae: &[u8], signature: &[u8]) -> Result<(), DsseError>;
 }
 
 impl DsseEnvelope {
@@ -86,7 +147,7 @@ impl DsseEnvelope {
         payload: &[u8],
         payload_type: &str,
         signer: &dyn DsseSigner,
-    ) -> Result<Self, WSError> {
+    ) -> Result<Self, DsseError> {
         // Compute PAE (Pre-Authentication Encoding)
         let pae = compute_pae(payload_type, payload);
 
@@ -96,7 +157,7 @@ impl DsseEnvelope {
         Ok(Self {
             payload: BASE64.encode(payload),
             payload_type: payload_type.to_string(),
-            signatures: vec![DsseSignature {
+            signatures: alloc::vec![DsseSignature {
                 keyid: signer.key_id(),
                 sig: BASE64.encode(sig_bytes),
             }],
@@ -108,9 +169,9 @@ impl DsseEnvelope {
         payload: &[u8],
         payload_type: &str,
         signers: &[&dyn DsseSigner],
-    ) -> Result<Self, WSError> {
+    ) -> Result<Self, DsseError> {
         if signers.is_empty() {
-            return Err(WSError::InvalidArgument);
+            return Err(DsseError::InvalidArgument);
         }
 
         let pae = compute_pae(payload_type, payload);
@@ -142,15 +203,15 @@ impl DsseEnvelope {
     /// forged ones. If you need to verify that ALL signatures are valid (e.g., for
     /// multi-party signing where every signer must be trusted), use [`verify_all()`]
     /// instead.
-    pub fn verify(&self, verifier: &dyn DsseVerifier) -> Result<Vec<u8>, WSError> {
+    pub fn verify(&self, verifier: &dyn DsseVerifier) -> Result<Vec<u8>, DsseError> {
         if self.signatures.is_empty() {
-            return Err(WSError::VerificationFailed);
+            return Err(DsseError::VerificationFailed);
         }
 
         // Decode payload
-        let payload = BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })?;
+        let payload = BASE64
+            .decode(&self.payload)
+            .map_err(|e| DsseError::InvalidBase64(format!("Invalid base64 payload: {}", e)))?;
 
         // Compute PAE
         let pae = compute_pae(&self.payload_type, &payload);
@@ -159,7 +220,7 @@ impl DsseEnvelope {
         let mut verified = false;
         for sig in &self.signatures {
             let sig_bytes = BASE64.decode(&sig.sig).map_err(|e| {
-                WSError::InternalError(format!("Invalid base64 signature: {}", e))
+                DsseError::InvalidBase64(format!("Invalid base64 signature: {}", e))
             })?;
 
             if verifier.verify(&pae, &sig_bytes).is_ok() {
@@ -169,7 +230,7 @@ impl DsseEnvelope {
         }
 
         if !verified {
-            return Err(WSError::VerificationFailed);
+            return Err(DsseError::VerificationFailed);
         }
 
         Ok(payload)
@@ -178,20 +239,20 @@ impl DsseEnvelope {
     /// Verify all signatures in the envelope
     ///
     /// Returns error if any signature fails verification.
-    pub fn verify_all(&self, verifier: &dyn DsseVerifier) -> Result<Vec<u8>, WSError> {
+    pub fn verify_all(&self, verifier: &dyn DsseVerifier) -> Result<Vec<u8>, DsseError> {
         if self.signatures.is_empty() {
-            return Err(WSError::VerificationFailed);
+            return Err(DsseError::VerificationFailed);
         }
 
-        let payload = BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })?;
+        let payload = BASE64
+            .decode(&self.payload)
+            .map_err(|e| DsseError::InvalidBase64(format!("Invalid base64 payload: {}", e)))?;
 
         let pae = compute_pae(&self.payload_type, &payload);
 
         for sig in &self.signatures {
             let sig_bytes = BASE64.decode(&sig.sig).map_err(|e| {
-                WSError::InternalError(format!("Invalid base64 signature: {}", e))
+                DsseError::InvalidBase64(format!("Invalid base64 signature: {}", e))
             })?;
 
             verifier.verify(&pae, &sig_bytes)?;
@@ -206,31 +267,28 @@ impl DsseEnvelope {
     ///
     /// This does not verify signatures. Use only when verification
     /// is done separately or not required.
-    pub fn payload_bytes(&self) -> Result<Vec<u8>, WSError> {
-        BASE64.decode(&self.payload).map_err(|e| {
-            WSError::InternalError(format!("Invalid base64 payload: {}", e))
-        })
+    pub fn payload_bytes(&self) -> Result<Vec<u8>, DsseError> {
+        BASE64
+            .decode(&self.payload)
+            .map_err(|e| DsseError::InvalidBase64(format!("Invalid base64 payload: {}", e)))
     }
 
     /// Serialize to JSON
-    pub fn to_json(&self) -> Result<String, WSError> {
-        serde_json::to_string(self).map_err(|e| {
-            WSError::InternalError(format!("Failed to serialize DSSE envelope: {}", e))
-        })
+    pub fn to_json(&self) -> Result<String, DsseError> {
+        serde_json::to_string(self)
+            .map_err(|e| DsseError::Json(format!("Failed to serialize DSSE envelope: {}", e)))
     }
 
     /// Serialize to pretty JSON
-    pub fn to_json_pretty(&self) -> Result<String, WSError> {
-        serde_json::to_string_pretty(self).map_err(|e| {
-            WSError::InternalError(format!("Failed to serialize DSSE envelope: {}", e))
-        })
+    pub fn to_json_pretty(&self) -> Result<String, DsseError> {
+        serde_json::to_string_pretty(self)
+            .map_err(|e| DsseError::Json(format!("Failed to serialize DSSE envelope: {}", e)))
     }
 
     /// Deserialize from JSON
-    pub fn from_json(json: &str) -> Result<Self, WSError> {
-        serde_json::from_str(json).map_err(|e| {
-            WSError::InternalError(format!("Failed to parse DSSE envelope: {}", e))
-        })
+    pub fn from_json(json: &str) -> Result<Self, DsseError> {
+        serde_json::from_str(json)
+            .map_err(|e| DsseError::Json(format!("Failed to parse DSSE envelope: {}", e)))
     }
 
     /// Create an unsigned envelope (for testing or deferred signing)
@@ -238,12 +296,12 @@ impl DsseEnvelope {
         Self {
             payload: BASE64.encode(payload),
             payload_type: payload_type.to_string(),
-            signatures: vec![],
+            signatures: Vec::new(),
         }
     }
 
     /// Add a signature to an existing envelope
-    pub fn add_signature(&mut self, signer: &dyn DsseSigner) -> Result<(), WSError> {
+    pub fn add_signature(&mut self, signer: &dyn DsseSigner) -> Result<(), DsseError> {
         let payload = self.payload_bytes()?;
         let pae = compute_pae(&self.payload_type, &payload);
         let sig_bytes = signer.sign(&pae)?;
@@ -297,15 +355,15 @@ impl Ed25519DsseSigner {
     }
 
     /// Create from raw secret key bytes
-    pub fn from_bytes(bytes: &[u8], key_id: Option<String>) -> Result<Self, WSError> {
-        let secret_key = ed25519_compact::SecretKey::from_slice(bytes)
-            .map_err(|e| WSError::CryptoError(e))?;
+    pub fn from_bytes(bytes: &[u8], key_id: Option<String>) -> Result<Self, DsseError> {
+        let secret_key =
+            ed25519_compact::SecretKey::from_slice(bytes).map_err(DsseError::CryptoError)?;
         Ok(Self { secret_key, key_id })
     }
 }
 
 impl DsseSigner for Ed25519DsseSigner {
-    fn sign(&self, pae: &[u8]) -> Result<Vec<u8>, WSError> {
+    fn sign(&self, pae: &[u8]) -> Result<Vec<u8>, DsseError> {
         let signature = self.secret_key.sign(pae, None);
         Ok(signature.to_vec())
     }
@@ -327,21 +385,21 @@ impl Ed25519DsseVerifier {
     }
 
     /// Create from raw public key bytes
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, WSError> {
-        let public_key = ed25519_compact::PublicKey::from_slice(bytes)
-            .map_err(|e| WSError::CryptoError(e))?;
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DsseError> {
+        let public_key =
+            ed25519_compact::PublicKey::from_slice(bytes).map_err(DsseError::CryptoError)?;
         Ok(Self { public_key })
     }
 }
 
 impl DsseVerifier for Ed25519DsseVerifier {
-    fn verify(&self, pae: &[u8], signature: &[u8]) -> Result<(), WSError> {
-        let sig = ed25519_compact::Signature::from_slice(signature)
-            .map_err(|e| WSError::CryptoError(e))?;
+    fn verify(&self, pae: &[u8], signature: &[u8]) -> Result<(), DsseError> {
+        let sig =
+            ed25519_compact::Signature::from_slice(signature).map_err(DsseError::CryptoError)?;
 
         self.public_key
             .verify(pae, &sig)
-            .map_err(|_| WSError::VerificationFailed)
+            .map_err(|_| DsseError::VerificationFailed)
     }
 }
 
@@ -364,9 +422,17 @@ pub mod payload_types {
 mod tests {
     use super::*;
 
-    fn generate_test_keypair() -> (ed25519_compact::SecretKey, ed25519_compact::PublicKey) {
-        let kp = ed25519_compact::KeyPair::generate();
+    // Deterministic test keypairs from fixed seeds: keeps the crate free of
+    // `getrandom` (ed25519-compact's `KeyPair::generate()` needs the `random`
+    // feature). Distinct seed bytes yield distinct keypairs. Tests run on the
+    // host with the std test harness even though the library is `no_std`.
+    fn keypair(seed_byte: u8) -> (ed25519_compact::SecretKey, ed25519_compact::PublicKey) {
+        let kp = ed25519_compact::KeyPair::from_seed(ed25519_compact::Seed::new([seed_byte; 32]));
         (kp.sk, kp.pk)
+    }
+
+    fn generate_test_keypair() -> (ed25519_compact::SecretKey, ed25519_compact::PublicKey) {
+        keypair(1)
     }
 
     #[test]
@@ -390,11 +456,7 @@ mod tests {
         let verifier = Ed25519DsseVerifier::new(pk);
 
         let payload = b"test payload";
-        let envelope = DsseEnvelope::sign(
-            payload,
-            payload_types::IN_TOTO,
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(payload, payload_types::IN_TOTO, &signer).unwrap();
 
         assert_eq!(envelope.payload_type, payload_types::IN_TOTO);
         assert_eq!(envelope.signatures.len(), 1);
@@ -409,11 +471,7 @@ mod tests {
         let (sk, _pk) = generate_test_keypair();
         let signer = Ed25519DsseSigner::new(sk, None);
 
-        let envelope = DsseEnvelope::sign(
-            b"test data",
-            "application/json",
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(b"test data", "application/json", &signer).unwrap();
 
         let json = envelope.to_json().unwrap();
         let parsed = DsseEnvelope::from_json(&json).unwrap();
@@ -425,8 +483,8 @@ mod tests {
 
     #[test]
     fn test_multi_signature() {
-        let (sk1, pk1) = generate_test_keypair();
-        let (sk2, pk2) = generate_test_keypair();
+        let (sk1, pk1) = keypair(1);
+        let (sk2, pk2) = keypair(2);
 
         let signer1 = Ed25519DsseSigner::new(sk1, Some("key1".to_string()));
         let signer2 = Ed25519DsseSigner::new(sk2, Some("key2".to_string()));
@@ -437,7 +495,8 @@ mod tests {
             b"multi-signed payload",
             "application/json",
             &[&signer1, &signer2],
-        ).unwrap();
+        )
+        .unwrap();
 
         assert_eq!(envelope.signatures.len(), 2);
 
@@ -448,17 +507,13 @@ mod tests {
 
     #[test]
     fn test_verify_fails_wrong_key() {
-        let (sk, _pk) = generate_test_keypair();
-        let (_, other_pk) = generate_test_keypair();
+        let (sk, _pk) = keypair(1);
+        let (_, other_pk) = keypair(2);
 
         let signer = Ed25519DsseSigner::new(sk, None);
         let wrong_verifier = Ed25519DsseVerifier::new(other_pk);
 
-        let envelope = DsseEnvelope::sign(
-            b"test",
-            "application/json",
-            &signer,
-        ).unwrap();
+        let envelope = DsseEnvelope::sign(b"test", "application/json", &signer).unwrap();
 
         assert!(envelope.verify(&wrong_verifier).is_err());
     }
@@ -595,6 +650,9 @@ mod proofs {
     fn proof_pae_length_prefix_prevents_ambiguity() {
         let pae_a = compute_pae("a", b"");
         let pae_b = compute_pae("", b"a");
-        assert_ne!(pae_a, pae_b, "PAE ambiguity: different type/payload split produced same encoding");
+        assert_ne!(
+            pae_a, pae_b,
+            "PAE ambiguity: different type/payload split produced same encoding"
+        );
     }
 }

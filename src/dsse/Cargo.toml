@@ -1,0 +1,18 @@
+[package]
+name = "wsc-dsse"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "DSSE (Dead Simple Signing Envelope) sign/verify for wsc: a lightweight no_std + alloc crate so embedded/offline consumers can verify DSSE envelopes with just base64/serde/serde_json/ed25519-compact — no registry, TLS or X.509. Carved out of the wsc crate."
+readme = "../../README.md"
+keywords = ["dsse", "signatures", "attestation", "no-std"]
+homepage = "https://github.com/pulseengine/sigil"
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+serde = { version = "1.0", default-features = false, features = ["alloc", "derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+ed25519-compact = { version = "2.3", default-features = false }
