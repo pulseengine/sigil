@@ -653,7 +653,7 @@ artifacts:
   - id: REQ-23
     type: requirement
     title: Real offline keyless verification (Rekor SET + Fulcio chain + ECDSA P-256)
-    status: draft
+    status: verified
     description: "AirGappedVerifier::verify_crypto is a stub: it neither verifies the Rekor SET nor anchors the cert chain to the bundle's Fulcio roots, and extract_public_key_from_cert feeds full SPKI DER to an ed25519-only path that requires 32 raw bytes — so it fails for any real Fulcio cert (which are ECDSA P-256). Implement genuine offline Sigstore keyless verification: verify the Rekor inclusion/SET, anchor the leaf cert to provisioned Fulcio roots, support ECDSA P-256 (curve-agile, per DD-8), and add an in-library SigstoreBundle::verify(&trust_bundle, artifact_digest) so there is a verify-blob --bundle equivalent that does not shell out to cosign. Fails-closed today (errors), so not a silent-accept hole, but the advertised offline-keyless path is unusable. Unblocks varve offline manifest verification."
     tags: [soundness, keyless, offline, airgapped]
     fields:
