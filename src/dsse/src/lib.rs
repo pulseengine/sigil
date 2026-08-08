@@ -600,6 +600,197 @@ mod tests {
         let parsed = DsseEnvelope::from_json(&json).unwrap();
         assert_eq!(parsed.payload, envelope.payload);
     }
+
+    #[test]
+    fn test_signer_from_bytes_roundtrip() {
+        // Derive raw secret-key bytes from a deterministic keypair, then
+        // reconstruct the signer via from_bytes and verify end-to-end.
+        let (sk, pk) = keypair(7);
+        let sk_bytes = sk.to_vec();
+
+        let signer =
+            Ed25519DsseSigner::from_bytes(&sk_bytes, Some("from-bytes-key".to_string())).unwrap();
+        assert_eq!(signer.key_id(), Some("from-bytes-key".to_string()));
+
+        let verifier = Ed25519DsseVerifier::new(pk);
+        let envelope = DsseEnvelope::sign(b"from_bytes payload", "text/plain", &signer).unwrap();
+        assert_eq!(envelope.verify(&verifier).unwrap(), b"from_bytes payload");
+    }
+
+    #[test]
+    fn test_signer_from_bytes_wrong_length() {
+        // A too-short secret key must surface as a typed CryptoError.
+        // (Match on the Result: Ed25519DsseSigner intentionally isn't Debug,
+        // so unwrap_err() is unavailable.)
+        let result = Ed25519DsseSigner::from_bytes(&[0u8; 10], None);
+        assert!(
+            matches!(result, Err(DsseError::CryptoError(_))),
+            "expected Err(CryptoError)"
+        );
+    }
+
+    #[test]
+    fn test_verifier_from_bytes_roundtrip() {
+        // Reconstruct the verifier from raw public-key bytes and verify a good
+        // signature.
+        let (sk, pk) = keypair(9);
+        let pk_bytes = pk.to_vec();
+
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::from_bytes(&pk_bytes).unwrap();
+
+        let envelope = DsseEnvelope::sign(b"verifier from_bytes", "text/plain", &signer).unwrap();
+        assert_eq!(envelope.verify(&verifier).unwrap(), b"verifier from_bytes");
+    }
+
+    #[test]
+    fn test_verifier_from_bytes_malformed() {
+        let result = Ed25519DsseVerifier::from_bytes(&[0u8; 5]);
+        assert!(
+            matches!(result, Err(DsseError::CryptoError(_))),
+            "expected Err(CryptoError)"
+        );
+    }
+
+    #[test]
+    fn test_verify_empty_signatures() {
+        let (_sk, pk) = keypair(3);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let envelope = DsseEnvelope::unsigned(b"no sigs here", "text/plain");
+        let err = envelope.verify(&verifier).unwrap_err();
+        assert!(
+            matches!(err, DsseError::VerificationFailed),
+            "expected VerificationFailed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_bad_base64_payload() {
+        let (sk, pk) = keypair(4);
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let mut envelope = DsseEnvelope::sign(b"payload", "text/plain", &signer).unwrap();
+        // Corrupt the payload with a character outside the base64 alphabet.
+        envelope.payload = "not*valid*base64".to_string();
+
+        let err = envelope.verify(&verifier).unwrap_err();
+        assert!(
+            matches!(err, DsseError::InvalidBase64(_)),
+            "expected InvalidBase64, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_bad_base64_signature() {
+        let (sk, pk) = keypair(5);
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let mut envelope = DsseEnvelope::sign(b"payload", "text/plain", &signer).unwrap();
+        // Valid base64 payload, but the signature field is not valid base64.
+        envelope.signatures[0].sig = "@@@not-base64@@@".to_string();
+
+        let err = envelope.verify(&verifier).unwrap_err();
+        assert!(
+            matches!(err, DsseError::InvalidBase64(_)),
+            "expected InvalidBase64, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_all_bad_base64_payload() {
+        let (sk, pk) = keypair(6);
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let mut envelope = DsseEnvelope::sign(b"payload", "text/plain", &signer).unwrap();
+        envelope.payload = "###".to_string();
+
+        let err = envelope.verify_all(&verifier).unwrap_err();
+        assert!(
+            matches!(err, DsseError::InvalidBase64(_)),
+            "expected InvalidBase64, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_all_bad_base64_signature() {
+        let (sk, pk) = keypair(8);
+        let signer = Ed25519DsseSigner::new(sk, None);
+        let verifier = Ed25519DsseVerifier::new(pk);
+
+        let mut envelope = DsseEnvelope::sign(b"payload", "text/plain", &signer).unwrap();
+        envelope.signatures[0].sig = "!!!".to_string();
+
+        let err = envelope.verify_all(&verifier).unwrap_err();
+        assert!(
+            matches!(err, DsseError::InvalidBase64(_)),
+            "expected InvalidBase64, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_verify_all_one_bad_signature_among_several() {
+        // Two valid signers; corrupt the second signature so verify_all fails
+        // with VerificationFailed while verify() (1-of-N) still succeeds.
+        let (sk1, pk1) = keypair(10);
+        let (sk2, _pk2) = keypair(11);
+        let signer1 = Ed25519DsseSigner::new(sk1, None);
+        let signer2 = Ed25519DsseSigner::new(sk2, None);
+
+        let mut envelope =
+            DsseEnvelope::sign_multi(b"multi", "text/plain", &[&signer1, &signer2]).unwrap();
+
+        // Replace the second signature with a valid-base64 but wrong signature
+        // (re-encode the first signer's sig, which won't verify under pk1 twice
+        // — actually flip it to a different valid signature over other data).
+        let bad = DsseEnvelope::sign(b"other data", "text/plain", &signer2).unwrap();
+        envelope.signatures[1].sig = bad.signatures[0].sig.clone();
+
+        let verifier1 = Ed25519DsseVerifier::new(pk1);
+
+        // verify() still succeeds: signer1's signature is valid for verifier1.
+        assert!(envelope.verify(&verifier1).is_ok());
+
+        // verify_all() fails: the tampered second signature does not verify.
+        let err = envelope.verify_all(&verifier1).unwrap_err();
+        assert!(
+            matches!(err, DsseError::VerificationFailed),
+            "expected VerificationFailed, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_dsse_error_display() {
+        let cases: [(DsseError, &str); 6] = [
+            (
+                DsseError::InvalidBase64("bad payload".to_string()),
+                "bad payload",
+            ),
+            (DsseError::VerificationFailed, "No valid signatures"),
+            (DsseError::Json("parse boom".to_string()), "parse boom"),
+            (DsseError::InvalidArgument, "Invalid argument"),
+            (
+                DsseError::CryptoError(ed25519_compact::Error::InvalidPublicKey),
+                "Ed25519",
+            ),
+            (
+                DsseError::InternalError("kaboom".to_string()),
+                "kaboom",
+            ),
+        ];
+
+        for (err, expected_substr) in cases {
+            let s = alloc::format!("{err}");
+            assert!(!s.is_empty(), "Display produced empty string for {err:?}");
+            assert!(
+                s.contains(expected_substr),
+                "Display {s:?} missing {expected_substr:?}"
+            );
+        }
+    }
 }
 
 // ============================================================================
