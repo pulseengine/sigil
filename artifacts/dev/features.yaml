@@ -691,3 +691,31 @@ artifacts:
       model: claude-opus-4-8
       timestamp: 2026-08-07T17:16:23Z
     release: v0.11.0
+
+  - id: DD-11
+    type: design-decision
+    title: "Offline keyless verify: delegate to online primitives; SET mandatory, Merkle inclusion not verified"
+    status: draft
+    description: "AirGappedVerifier reuses CertificatePool, RekorKeyring::verify_set, P-256 verify over module_hash, anchored to the provisioned TrustBundle. Merkle inclusion NOT verified offline (mirrors online skip; Rekor v2 shard bug signer.rs:633 / #137), surfaced via VerificationResult.inclusion_verified=false + doc + #137. SET mandatory."
+    tags: [keyless, offline]
+    fields:
+      rationale: "Reusing tested primitives avoids reintroducing #135 artifact-binding + negative-timestamp bugs; Merkle-skip mirrors online so legitimate Rekor v2 sigs aren't rejected, with the reduced guarantee explicit not silent."
+      release: v0.11.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-08T06:00:07Z
+
+  - id: DD-12
+    type: design-decision
+    title: Offline verify cannot check SCTs — no CT-log key provisioned in TrustBundle
+    status: draft
+    description: "SCT verification unprovisionable offline: TrustBundle has Fulcio roots + Rekor keys but no CT-log public key. Stated as explicit trust-boundary limitation in the doc comment."
+    tags: [keyless, offline, sct]
+    fields:
+      rationale: Stating the boundary prevents false assumption of CT coverage; a CT-log key field is future provisioning, out of REQ-23 scope.
+      release: v0.11.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-08T06:00:07Z
