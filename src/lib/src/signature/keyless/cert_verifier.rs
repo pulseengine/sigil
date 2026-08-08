@@ -179,6 +179,74 @@ impl CertificatePool {
         })
     }
 
+    /// Create a certificate pool from air-gapped [`CertificateAuthority`]
+    /// entries provisioned in a `TrustBundle`.
+    ///
+    /// This mirrors [`Self::from_trusted_root`] but sources its trust anchors
+    /// from the offline, provisioned bundle rather than the compiled-in
+    /// `trusted_root.json`. For each CA the **last** certificate in
+    /// `certificates_pem` is treated as the self-signed root and installed as
+    /// a webpki trust anchor; any earlier certificates are intermediates used
+    /// for chain building.
+    ///
+    /// The parameter is fully qualified as
+    /// [`crate::airgapped::CertificateAuthority`] to avoid collision with this
+    /// module's own [`CertificateAuthority`] (the `trusted_root.json` shape).
+    pub fn from_pem_authorities(
+        cas: &[crate::airgapped::CertificateAuthority],
+    ) -> Result<Self, CertVerificationError> {
+        let mut trusted_roots = Vec::new();
+        let mut all_intermediates = Vec::new();
+
+        for ca in cas {
+            if ca.certificates_pem.is_empty() {
+                continue;
+            }
+
+            // Decode every PEM certificate in this CA to DER. Use `pem::parse`
+            // (already a dependency and used above) so malformed armor fails
+            // loudly rather than silently producing garbage DER.
+            let mut decoded_certs = Vec::new();
+            for cert_pem in &ca.certificates_pem {
+                let parsed = pem::parse(cert_pem.as_bytes())
+                    .map_err(|e| CertVerificationError::PemParseError(e.to_string()))?;
+                if parsed.tag() != "CERTIFICATE" {
+                    return Err(CertVerificationError::PemParseError(format!(
+                        "expected CERTIFICATE PEM, got '{}'",
+                        parsed.tag()
+                    )));
+                }
+                decoded_certs.push(CertificateDer::from(parsed.into_contents()));
+            }
+
+            // Last certificate in the chain is the root (self-signed);
+            // earlier certificates are intermediates.
+            let root_cert = &decoded_certs[decoded_certs.len() - 1];
+            let trust_anchor = webpki::anchor_from_trusted_cert(root_cert)
+                .map_err(|e| {
+                    CertVerificationError::ParseError(format!(
+                        "Failed to create trust anchor: {:?}",
+                        e
+                    ))
+                })?
+                .to_owned();
+            trusted_roots.push(trust_anchor);
+
+            for intermediate in &decoded_certs[..decoded_certs.len() - 1] {
+                all_intermediates.push(intermediate.clone().into_owned());
+            }
+        }
+
+        if trusted_roots.is_empty() {
+            return Err(CertVerificationError::NoTrustedRoot);
+        }
+
+        Ok(Self {
+            trusted_roots,
+            intermediates: all_intermediates,
+        })
+    }
+
     /// Verify a certificate chain from a PEM-encoded certificate
     ///
     /// # Arguments

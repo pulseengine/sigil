@@ -15,9 +15,9 @@
 //! The inclusion proof proves that the entry exists in the transparency log.
 
 use crate::error::WSError;
-use crate::signature::keyless::{RekorEntry, merkle};
-use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
-use p256::ecdsa::{Signature, VerifyingKey, signature::DigestVerifier};
+use crate::signature::keyless::{merkle, RekorEntry};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use p256::ecdsa::{signature::DigestVerifier, Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -463,6 +463,55 @@ impl RekorKeyring {
         if keys.is_empty() {
             return Err(WSError::RekorError(
                 "No Rekor public keys found in trusted_root.json".to_string(),
+            ));
+        }
+
+        Ok(Self { keys })
+    }
+
+    /// Build a keyring from air-gapped `TransparencyLog` entries provisioned
+    /// in a `TrustBundle`.
+    ///
+    /// This mirrors `from_trusted_root` but sources Rekor public keys
+    /// from the offline, provisioned bundle rather than the compiled-in
+    /// `trusted_root.json`. Each log's PEM-encoded `public_key_pem` is decoded
+    /// to SPKI DER and parsed as an ECDSA P-256 verifying key, indexed by the
+    /// log's `log_id` (the same id [`Self::verify_set`] matches against the
+    /// entry's `log_id`).
+    pub fn from_pem_logs(logs: &[crate::airgapped::TransparencyLog]) -> Result<Self, WSError> {
+        let mut keys = Vec::new();
+
+        for log in logs {
+            // Strip PEM armor and base64-decode to SPKI DER.
+            let der = log
+                .public_key_pem
+                .lines()
+                .filter(|line| !line.starts_with("-----"))
+                .collect::<String>();
+            let key_bytes = BASE64.decode(der.as_bytes()).map_err(|e| {
+                WSError::RekorError(format!("Failed to decode Rekor public key PEM: {}", e))
+            })?;
+
+            // Parse as a raw SEC1 point or as SPKI DER (mirrors the parse at
+            // `from_trusted_root`).
+            let verifying_key = VerifyingKey::from_sec1_bytes(&key_bytes)
+                .or_else(|_| {
+                    spki::SubjectPublicKeyInfoRef::try_from(key_bytes.as_slice())
+                        .map_err(|e| WSError::RekorError(format!("Failed to parse SPKI: {}", e)))
+                        .and_then(|spki| {
+                            VerifyingKey::try_from(spki).map_err(|e| {
+                                WSError::RekorError(format!("Failed to parse key: {}", e))
+                            })
+                        })
+                })
+                .map_err(|e| WSError::RekorError(format!("Failed to parse ECDSA key: {}", e)))?;
+
+            keys.push((log.log_id.clone(), verifying_key));
+        }
+
+        if keys.is_empty() {
+            return Err(WSError::RekorError(
+                "No Rekor public keys in trust bundle".to_string(),
             ));
         }
 
