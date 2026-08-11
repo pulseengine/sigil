@@ -1,6 +1,7 @@
 /// Pre-Authentication Encoding for DSSE (extracted for Rocq verification).
 ///
-/// This is a self-contained extraction of the PAE function from dsse.rs,
+/// This is a self-contained extraction of the PAE function from
+/// src/dsse/src/lib.rs,
 /// suitable for coq-of-rust translation.
 
 /// Compute Pre-Authentication Encoding (PAE) per DSSE spec.

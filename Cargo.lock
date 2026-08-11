@@ -4688,6 +4688,7 @@ dependencies = [
  "wat",
  "webpki-roots",
  "wsc-attestation",
+ "wsc-dsse",
  "wsc-verify-core",
  "x509-parser",
  "zeroize",
@@ -4728,6 +4729,16 @@ version = "0.10.0"
 dependencies = [
  "wit-bindgen 0.51.0",
  "wsc",
+]
+
+[[package]]
+name = "wsc-dsse"
+version = "0.10.0"
+dependencies = [
+ "base64",
+ "ed25519-compact",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

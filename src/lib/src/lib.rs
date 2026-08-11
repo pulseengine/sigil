@@ -94,7 +94,12 @@ pub mod format;
 /// Used as the wrapper for all embedded attestations, enabling extraction
 /// and verification with standard tooling (cosign, sigstore-rs, etc.).
 /// See: https://github.com/secure-systems-lab/dsse
-pub mod dsse;
+///
+/// Carved out into the standalone `no_std` `wsc-dsse` crate (issue #218 /
+/// REQ-24) so embedded/offline consumers can verify DSSE envelopes without
+/// wsc's registry/TLS/X.509 tree. Re-exported here so `wsc::dsse::*` still
+/// resolves for existing callers.
+pub use wsc_dsse as dsse;
 
 /// in-toto Statement v1.0 implementation
 ///

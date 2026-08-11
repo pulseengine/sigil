@@ -14,7 +14,7 @@ use std::time::Duration;
 // wsc-verify-core and wsc-attestation MUST precede wsc (wsc depends on both);
 // wsc-cli depends on wsc. wsc-component/wsc-crypto are not deps of any published
 // crate, so they are intentionally not published.
-const CRATES_TO_PUBLISH: &[&str] = &["wsc-verify-core", "wsc-attestation", "wsc", "wsc-cli"];
+const CRATES_TO_PUBLISH: &[&str] = &["wsc-verify-core", "wsc-attestation", "wsc-dsse", "wsc", "wsc-cli"];
 
 struct Workspace {
     version: String,
@@ -54,6 +54,10 @@ fn main() {
     // Add attestation crate (leaf: wsc depends on it too)
     let attestation_crate = read_crate(Some(&ws), "./src/attestation/Cargo.toml".as_ref());
     crates.push(attestation_crate);
+
+    // Add DSSE crate (leaf: wsc depends on it; must precede wsc)
+    let dsse_crate = read_crate(Some(&ws), "./src/dsse/Cargo.toml".as_ref());
+    crates.push(dsse_crate);
 
     // Add main library crate
     let lib_crate = read_crate(Some(&ws), "./src/lib/Cargo.toml".as_ref());

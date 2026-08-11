@@ -84,7 +84,11 @@ jobs:
             # the scope of bounded model checking entirely.
             tolerate_failure: true
           - module: dsse
-            pkg: wsc
+            # The DSSE `compute_pae` proofs live in `wsc-dsse` after the carve
+            # (issue #218 / REQ-24), so the harness must be invoked against that
+            # crate — invoking `-p wsc` would match zero harnesses and the gate
+            # would report green without running anything.
+            pkg: wsc-dsse
             harness: dsse
             # WIP — CI observation post-rebase: dsse harnesses also hit
             # "unwinding assertion loop 0" at --default-unwind 4. The

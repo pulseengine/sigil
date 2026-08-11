@@ -719,3 +719,17 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-08T06:00:07Z
+
+  - id: DD-13
+    type: design-decision
+    title: DSSE extracted to a new no_std wsc-dsse crate, not into wsc-verify-core
+    status: draft
+    description: "wsc::dsse moves to a new wsc-dsse crate (base64/serde/serde_json/ed25519-compact, no_std+alloc) rather than into wsc-verify-core. Reason: verify-core is the witness-MC/DC-instrumented crate whose gaps are REQ-25 — adding 600 lines of DSSE + serde_json there would add decisions to the exact crate we're closing gaps in, self-interfering within v0.11.0. wsc re-exports wsc-dsse as wsc::dsse with From<DsseError> for WSError so internal consumers (composition/mod.rs) and the public API keep working."
+    tags: [dsse, no-std, crate-topology]
+    fields:
+      rationale: "Single-responsibility crate gives embedded/offline consumers (varve, #187 Cortex-M) minimal-dep DSSE without verify-core's wasm-parsing or perturbing its MC/DC gate; no_std+alloc from the start avoids a std-only rewrite for the on-target verifier."
+      release: v0.11.0
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-08T15:04:57Z

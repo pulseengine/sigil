@@ -23,6 +23,7 @@ rust_library(
     ],
     deps = [
         "//src/attestation:wsc-attestation",
+        "//src/dsse:wsc-dsse",
         "//src/verify-core:wsc-verify-core",
         "@wsc_deps//:anyhow",
         "@wsc_deps//:ct-codecs",

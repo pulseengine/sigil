@@ -10,7 +10,7 @@ This README is part of the 2026-04-30 audit honesty fix (finding C-3).
 
 ## What lives here today
 
-- `pae.rs` — a Rust extraction of `compute_pae` from `src/lib/src/dsse.rs`,
+- `pae.rs` — a Rust extraction of `compute_pae` from `src/dsse/src/lib.rs`,
   shaped for `coq-of-rust` translation. It is plain Rust with unit tests;
   it does not contain any Rocq (`.v`) source.
 - `BUILD.bazel` — declares a `rocq_rust_verified_library` target named
