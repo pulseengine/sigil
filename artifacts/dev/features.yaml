@@ -653,7 +653,7 @@ artifacts:
   - id: REQ-23
     type: requirement
     title: Real offline keyless verification (Rekor SET + Fulcio chain + ECDSA P-256)
-    status: verified
+    status: accepted
     description: "AirGappedVerifier::verify_crypto is a stub: it neither verifies the Rekor SET nor anchors the cert chain to the bundle's Fulcio roots, and extract_public_key_from_cert feeds full SPKI DER to an ed25519-only path that requires 32 raw bytes — so it fails for any real Fulcio cert (which are ECDSA P-256). Implement genuine offline Sigstore keyless verification: verify the Rekor inclusion/SET, anchor the leaf cert to provisioned Fulcio roots, support ECDSA P-256 (curve-agile, per DD-8), and add an in-library SigstoreBundle::verify(&trust_bundle, artifact_digest) so there is a verify-blob --bundle equivalent that does not shell out to cosign. Fails-closed today (errors), so not a silent-accept hole, but the advertised offline-keyless path is unusable. Unblocks varve offline manifest verification."
     tags: [soundness, keyless, offline, airgapped]
     fields:
@@ -667,7 +667,7 @@ artifacts:
   - id: REQ-24
     type: requirement
     title: Lightweight DSSE verify — extract dsse off the 179-crate wsc tree
-    status: verified
+    status: accepted
     description: "wsc::dsse (DSSE sign/verify over arbitrary blobs — what a downstream offline verifier wants) lives only in the full wsc crate, whose default build pulls 179 crates (ring, rustls, ureq, rcgen, x509-parser, p256, webpki-roots). The dsse module's real deps are just base64, serde, serde_json, ed25519-compact. Move dsse into wsc-verify-core (21 crates) or a new wsc-dsse crate so an embedded/offline consumer (varve, the on-target verifier in #187) can verify DSSE without the registry/network stack. Complements the offline-keyless work."
     tags: [offline, dsse, embedded, dependency-hygiene]
     fields:
@@ -681,7 +681,7 @@ artifacts:
   - id: REQ-25
     type: requirement
     title: Close verify-core's own MC/DC Partial gaps (witness scenarios)
-    status: draft
+    status: accepted
     description: "The witness MC/DC gate is now scoped to verify-core's own decisions (#128, v0.10.0). Its two decisions — varint.rs:29 and wasm_module/mod.rs:455 — are Partial: 5 gap conditions on linux CI (3 + 2). Add witness scenarios that supply the missing unique-cause rows so both reach full MC/DC, then lower SRC_BASELINE_GAP accordingly. Turns the gate from regression-guard into a coverage-complete gate for verify-core."
     tags: [mcdc, witness, verification-completeness]
     fields:

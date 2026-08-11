@@ -3,6 +3,62 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-08-11
+
+Offline verification, made real and lightweight. The airgapped keyless verifier
+stops being a stub, DSSE gets a `no_std` home for embedded/on-target consumers,
+and verify-core's own MC/DC decision reaches full coverage.
+
+### Added
+
+- **Real offline keyless verification (#219 / REQ-23).** `AirGappedVerifier`'s
+  crypto path was a stub — ed25519 over the full SPKI DER (fails for any real
+  Fulcio cert, which are ECDSA P-256), no cert-chain anchoring, no Rekor SET
+  check. Replaced with genuine offline Sigstore verification that **delegates to
+  the same tested primitives the online path uses**, anchored to the provisioned
+  `TrustBundle`: cert chain (`from_pem_authorities` → `verify_pem_cert` at the
+  Rekor `integrated_time`, RFC-5280 + codeSigning EKU) → Rekor **SET**
+  (`from_pem_logs` → `verify_set`) → **P-256** signature over `module_hash` via
+  `verify_prehash` → **Rekor body-binding** (#135 UCA-2) → revocation. The broken
+  `extract_public_key_from_cert` is deleted. *Falsification:* 11 offline tests
+  each reject at their own step (wrong root→chain, expired→time, wrong Rekor
+  key→SET, tampered→P-256, body-mismatch→body-binding, revoked→revocation, hash
+  mismatch→step 1); the positive path builds a real hashedrekord body so
+  body-binding is genuinely exercised. **Not verified offline** (stated, not
+  hidden): Rekor Merkle inclusion (mirrors the online skip, Rekor v2 shard bug /
+  #137 — `VerificationResult.inclusion_verified = false`) and SCT (no CT-log key
+  is provisioned in the bundle). `SigstoreBundle::verify` split to #231.
+
+- **`wsc-dsse` — a `no_std` DSSE crate (#218 / REQ-24).** `wsc::dsse` (envelope
+  sign/verify) lived only in the 179-crate `wsc`; extracted into a standalone
+  `no_std` + `alloc` crate whose only deps are base64/serde/serde_json/
+  ed25519-compact, so embedded/offline consumers (varve, #187's Cortex-M
+  on-target verifier) get DSSE without the registry/TLS/X.509 tree. Builds for
+  `thumbv7em-none-eabi`. `wsc` re-exports it (`pub use wsc_dsse as dsse`) with
+  `From<DsseError> for WSError`, so the public API and internal callers compile
+  unchanged. *Falsification:* the thumbv7em build is the embedded proof; wsc-dsse
+  97% line coverage; `wsc` suite unchanged.
+
+### Changed
+
+- **Witness MC/DC gate: verify-core's coverable decision reaches full MC/DC;
+  scoped baseline 5 → 3 (#128 / REQ-25).** Of the two `Partial` decisions the
+  scoped gate counted, only one is verify-core's own logic — the WASM-header
+  compare in `Module::init_from_reader`; a scenario for the `WASM_COMPONENT_HEADER`
+  accept path drives it to full MC/DC (0→1 fully-covered decisions). The residual
+  3 gaps are the **inlined** `<&[u8] as Read>::read_exact` decision's copy
+  branches (vary only with buffer length; verify-core reads at lengths 1 and 8
+  only) — infeasible without gaming; documented, with the `^src/` scoping
+  imprecision filed as #241. Baseline tightened 5→3; gate potency re-verified
+  (baseline 2 → red; deleting the header reads → gap 4>3 → red).
+
+### Verification notes
+
+Feature-loop coverage: REQ-23 landed via delegated implementation whose **missing
+Rekor body-binding was caught on review** (a #135 UCA-2 wrong-accept vector) and
+added before merge; all three items were clean-room verified. Steps 1–2 (spar
+AADL → WIT) N/A — no architecture/interface change.
+
 ## [0.10.0] — 2026-08-07
 
 Provenance identity and claim honesty. Records *which qualified toolchain-set*
