@@ -4,7 +4,7 @@
 # Rebuilds the harness, instruments it with a pinned `witness` release, runs
 # the fixed scenario set, and fails if the number of MC/DC *gap* conditions
 # has INCREASED past the committed baseline. Improvements (fewer gaps) pass
-# and should be followed by refreshing out/mcdc-report.txt + BASELINE_GAP.
+# and should be followed by lowering SRC_BASELINE_GAP (see HOST CALIBRATION).
 #
 # Why gap-count and not a byte-diff of the report: wasm codegen / witness
 # row ordering can differ across hosts and witness versions; the gap count
@@ -30,21 +30,59 @@ WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
 # (the compiler still lays out our own branches differently per target). The
 # whole-wasm total is still printed, for information only.
 #
-# HOST CALIBRATION: the baseline is set on the CI host (ubuntu-latest / linux
-# x86_64) — the authoritative gate host — where the scoped count is 5:
-# varint.rs:29 (3 gaps: c0,c3,c4) + wasm_module/mod.rs:455 (2 gaps: c0,c1). A
-# local macOS/aarch64 run yields FEWER (measured: 3 — mod.rs:455 is fully covered
-# there), which PASSES under the same baseline (3 <= 5), so no local override is
-# ever needed to go green. The SRC_BASELINE_GAP env knob is for re-calibrating on
-# CI when a scenario closes a gap, NOT for silencing a red locally: a host that
-# yields MORE than the baseline is a real finding (a new uncovered branch), not
-# an override target. Only lower the committed baseline from the CI (linux) count.
+# HOST CALIBRATION: baseline set on the CI host (ubuntu-latest / linux x86_64) —
+# the authoritative gate host. The scoped count was 5 (varint decision 3 +
+# header decision 2). #128 / REQ-25 added two kinds of scenario that close the
+# feasible gaps:
 #
-# Both baseline decisions are `Partial`; CLOSING them (adding witness scenarios
-# that supply the missing unique-cause rows) is follow-up MC/DC work on #128 —
-# the gate's job here is to stop a REGRESSION (a NEW gap in verify-core's own
-# code) from landing.
-SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-5}"
+#   (a) try_parse_wasm:0,97,115,109,13,0,1,0 — the WASM_COMPONENT_HEADER accept
+#       path of Module::init_from_reader (mod.rs:456). This is a genuine second
+#       accept branch of verify-core's own header decision; it supplied the
+#       missing unique-cause row for `header != WASM_COMPONENT_HEADER` and drove
+#       that decision to full MC/DC (was 2 gaps). Semantic, host-invariant — the
+#       -2 that lowers the committed baseline from 5 to 3.
+#
+#   (b) decode_varint_0..4 — short-buffer exports that make get32's
+#       `reader.read_exact(&mut byte)?` hit EOF at each loop iteration, covering
+#       get32's EOF error-propagation path. Locally this proves one of the
+#       read_exact conditions; whether that nets a -1 on linux is NOT banked
+#       (see below), so the committed baseline stays at 3. CI shows what it nets.
+#
+# WHY 3 AND NOT 0 — the residual is (inferred) misattributed inlined std, and
+# infeasible: the remaining ~3 gap conditions live in the decision witness labels
+# `src/wasm_module/varint.rs:24` (macOS) / `:29` (linux). Row-count arithmetic
+# indicates that decision is NOT verify-core logic — it is
+# `<&[u8] as Read>::read_exact` INLINED into get32 (its truth table is 20
+# length-1 rows matching the varint scenarios' iteration counts + N length-8 rows
+# matching the header scenarios; inferred from the table, not from witness's own
+# attribution). The `^src/` filter counts it only because inlined std inherits
+# get32's debug line.
+# Its residual conditions are the read_exact copy-path branches, which vary only
+# with buffer length. verify-core issues read_exact at exactly two lengths — 1
+# (get32, per byte) and 8 (init_from_reader, the header) — and every `c1=T`
+# (length-1) row has those copy branches invariant, so no honest input flips
+# them. They are INFEASIBLE without editing verify-core's own reads (which would
+# be gaming the metric) — the DO-178C "masked/unreachable condition, document
+# don't cover" case. NOTE: witness's `cN` condition indices are NOT stable across
+# runs/hosts (a decision re-derives when the row set changes); do not diff the
+# letters — e.g. macOS {c2,c3,c4} and linux {c0,c3,c4} are the same three
+# read_exact conditions relabeled, not a regression.
+#
+# So: linux 5 - 2 (header, banked) = 3, committed. Local macOS/aarch64 also
+# yields 3 (header covered by macOS codegen; three read_exact residuals), so it
+# PASSES without any override. If the short-buffer EOF scenarios ALSO net a read_exact
+# closure on linux without surfacing a replacement, the gate emits its own "lower
+# it" notice and CI tightens to 2 — that is the only sanctioned way to lower it
+# further. A host yielding MORE than the baseline is a real finding (a new
+# uncovered verify-core branch / a lost scenario), never an override target: only
+# ever lower from the CI (linux) count.
+#
+# GATE POTENCY (verified locally, macOS, this change): (1) SRC_BASELINE_GAP=2 ->
+# the gate ::errors and exits 1 (comparison + exit path bites). (2) deleting the
+# length-8 header reads (the try_parse_wasm scenarios) strips a read_exact
+# condition's unique-cause pair, SRC_GAP rises 3 -> 4 > baseline, exit 1 (a real
+# verify-core coverage regression is caught, not just a threshold trip).
+SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-3}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
@@ -82,7 +120,13 @@ mkdir -p out
   --invoke-with-args 'decode_varint_5:128,128,128,1,0' \
   --invoke-with-args 'decode_varint_5:128,128,128,128,1' \
   --invoke-with-args 'decode_varint_5:128,128,128,128,128' \
+  --invoke-with-args 'decode_varint_0:' \
+  --invoke-with-args 'decode_varint_1:128' \
+  --invoke-with-args 'decode_varint_2:128,128' \
+  --invoke-with-args 'decode_varint_3:128,128,128' \
+  --invoke-with-args 'decode_varint_4:128,128,128,128' \
   --invoke-with-args 'try_parse_wasm:0,97,115,109,1,0,0,0' \
+  --invoke-with-args 'try_parse_wasm:0,97,115,109,13,0,1,0' \
   --invoke-with-args 'try_parse_wasm:255,97,115,109,1,0,0,0' \
   --invoke-with-args 'try_parse_wasm:0,255,115,109,1,0,0,0' \
   --invoke-with-args 'try_parse_wasm:0,97,255,109,1,0,0,0' \

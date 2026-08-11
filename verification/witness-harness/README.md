@@ -26,18 +26,23 @@ the varint decoder.
 ## CI gate
 
 [`witness-gate.sh`](witness-gate.sh) runs the whole flow below and **fails
-if the MC/DC gap count rises past the committed baseline** (`BASELINE_GAP`,
-currently 17 on the CI host, witness `v0.37.0`; ~16 on macOS/aarch64 due
-to host-dependent wasm codegen — override `BASELINE_GAP` for local runs).
-**Known limitation (#128):** the count is over the *whole* instrumented
-wasm (std + allocator + crypto deps), so only ~1 of ~40 decisions is
-verify-core's own — the count drifts with dep/toolchain bumps (12→17 from
-07-11 to 08-05 was std/dep churn, not a coverage loss). The gate should be
-scoped to `src/` decisions; tracked in #128. It is wired as the gating `witness-mcdc`
-job in `.github/workflows/formal-verification.yml` (#165 Track C / #128) —
-a real gate (no `continue-on-error`), but a *regression* gate, so it cannot
-block on the still-incomplete Phase 3 coverage. Closing gaps lowers the
-count; then refresh `out/mcdc-report.txt` and `BASELINE_GAP`.
+if the MC/DC gap count rises past the committed baseline** (`SRC_BASELINE_GAP`,
+currently **3** on the CI host, witness `v0.37.0`). The gate counts gaps
+**only in `src/`-path decisions** — verify-core's own code — not the whole
+instrumented wasm (std + allocator + crypto deps drifted the old whole-wasm
+count with every toolchain bump; that total is now printed for information
+only). #128 / REQ-25 closed the feasible gaps: a `WASM_COMPONENT_HEADER`
+scenario drove `Module::init_from_reader`'s header decision to full MC/DC,
+and short-buffer `decode_varint_N` scenarios exercise `get32`'s `read_exact`
+EOF path. The residual 3 gaps are in an inlined `<&[u8] as Read>::read_exact`
+decision that witness misattributes to the `get32` source line (the `^src/`
+filter counts it via debug-line inheritance); its copy-path conditions are
+unreachable given verify-core's fixed 1-byte / 8-byte reads — infeasible,
+documented in `witness-gate.sh`, not silenced. The gate is wired as the
+gating `witness-mcdc` job in `.github/workflows/formal-verification.yml`
+(#165 Track C / #128) — a real gate (no `continue-on-error`), and a
+*regression* gate: closing a gap lowers the count, then refresh
+`SRC_BASELINE_GAP` (CI is the authoritative host).
 
 ```sh
 # One-shot: build + instrument + run + report + gate (auto-downloads witness)

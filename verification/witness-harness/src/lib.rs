@@ -39,6 +39,62 @@ pub extern "C" fn decode_varint_5(b0: u8, b1: u8, b2: u8, b3: u8, b4: u8) -> u32
     varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
 }
 
+// --- short-buffer exports: drive `get32`'s `reader.read_exact(&mut byte)?`
+// EOF-error path (#128 / REQ-25). `decode_varint_5` always supplies 5 bytes,
+// so `read_exact` never returns `Err` — the `?` early-return in `get32` is
+// then never taken and witness reports the shared `read_exact` decision
+// (`varint.rs:24`) as Partial (conditions c2/c3 GAP). Feeding a buffer that
+// runs out mid-decode exercises that error propagation: `decode_varint_N`
+// gives get32 exactly N continuation-tagged bytes (0x80 set) so the loop
+// asks for byte N+1 and read_exact hits EOF.
+//
+// These are FIXED-ARITY (one export per length) on purpose: a single
+// length-parameterised export would need an `if`/`.min()` inside the harness,
+// and witness would attribute that branch to `src/lib.rs`, injecting a
+// phantom "verify-core" decision that the gate's `^src/` filter would count.
+// Fixed arity keeps every branch inside verify-core's own `get32`.
+
+/// Decode a zero-byte varint — `get32` EOFs on its first `read_exact`.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_varint_0() -> u32 {
+    let bytes: [u8; 0] = [];
+    let mut slice = &bytes[..];
+    varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
+}
+
+/// Decode a 1-byte varint whose continuation bit is set — `get32` consumes
+/// byte 0, loops, and EOFs on the second `read_exact`.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_varint_1(b0: u8) -> u32 {
+    let bytes = [b0];
+    let mut slice = &bytes[..];
+    varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
+}
+
+/// 2-byte buffer — EOF on the third `read_exact` when both bytes continue.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_varint_2(b0: u8, b1: u8) -> u32 {
+    let bytes = [b0, b1];
+    let mut slice = &bytes[..];
+    varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
+}
+
+/// 3-byte buffer — EOF on the fourth `read_exact` when all three continue.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_varint_3(b0: u8, b1: u8, b2: u8) -> u32 {
+    let bytes = [b0, b1, b2];
+    let mut slice = &bytes[..];
+    varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
+}
+
+/// 4-byte buffer — EOF on the fifth `read_exact` when all four continue.
+#[unsafe(no_mangle)]
+pub extern "C" fn decode_varint_4(b0: u8, b1: u8, b2: u8, b3: u8) -> u32 {
+    let bytes = [b0, b1, b2, b3];
+    let mut slice = &bytes[..];
+    varint::get32(&mut slice).unwrap_or(0xFFFFFFFF)
+}
+
 /// Try to parse the 8-byte WASM module header `[b0..b7]` via
 /// `Module::init_from_reader`.
 ///
