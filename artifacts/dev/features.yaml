@@ -667,7 +667,7 @@ artifacts:
   - id: REQ-24
     type: requirement
     title: Lightweight DSSE verify — extract dsse off the 179-crate wsc tree
-    status: draft
+    status: verified
     description: "wsc::dsse (DSSE sign/verify over arbitrary blobs — what a downstream offline verifier wants) lives only in the full wsc crate, whose default build pulls 179 crates (ring, rustls, ureq, rcgen, x509-parser, p256, webpki-roots). The dsse module's real deps are just base64, serde, serde_json, ed25519-compact. Move dsse into wsc-verify-core (21 crates) or a new wsc-dsse crate so an embedded/offline consumer (varve, the on-target verifier in #187) can verify DSSE without the registry/network stack. Complements the offline-keyless work."
     tags: [offline, dsse, embedded, dependency-hygiene]
     fields:
