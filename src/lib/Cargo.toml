@@ -116,7 +116,7 @@ optional = true
 # WAT (WebAssembly Text) parser for tests
 wat = "1.221"
 # Criterion for signature-verification benchmarks (issue #89)
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
 name = "verification_benchmarks"
