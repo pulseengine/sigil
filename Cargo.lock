@@ -4545,6 +4545,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "wit-bindgen"
+version = "0.60.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a301904d6657d6364c758d869e5389d05d393b16d5b65db60b4f03cbe71bb80d"
+
+[[package]]
 name = "wit-bindgen-core"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4733,7 +4739,7 @@ dependencies = [
 name = "wsc-component"
 version = "0.11.0"
 dependencies = [
- "wit-bindgen 0.51.0",
+ "wit-bindgen 0.60.0",
  "wsc",
 ]
 
