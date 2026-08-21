@@ -28,6 +28,17 @@ env:
   RUST_VERSION: "1.90.0"
 
 jobs:
+  # REQ-30 / #258: fail CI when a test/proof selector matches zero targets or
+  # when coverage silently omits a lib-bearing crate — i.e. when a "passing"
+  # job is vacuous. Pure stdlib Python, so it needs no toolchain.
+  vacuous-oracle-gate:
+    name: Vacuous-oracle gate
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - name: Check for vacuous test/proof selectors and coverage omissions
+      run: python3 verification/vacuous-oracle-check/check.py
+
   build-matrix:
     name: ${{ matrix.build-system }} on ${{ matrix.os }}
     # Stays on ubuntu-latest: matrix includes macos-latest and bazel build-system uses cachix/install-nix-action; smithy is Linux-only and doesn't ship Nix or Bazel.
@@ -297,10 +308,14 @@ jobs:
     - name: Generate coverage (LCOV + HTML)
       # Include wsc-dsse: the DSSE code was carved out of wsc into its own crate
       # (#218), so `-p wsc` alone no longer sees it and its moved tests wouldn't
-      # count — codecov would report the moved lines as uncovered.
+      # count — codecov would report the moved lines as uncovered. Likewise
+      # wsc-verify-core (core offline-verification crate) and wsc-attestation:
+      # both are lib-bearing members that were previously unmeasured, so their
+      # coverage went unreported (REQ-30 / #258; enforced by the
+      # vacuous-oracle-gate job below).
       run: |
-        cargo llvm-cov -p wsc -p wsc-dsse --lcov --output-path lcov.info
-        cargo llvm-cov -p wsc -p wsc-dsse --html --output-dir coverage-html
+        cargo llvm-cov -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --lcov --output-path lcov.info
+        cargo llvm-cov -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --html --output-dir coverage-html
     - name: Upload LCOV to Codecov
       if: env.CODECOV_TOKEN != ''
       uses: codecov/codecov-action@v7

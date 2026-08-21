@@ -601,15 +601,20 @@ mod tests {
         assert_eq!(pk1, pk2);
     }
 
+    // SECURITY: `SecretKey` must NOT implement `Clone`, to prevent
+    // uncontrolled duplication of key material.
+    //
+    // REQ-30 / #258: the former `test_secret_key_no_clone` asserted nothing —
+    // it defined an unused `assert_not_clone<T>()` helper and never called it,
+    // so it reported green while verifying nothing. A runtime `#[test]` cannot
+    // observe the ABSENCE of a trait impl; that is a compile-time property. The
+    // honest check is a `compile_fail` test (a trybuild case or a `compile_fail`
+    // doctest that attempts `secret_key.clone()`), tracked as a TODO below. The
+    // ignored placeholder keeps the intent visible without a false pass.
     #[test]
-    fn test_secret_key_no_clone() {
-        // SECURITY: SecretKey should NOT implement Clone to prevent
-        // uncontrolled duplication of key material. This test verifies
-        // the trait is not derived.
-        fn assert_not_clone<T>() {}
-        // This would fail to compile if SecretKey implemented Clone
-        // (verified by the absence of Clone derive)
-    }
+    #[ignore = "TODO(#258): replace with a compile_fail trybuild/doctest that \
+                proves SecretKey: !Clone; a runtime test cannot assert a missing impl"]
+    fn test_secret_key_no_clone() {}
 
     #[test]
     fn test_public_key_to_from_file() {

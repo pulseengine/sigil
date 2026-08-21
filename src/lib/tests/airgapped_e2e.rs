@@ -61,8 +61,12 @@ fn test_bundle_fetch_and_parse() {
             println!("  Bundle ID: {}", &bundle.bundle_id[..16]);
         }
         Err(e) => {
-            // Network errors are acceptable in some environments
-            println!("Could not fetch trusted root (network issue?): {}", e);
+            // A network failure must NOT be laundered into a green pass: skip
+            // loudly instead of silently printing success (REQ-30 / #258). No
+            // assertions run on this arm (it is the tail of the function). The
+            // Ok arm above carries the real offline-parse assertions, so a
+            // genuine regression in the parse path still fails this test.
+            eprintln!("SKIP: could not fetch Sigstore trusted root (network issue?): {}", e);
         }
     }
 }
@@ -207,10 +211,18 @@ fn test_full_airgapped_flow_with_sigstore() {
     println!("\n=== End-to-End Test Complete ===\n");
 }
 
+/// Checks only that a freshly minted keyless signature has the STRUCTURE an
+/// air-gapped verifier expects (non-empty signature, cert chain, and Rekor
+/// metadata). It deliberately does NOT call `verify_signature` — despite the
+/// old name (`test_keyless_sign_then_airgapped_verify`), no verification ever
+/// happened here. The real sign -> verify end-to-end path is covered OFFLINE
+/// (no OIDC/network) by the `verify_crypto` / `verify_signature` tests in
+/// `airgapped/verifier.rs`, which build a real Fulcio-style chain, a real
+/// ECDSA signature and a real Rekor SET and exercise the full crypto path.
 #[test]
 #[ignore] // Requires OIDC
-fn test_keyless_sign_then_airgapped_verify() {
-    // Simplified test: sign with keyless, verify bundle separately
+fn test_keyless_signature_structure_is_wellformed() {
+    // Simplified test: sign with keyless, check structural well-formedness only.
 
     // Create keyless signer
     let signer = KeylessSigner::new().expect("Need OIDC environment");
