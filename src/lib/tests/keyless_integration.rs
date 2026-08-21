@@ -278,3 +278,45 @@ fn test_module_serialization() {
         &[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]
     );
 }
+
+/// REQ-26 / #256: keyless-sign an arbitrary 32-byte digest that is NOT the hash
+/// of a WASM module (e.g. a layer-manifest SHA-256, as varve does). The signing
+/// side is now as general as the verifier already was — one `sign_digest` path,
+/// with `sign_module` = `sign_digest(sha256(module))` + embedding.
+///
+/// Gated on OIDC/Fulcio/Rekor like the other end-to-end signing tests. The
+/// offline half of the contract — that a signature over an arbitrary digest
+/// verifies — is covered non-gated by the `airgapped::verifier` fixture tests,
+/// which already verify over a synthetic (non-module) digest.
+#[test]
+#[ignore] // Requires OIDC provider + network access (Fulcio/Rekor)
+fn test_sign_digest_arbitrary_roundtrip() {
+    use wsc::keyless::KeylessSigner;
+
+    // A digest that is deliberately not the hash of any WASM module: this is
+    // sha256("test"), standing in for an arbitrary artifact digest.
+    let digest: [u8; 32] = [
+        0x9f, 0x86, 0xd0, 0x81, 0x88, 0x4c, 0x7d, 0x65, 0x9a, 0x2f, 0xea, 0xa0, 0xc5, 0x5a,
+        0xd0, 0x15, 0xa3, 0xbf, 0x4f, 0x1b, 0x2b, 0x0b, 0x82, 0x2c, 0xd1, 0x5d, 0x6c, 0x15,
+        0xb0, 0xf0, 0x0a, 0x08,
+    ];
+
+    let signer = KeylessSigner::new().expect("OIDC environment required");
+    let sig = signer
+        .sign_digest(&digest)
+        .expect("sign_digest over an arbitrary digest should succeed");
+
+    // The contract that matters: the signature binds to exactly the digest we
+    // passed — not to some re-hash of module bytes. A regression that signed or
+    // recorded the wrong bytes fails here.
+    assert_eq!(
+        sig.module_hash,
+        digest.to_vec(),
+        "keyless signature must bind to the exact digest passed to sign_digest"
+    );
+    assert!(!sig.cert_chain.is_empty(), "must carry a Fulcio cert chain");
+    assert!(
+        !sig.rekor_entry.uuid.is_empty(),
+        "must carry a Rekor transparency-log entry"
+    );
+}
