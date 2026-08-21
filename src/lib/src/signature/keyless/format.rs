@@ -122,6 +122,272 @@ impl KeylessSignature {
         }
     }
 
+    /// Ingest an existing cosign / Sigstore bundle into a
+    /// [`KeylessSignature`] the offline verifiers can consume (REQ-27,
+    /// issue #260).
+    ///
+    /// Two on-disk shapes are recognised, in this order:
+    ///
+    /// * **Legacy `rekorBundle`** — the
+    ///   `{ base64Signature, cert, rekorBundle: { SignedEntryTimestamp,
+    ///   Payload } }` shape emitted by older cosign / `sigstore` clients.
+    ///   This is varve v0.28.0's shape and the primary ingest target.
+    /// * **Protobuf v0.3** —
+    ///   `application/vnd.dev.sigstore.bundle.v0.3+json` with a
+    ///   `verificationMaterial` / `messageSignature` envelope.
+    ///
+    /// # Faithful extraction
+    ///
+    /// Every value is copied straight out of the bundle; nothing is
+    /// recomputed or normalised away. In particular `module_hash` is read
+    /// from the Rekor body's `spec.data.hash.value` (legacy) or from
+    /// `messageSignature.messageDigest.digest` (v0.3) — a corrupted digest
+    /// in the input is propagated verbatim, never "fixed".
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WSError::KeylessFormatError`] if the JSON is malformed, the
+    /// shape is unrecognised, a required field is missing / mis-encoded, or a
+    /// v0.3 bundle carries a raw public key instead of a Fulcio certificate.
+    pub fn from_sigstore_bundle(json: &str) -> Result<Self, WSError> {
+        let value: serde_json::Value = serde_json::from_str(json).map_err(|e| {
+            WSError::KeylessFormatError(format!("Sigstore bundle is not valid JSON: {}", e))
+        })?;
+        let obj = value.as_object().ok_or_else(|| {
+            WSError::KeylessFormatError("Sigstore bundle is not a JSON object".to_string())
+        })?;
+
+        // Shape detection, in order: legacy `rekorBundle`, then v0.3.
+        if obj.contains_key("rekorBundle") {
+            Self::from_legacy_rekor_bundle(&value)
+        } else if obj
+            .get("mediaType")
+            .and_then(|m| m.as_str())
+            .map(|s| s.starts_with("application/vnd.dev.sigstore.bundle"))
+            .unwrap_or(false)
+            || obj.contains_key("verificationMaterial")
+        {
+            Self::from_v03_bundle(&value)
+        } else {
+            Err(WSError::KeylessFormatError(
+                "unrecognized Sigstore bundle format".to_string(),
+            ))
+        }
+    }
+
+    /// Map the legacy `rekorBundle` shape (varve's, the primary target).
+    fn from_legacy_rekor_bundle(value: &serde_json::Value) -> Result<Self, WSError> {
+        // signature: base64 -> raw bytes. NOTE: cosign emits ECDSA signatures
+        // in ASN.1 DER form (`30 45 02 21 ...`), NOT the IEEE-P1363 (r||s)
+        // form `KeylessSignature.signature` is documented to hold. We store
+        // the DER bytes verbatim so the Rekor-body binding check (which
+        // compares against the identical base64 in `body.spec.signature`)
+        // succeeds; `verify_artifact_binding` currently expects P1363 and
+        // would need a `Signature::from_der` path to accept an ingested
+        // legacy bundle. See the REQ-27 report.
+        let base64_sig = value["base64Signature"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError("legacy Sigstore bundle missing 'base64Signature'".to_string())
+        })?;
+        let signature = BASE64.decode(base64_sig).map_err(|e| {
+            WSError::KeylessFormatError(format!("'base64Signature' is not valid base64: {}", e))
+        })?;
+
+        // cert: base64 of PEM text -> PEM string(s). Fulcio may concatenate a
+        // leaf plus intermediate(s); split into one chain entry per block.
+        let cert_b64 = value["cert"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError("legacy Sigstore bundle missing 'cert'".to_string())
+        })?;
+        let cert_pem_bytes = BASE64.decode(cert_b64).map_err(|e| {
+            WSError::KeylessFormatError(format!("'cert' is not valid base64: {}", e))
+        })?;
+        let cert_pem = String::from_utf8(cert_pem_bytes).map_err(|e| {
+            WSError::KeylessFormatError(format!("'cert' is not valid UTF-8 PEM: {}", e))
+        })?;
+        let cert_chain = split_pem_certificates(&cert_pem);
+
+        let rekor_bundle = &value["rekorBundle"];
+        let payload = &rekor_bundle["Payload"];
+
+        // module_hash: read from the Rekor body's hashedrekord digest.
+        let body_b64 = payload["body"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "legacy Sigstore bundle missing 'rekorBundle.Payload.body'".to_string(),
+            )
+        })?;
+        let module_hash = module_hash_from_hashedrekord_body(body_b64)?;
+
+        let log_index = json_u64(&payload["logIndex"]).ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "legacy Sigstore bundle 'rekorBundle.Payload.logIndex' is not an integer"
+                    .to_string(),
+            )
+        })?;
+        let log_id = payload["logID"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "legacy Sigstore bundle missing 'rekorBundle.Payload.logID'".to_string(),
+            )
+        })?;
+        let integrated_time = integrated_time_to_rfc3339(&payload["integratedTime"])?;
+        let signed_entry_timestamp = rekor_bundle["SignedEntryTimestamp"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "legacy Sigstore bundle missing 'rekorBundle.SignedEntryTimestamp'".to_string(),
+            )
+        })?;
+
+        let rekor_entry = RekorEntry {
+            // Legacy `rekorBundle` bundles carry no entry UUID. NOTE: an empty
+            // uuid makes `rekor::is_rekor_skipped` return true, which the
+            // ONLINE `KeylessVerifier::verify` path (signer.rs:601) treats as
+            // "no transparency proof" and rejects. The offline SET material
+            // (SignedEntryTimestamp + logID) and the body-binding inputs are
+            // fully present here; accepting an ingested legacy bundle on the
+            // online path needs a follow-up (synthesised/derived uuid). See
+            // the REQ-27 report.
+            uuid: String::new(),
+            log_index,
+            body: body_b64.to_string(),
+            log_id: log_id.to_string(),
+            // Legacy bundles carry only the SET, no Merkle inclusion proof.
+            // Offline SET verification does not need it (inclusion_verified
+            // stays false); left empty rather than fabricated.
+            inclusion_proof: Vec::new(),
+            signed_entry_timestamp: signed_entry_timestamp.to_string(),
+            integrated_time,
+        };
+
+        Ok(Self::new(signature, cert_chain, rekor_entry, module_hash))
+    }
+
+    /// Map the protobuf-JSON v0.3 shape (cosign `--new-bundle-format`).
+    fn from_v03_bundle(value: &serde_json::Value) -> Result<Self, WSError> {
+        let vm = &value["verificationMaterial"];
+
+        // The certificate requirement is checked FIRST — before decoding the
+        // messageSignature envelope — so a raw-public-key (non-Fulcio) bundle
+        // fails with the specific cert-requirement error, not an incidental
+        // decode error further down. (Non-vacuity for the v0.3 fixture test.)
+        let cert_chain: Vec<String> = if let Some(cert) = vm.get("certificate") {
+            let raw = cert["rawBytes"].as_str().ok_or_else(|| {
+                WSError::KeylessFormatError(
+                    "Sigstore v0.3 'certificate' missing 'rawBytes'".to_string(),
+                )
+            })?;
+            let der = BASE64.decode(raw).map_err(|e| {
+                WSError::KeylessFormatError(format!(
+                    "Sigstore v0.3 'certificate.rawBytes' is not valid base64: {}",
+                    e
+                ))
+            })?;
+            vec![der_to_pem(&der)]
+        } else if let Some(chain) = vm.get("x509CertificateChain") {
+            let certs = chain["certificates"].as_array().ok_or_else(|| {
+                WSError::KeylessFormatError(
+                    "Sigstore v0.3 'x509CertificateChain.certificates' is not an array".to_string(),
+                )
+            })?;
+            let mut out = Vec::with_capacity(certs.len());
+            for c in certs {
+                let raw = c["rawBytes"].as_str().ok_or_else(|| {
+                    WSError::KeylessFormatError(
+                        "Sigstore v0.3 certificate missing 'rawBytes'".to_string(),
+                    )
+                })?;
+                let der = BASE64.decode(raw).map_err(|e| {
+                    WSError::KeylessFormatError(format!(
+                        "Sigstore v0.3 certificate 'rawBytes' is not valid base64: {}",
+                        e
+                    ))
+                })?;
+                out.push(der_to_pem(&der));
+            }
+            out
+        } else if vm.get("publicKey").is_some() {
+            return Err(WSError::KeylessFormatError(
+                "Sigstore v0.3 bundle carries a raw public key, not a Fulcio certificate; \
+                 keyless offline verification requires a certificate (Fulcio/keyless) bundle"
+                    .to_string(),
+            ));
+        } else {
+            return Err(WSError::KeylessFormatError(
+                "Sigstore v0.3 bundle has no certificate in verificationMaterial".to_string(),
+            ));
+        };
+
+        // signature + module_hash from messageSignature.
+        let msg_sig = &value["messageSignature"];
+        let sig_b64 = msg_sig["signature"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "Sigstore v0.3 bundle missing 'messageSignature.signature'".to_string(),
+            )
+        })?;
+        let signature = BASE64.decode(sig_b64).map_err(|e| {
+            WSError::KeylessFormatError(format!(
+                "'messageSignature.signature' is not valid base64: {}",
+                e
+            ))
+        })?;
+
+        let digest = msg_sig["messageDigest"]["digest"].as_str().ok_or_else(|| {
+            WSError::KeylessFormatError(
+                "Sigstore v0.3 bundle missing 'messageSignature.messageDigest.digest'".to_string(),
+            )
+        })?;
+        let module_hash = decode_v03_digest(digest)?;
+
+        // Rekor entry from the first transparency-log entry.
+        let tlog = vm["tlogEntries"]
+            .as_array()
+            .and_then(|a| a.first())
+            .ok_or_else(|| {
+                WSError::KeylessFormatError(
+                    "Sigstore v0.3 bundle has no transparency-log entries".to_string(),
+                )
+            })?;
+
+        let log_index = json_u64(&tlog["logIndex"]).ok_or_else(|| {
+            WSError::KeylessFormatError("Sigstore v0.3 tlogEntry 'logIndex' is not an integer".to_string())
+        })?;
+        // logId.keyId is base64 of the log's key-id bytes; wsc's RekorEntry
+        // stores the log id hex-encoded (matching the legacy `logID`).
+        let log_id = match tlog["logId"]["keyId"].as_str() {
+            Some(key_id_b64) => {
+                let key_id = BASE64.decode(key_id_b64).map_err(|e| {
+                    WSError::KeylessFormatError(format!(
+                        "Sigstore v0.3 tlogEntry 'logId.keyId' is not valid base64: {}",
+                        e
+                    ))
+                })?;
+                hex::encode(key_id)
+            }
+            None => String::new(),
+        };
+        let integrated_time = integrated_time_to_rfc3339(&tlog["integratedTime"])?;
+        let signed_entry_timestamp = tlog["inclusionPromise"]["signedEntryTimestamp"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let body = tlog["canonicalizedBody"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+
+        let rekor_entry = RekorEntry {
+            uuid: String::new(),
+            log_index,
+            body,
+            log_id,
+            // The v0.3 `inclusionProof` (checkpoint + Merkle hashes) is not
+            // reserialised: there is no keyless-v0.3 fixture to validate a
+            // byte format against, and offline SET verification does not need
+            // it. Left empty rather than fabricated (consistent with legacy).
+            inclusion_proof: Vec::new(),
+            signed_entry_timestamp,
+            integrated_time,
+        };
+
+        Ok(Self::new(signature, cert_chain, rekor_entry, module_hash))
+    }
+
     /// Serialize to bytes for WASM custom section
     ///
     /// # Binary Format
@@ -796,9 +1062,140 @@ fn first_certificate_der(pem_bytes: &[u8]) -> Option<Vec<u8>> {
     None
 }
 
+/// Split a PEM string that may contain several concatenated CERTIFICATE
+/// blocks into one string per certificate. If no END marker is present the
+/// whole (trimmed) input is returned as a single entry.
+fn split_pem_certificates(pem: &str) -> Vec<String> {
+    const END: &str = "-----END CERTIFICATE-----";
+    let mut certs = Vec::new();
+    let mut rest = pem;
+    while let Some(idx) = rest.find(END) {
+        let end = idx + END.len();
+        let block = rest[..end].trim_start().to_string();
+        certs.push(block);
+        rest = &rest[end..];
+    }
+    if certs.is_empty() {
+        certs.push(pem.trim().to_string());
+    }
+    certs
+}
+
+/// Wrap DER certificate bytes in a PEM CERTIFICATE block (64-column base64).
+fn der_to_pem(der: &[u8]) -> String {
+    let b64 = BASE64.encode(der);
+    let mut pem = String::from("-----BEGIN CERTIFICATE-----\n");
+    for chunk in b64.as_bytes().chunks(64) {
+        // chunk is ASCII base64 and therefore always valid UTF-8.
+        pem.push_str(std::str::from_utf8(chunk).unwrap_or_default());
+        pem.push('\n');
+    }
+    pem.push_str("-----END CERTIFICATE-----\n");
+    pem
+}
+
+/// Decode a base64 `hashedrekord` body and read `spec.data.hash.value` as the
+/// hex artifact digest, returning the 32-byte SHA-256. The digest is read
+/// straight from the body — never recomputed — so a corrupted input digest is
+/// propagated faithfully.
+fn module_hash_from_hashedrekord_body(body_b64: &str) -> Result<Vec<u8>, WSError> {
+    let body_bytes = BASE64.decode(body_b64).map_err(|e| {
+        WSError::KeylessFormatError(format!("Rekor body is not valid base64: {}", e))
+    })?;
+    let body: serde_json::Value = serde_json::from_slice(&body_bytes).map_err(|e| {
+        WSError::KeylessFormatError(format!("Rekor body is not valid JSON: {}", e))
+    })?;
+    let hash_hex = body["spec"]["data"]["hash"]["value"]
+        .as_str()
+        .ok_or_else(|| {
+            WSError::KeylessFormatError("Rekor body missing 'spec.data.hash.value'".to_string())
+        })?;
+    let module_hash = hex::decode(hash_hex).map_err(|e| {
+        WSError::KeylessFormatError(format!("Rekor body hash value is not valid hex: {}", e))
+    })?;
+    if module_hash.len() != 32 {
+        return Err(WSError::KeylessFormatError(format!(
+            "Rekor body hash is {} bytes, expected 32 (SHA-256)",
+            module_hash.len()
+        )));
+    }
+    Ok(module_hash)
+}
+
+/// Decode a v0.3 `messageDigest.digest`. Real cosign v0.3 bundles encode the
+/// digest as base64; wsc's own [`SigstoreBundle::from_keyless_signature`]
+/// currently emits it as hex, so both encodings are accepted here.
+fn decode_v03_digest(digest: &str) -> Result<Vec<u8>, WSError> {
+    let bytes = if digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        // wsc-emitted hex form.
+        hex::decode(digest).map_err(|e| {
+            WSError::KeylessFormatError(format!("messageDigest.digest hex decode failed: {}", e))
+        })?
+    } else {
+        // cosign wire form (base64).
+        BASE64.decode(digest).map_err(|e| {
+            WSError::KeylessFormatError(format!(
+                "messageDigest.digest is neither 64-char hex nor base64: {}",
+                e
+            ))
+        })?
+    };
+    if bytes.len() != 32 {
+        return Err(WSError::KeylessFormatError(format!(
+            "messageDigest.digest is {} bytes, expected 32 (SHA-256)",
+            bytes.len()
+        )));
+    }
+    Ok(bytes)
+}
+
+/// Read a JSON value holding an unsigned integer encoded either as a number
+/// (legacy `logIndex`) or a decimal string (v0.3 `logIndex`).
+fn json_u64(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse::<u64>().ok()))
+}
+
+/// Read a JSON value holding a signed integer as a number or decimal string.
+fn json_i64(v: &serde_json::Value) -> Option<i64> {
+    v.as_i64().or_else(|| v.as_str().and_then(|s| s.parse::<i64>().ok()))
+}
+
+/// Convert an `integratedTime` (Unix seconds, given as a JSON number or
+/// string) into the RFC3339 form the wsc `RekorEntry.integrated_time` field
+/// is documented to hold. [`KeylessSignature::verify_cert_chain`] parses this
+/// field with `parse_from_rfc3339`, so storing bare Unix seconds would make
+/// every ingested bundle fail cert-chain verification.
+fn integrated_time_to_rfc3339(v: &serde_json::Value) -> Result<String, WSError> {
+    let secs = json_i64(v).ok_or_else(|| {
+        WSError::KeylessFormatError("integratedTime is not an integer".to_string())
+    })?;
+    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0).ok_or_else(|| {
+        WSError::KeylessFormatError(format!("integratedTime {} is out of range", secs))
+    })?;
+    Ok(dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `der_to_pem` (used by the v0.3 cert path, which neither committed
+    /// fixture exercises) must emit a PEM block that round-trips back to the
+    /// exact DER via `first_certificate_der`. Guards against a malformed-PEM
+    /// silent drop of the leaf cert on future keyless v0.3 bundles.
+    #[test]
+    fn test_der_to_pem_round_trips_through_first_certificate_der() {
+        // >64 bytes so the base64 body spans multiple 64-column lines.
+        let der: Vec<u8> = (0..200u32).map(|i| (i % 251) as u8).collect();
+        let pem = der_to_pem(&der);
+        assert!(pem.starts_with("-----BEGIN CERTIFICATE-----\n"));
+        assert!(pem.trim_end().ends_with("-----END CERTIFICATE-----"));
+        assert_eq!(
+            first_certificate_der(pem.as_bytes()).as_deref(),
+            Some(&der[..]),
+            "der_to_pem output must parse back to the original DER"
+        );
+    }
 
     fn create_test_signature() -> KeylessSignature {
         let signature = vec![1, 2, 3, 4, 5];
