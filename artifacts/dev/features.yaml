@@ -733,3 +733,68 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-08T15:04:57Z
+
+  - id: REQ-26
+    type: requirement
+    title: sign_digest — keyless signing over an arbitrary 32-byte digest, not only a WASM Module
+    status: draft
+    description: "KeylessSigner::sign_module requires a WASM Module, but AirGappedVerifier::verify_signature already takes a &[u8;32] digest — so a caller with non-WASM bytes (varve signs a layer manifest whose sha256 is a 32-byte digest) can verify with wsc but cannot sign. Add pub fn sign_digest(&self, digest: &[u8;32]) -> Result<KeylessSignature, WSError>; sign_module becomes sign_digest(hash_of(module)) + the module-embedding step, collapsing two keyless signing paths into one. Reported from varve (DD-025), sigil#256."
+    tags: [keyless, signing, offline, varve]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-21T17:08:45Z
+    release: v0.12.0
+
+  - id: REQ-27
+    type: requirement
+    title: from_sigstore_bundle — ingest a cosign/Sigstore bundle into KeylessSignature
+    status: draft
+    description: "SigstoreBundle can emit wsc's own signatures (from_keyless_signature/to_json/from_json) but there is no path from an existing cosign-produced bundle back into a KeylessSignature the verifiers accept — so wsc verification only works on artifacts wsc itself signed. Add pub fn KeylessSignature::from_sigstore_bundle(json: &str) -> Result<Self, WSError> supporting BOTH wire shapes in the wild: legacy rekorBundle JSON (cosign v2.4.x, what varve's release carries) and protobuf bundle.sigstore.dev/v0.3. Round-trip from_sigstore_bundle -> from_keyless_signature -> to_json must be lossless or the loss documented (a verifier that silently drops an unmodelled field is how a check stops checking). varve v0.28.0 bundle is a real public keyless GitHub-OIDC fixture; negative control = flip a digest byte. Reported from varve (DD-026), sigil#260."
+    tags: [keyless, interop, cosign, offline, varve]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-21T17:09:27Z
+    release: v0.12.0
+
+  - id: REQ-28
+    type: requirement
+    title: SigstoreBundle::verify(&trust_bundle, artifact_digest) — in-library offline bundle verify
+    status: draft
+    description: "The verify half of #260: once a cosign bundle is ingested (from_sigstore_bundle), a consumer needs an in-library entry point that verifies it offline against a provisioned TrustBundle without shelling out to 'cosign verify-blob'. SigstoreBundle currently has no verify method. Add SigstoreBundle::verify(&self, trust_bundle, artifact_digest) delegating to the AirGappedVerifier crypto path (Rekor SET + Fulcio chain + ECDSA P-256 + body-binding). REQ-23 anticipated this ('add an in-library SigstoreBundle::verify') but it never landed. sigil#231; composes with REQ-27/#260."
+    tags: [keyless, offline, airgapped, verify]
+    links:
+      - type: depends-on
+        target: REQ-27
+      - type: derives-from
+        target: REQ-23
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-21T17:09:28Z
+    release: v0.12.0
+
+  - id: REQ-29
+    type: requirement
+    title: Refresh embedded Sigstore trusted root + surface staleness (Rekor v2 time-bomb)
+    status: draft
+    description: "Fix #259: wsc's embedded Sigstore trusted root carries ONE Rekor tlog (rekor.sigstore.dev, P256); the live root carries TWO — log2025-1.rekor.sigstore.dev (Ed25519, added 2025-09-23, Rekor v2 tiled-log migration). CONFIRMED against source: embedded trusted_root.json is 4537 bytes, tlogs=1; live (sigstore/root-signing) has both, cross-validated by byte-matching the shared P256 key. This is NOT a mechanical data refresh: RekorKeyring::from_trusted_root (rekor_verifier.rs:426) SILENTLY skips non-ECDSA_P256 keys (log::warn+continue) and verify_set is P256-only, so merely adding the Ed25519 key does nothing (it is skipped) — a vacuous change of exactly the shape REQ-30 catches. Real scope: (1) Ed25519 Rekor SET verification path — key-type enum in the keyring + dispatch in verify_set + ed25519 verify; FIRST confirm whether a real log2025-1 entry carries a v1-shaped SignedEntryTimestamp over canonicalized JSON or a Rekor-v2 checkpoint/inclusion-proof (Trillian Tessera) — that decides 'enum arm' vs 'second verification path'; (2) refresh embedded root to include the cross-validated log2025-1 key; (3) turn the silent non-P256 skip into an explicit named error / staleness warning naming the vendored date (a mixed root currently drops the new log and returns a keyring that looks complete — #258-shaped); (4) make RekorKeyring::from_trusted_root public [additive API]. Bundle path already survives (from_pem_logs)."
+    tags: [keyless, trusted-root, staleness, correctness, rekor-v2]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-21T17:09:28Z
+    release: v0.12.0
+
+  - id: REQ-30
+    type: requirement
+    title: No vacuous oracles — verification tests must exercise the SUT with a negative control; sweep the suite
+    status: draft
+    description: "The airgapped e2e test (test_keyless_sign_then_airgapped_verify) is named for sign-then-verify-offline but NEVER calls verify_signature — it asserts only cert_chain non-empty and log_index>0, so a verifier returning Ok unconditionally passes it. That is exactly how #219's stub shipped: the check ran, the check passed, the check could not see the thing. This is the THIRD instance of the shape this cycle (kani matrix entry pkg:wsc matched zero harnesses after the dsse move; coverage ran -p wsc only, missing moved code). Scope: (a) fix the e2e test to do the real round trip WITH a negative control (corrupt digest / non-anchoring roots -> assert FAILS); (b) sweep for vacuous oracles — tests that never call the SUT, CI matrix entries matching zero targets, coverage filters missing workspace crates, cargo test filters matching nothing; (c) a standing check so it does not recur. Without a negative control an assertion cannot distinguish 'verified' from 'returned Ok'. sigil#258."
+    tags: [oracle-integrity, testing, negative-control, ci]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-4-8
+      timestamp: 2026-08-21T17:09:28Z
+    release: v0.12.0
