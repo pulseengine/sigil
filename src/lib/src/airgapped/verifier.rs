@@ -1023,6 +1023,80 @@ mod tests {
         );
     }
 
+    // ----------------------------------------------------------------
+    // Negative controls through the PUBLIC entry point (`verify_signature`,
+    // REQ-30 / #258). The private `verify_crypto` is well-covered above, but
+    // `verify_signature`'s pre-crypto gates (time source, module-hash match)
+    // and its wiring into `verify_crypto` were POSITIVE-only. Each test below
+    // asserts on the SPECIFIC error the gate raises — not a bare `is_err()`.
+    //
+    // Deviation from a bare-`Err` assertion is deliberate: the module-hash and
+    // signature checks are each guarded twice (once in `verify_signature`,
+    // again in `verify_crypto`), so a bare `is_err()` here is unfalsifiable by
+    // any single-line mutation. Asserting the exact message ties the oracle to
+    // the specific gate so a broken gate is observable (see #258 mutation
+    // proofs).
+    // ----------------------------------------------------------------
+
+    /// SECURITY: with no time source the public path must fail closed — all
+    /// time-based checks (expiry, freshness) are meaningless without a clock.
+    /// This branch (verifier.rs `verify_signature`, the `ok_or_else` on the
+    /// time source) had ZERO coverage. `verifier_for` builds a verifier whose
+    /// `time_source` is `None`.
+    #[test]
+    fn test_verify_signature_no_time_source_fails_closed() {
+        let (bundle, sig, module_hash, _sk) = valid_case();
+        let verifier = verifier_for(&bundle);
+        let err = verifier.verify_signature(&sig, &module_hash).unwrap_err();
+        match err {
+            WSError::VerificationError(m) => assert!(
+                m.contains("No time source"),
+                "expected a fail-closed 'No time source' error, got: {}",
+                m
+            ),
+            o => panic!("expected VerificationError(No time source ...), got {:?}", o),
+        }
+    }
+
+    /// A caller-provided digest that differs from the signature's recorded
+    /// `module_hash` must be rejected by `verify_signature`'s step-5 gate with
+    /// its exact message, before any crypto runs.
+    #[test]
+    fn test_verify_signature_hash_mismatch_rejected() {
+        let (bundle, sig, _module_hash, _sk) = valid_case();
+        let verifier = verifier_for_system(&bundle);
+        // [0u8; 32] differs from sig.module_hash (= mh()).
+        let err = verifier.verify_signature(&sig, &[0u8; 32]).unwrap_err();
+        match err {
+            // Step 5 of verify_signature raises exactly "Module hash mismatch"
+            // (capital M). verify_crypto's own guard uses a different, longer
+            // lowercase message, so assert_eq pins this to the public gate.
+            WSError::VerificationError(m) => assert_eq!(m, "Module hash mismatch"),
+            o => panic!("expected VerificationError(Module hash mismatch), got {:?}", o),
+        }
+    }
+
+    /// A tampered signature must be rejected by the cryptographic step reached
+    /// through the public entry point, with the "signature verification failed"
+    /// message — distinct from the later body-binding gate, which returns a
+    /// different error variant entirely.
+    #[test]
+    fn test_verify_signature_tampered_sig_rejected() {
+        let (bundle, mut sig, module_hash, _sk) = valid_case();
+        // Flip one byte so the P-256 signature no longer verifies over the hash.
+        sig.signature[0] ^= 0x01;
+        let verifier = verifier_for_system(&bundle);
+        let err = verifier.verify_signature(&sig, &module_hash).unwrap_err();
+        match err {
+            WSError::VerificationError(m) => assert!(
+                m.contains("signature verification failed"),
+                "expected the crypto step to reject a tampered signature, got: {}",
+                m
+            ),
+            o => panic!("expected VerificationError(signature ...), got {:?}", o),
+        }
+    }
+
     #[test]
     fn test_offline_tampered_signature() {
         // Well-formed signature (same key) but over a *different* prehash, so

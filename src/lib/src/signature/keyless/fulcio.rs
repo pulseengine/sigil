@@ -251,6 +251,21 @@ impl FulcioClient {
         // Send request using platform-specific implementation
         let response = self.send_request(&request)?;
 
+        // Parse and validate the certificate chain (enforces the empty-chain
+        // guard). Split out so the guard is testable without a live round-trip.
+        Self::certificate_from_response(response)
+    }
+
+    /// Build a [`FulcioCertificate`] from a parsed Fulcio response, enforcing
+    /// the empty-chain guard.
+    ///
+    /// Extracted from [`get_certificate`](Self::get_certificate) so the
+    /// empty-chain rejection is unit-testable without a live Fulcio/OIDC
+    /// round-trip (REQ-30 / #258): only `send_request` needs the network, not
+    /// this response-parsing logic.
+    fn certificate_from_response(
+        response: FulcioResponse,
+    ) -> Result<FulcioCertificate, WSError> {
         // Parse certificate chain
         let cert_chain = response.signed_certificate_embedded_sct.chain.certificates;
 
@@ -666,9 +681,28 @@ SGVsbG8gV29ybGQh
 
     #[test]
     fn test_empty_certificate_chain_error() {
-        // This tests the error handling when Fulcio returns an empty chain
-        // In a real scenario, this would come from the get_certificate method
-        let cert_chain: Vec<String> = vec![];
-        assert!(cert_chain.is_empty());
+        // REQ-30 / #258: actually drive the guard. Deserialize a Fulcio
+        // response with an empty chain and feed it to the real response-parsing
+        // path (`certificate_from_response`, split out of `get_certificate`),
+        // asserting it rejects with the specific FulcioError — instead of the
+        // former tautology (`assert!(vec![].is_empty())`).
+        let json = r#"{
+            "signedCertificateEmbeddedSct": {
+                "chain": {
+                    "certificates": []
+                }
+            }
+        }"#;
+        let response: FulcioResponse = serde_json::from_str(json).unwrap();
+
+        let err = FulcioClient::certificate_from_response(response).unwrap_err();
+        match err {
+            WSError::FulcioError(m) => assert!(
+                m.contains("Empty certificate chain"),
+                "expected the empty-chain guard to fire, got: {}",
+                m
+            ),
+            o => panic!("expected FulcioError(Empty certificate chain ...), got {:?}", o),
+        }
     }
 }

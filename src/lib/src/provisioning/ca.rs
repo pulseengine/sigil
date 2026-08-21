@@ -326,6 +326,15 @@ impl PrivateCA {
         // Key usage for CA
         params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
 
+        // Extended key usage: the intermediate issues device *code-signing*
+        // certificates, and RFC-5280 EKU nesting (enforced by the offline
+        // `OfflineVerifier` / webpki with `KeyUsage::required(codeSigning)`)
+        // requires every CA in the path to permit the leaf's EKU. Without this,
+        // NO device chain issued through an intermediate could be validated by
+        // this module's own verifier (device -> intermediate -> root), even
+        // though verification.rs documents exactly that flow. REQ-30 / #258.
+        params.extended_key_usages = vec![ExtendedKeyUsagePurpose::CodeSigning];
+
         // Convert Ed25519 keypair to rcgen KeyPair
         let key_pair_pem = Self::ed25519_to_pem(keypair)?;
         let rcgen_keypair = rcgen::KeyPair::from_pem(&key_pair_pem)
@@ -768,48 +777,72 @@ mod tests {
         println!("  Serial: {}", cert.serial.to_str_radix(16));
     }
 
+    /// Cryptographic chain validation (REQ-30 / #258).
+    ///
+    /// The previous version of this test only compared issuer/subject DN
+    /// *strings* and never verified a single signature — a forged certificate
+    /// carrying the right issuer DN would have passed. It now drives the REAL
+    /// validator (`OfflineVerifier`, built via `OfflineVerifierBuilder`) and
+    /// pairs a POSITIVE case with a NEGATIVE control that proves signatures
+    /// are actually checked.
     #[test]
     fn test_certificate_chain_validation() {
-        use x509_parser::prelude::*;
+        use crate::provisioning::verification::OfflineVerifierBuilder;
 
-        // Create Root CA
-        let root_config = CAConfig::new("Test Corp", "Test Root CA");
-        let root_ca = PrivateCA::create_root(root_config).unwrap();
+        // --- Trusted chain: root -> intermediate -> device ---
+        let root_ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+        let intermediate_ca = PrivateCA::create_intermediate(
+            &root_ca,
+            CAConfig::new("Test Corp", "Test Intermediate CA"),
+        )
+        .unwrap();
 
-        // Create Intermediate CA
-        let intermediate_config = CAConfig::new("Test Corp", "Test Intermediate CA");
-        let intermediate_ca =
-            PrivateCA::create_intermediate(&root_ca, intermediate_config).unwrap();
-
-        // Create device certificate
         let device_keypair = KeyPair::generate();
         let device_id = DeviceIdentity::new("device-xyz");
         let cert_config = CertificateConfig::new("device-xyz");
-
         let device_cert_der = intermediate_ca
             .sign_device_certificate(&device_keypair.pk, &device_id, &cert_config)
             .unwrap();
 
-        // Parse all certificates
-        let (_, root_cert) = X509Certificate::from_der(root_ca.certificate()).unwrap();
-        let (_, intermediate_cert) =
-            X509Certificate::from_der(intermediate_ca.certificate()).unwrap();
-        let (_, device_cert) = X509Certificate::from_der(&device_cert_der).unwrap();
+        // Verifier anchored at the REAL trusted root, with the trusted
+        // intermediate supplied for path building.
+        let verifier = OfflineVerifierBuilder::new()
+            .with_root(root_ca.certificate())
+            .unwrap()
+            .with_intermediate(intermediate_ca.certificate())
+            .build()
+            .unwrap();
 
-        // Verify chain: device -> intermediate -> root
-        // Device cert issuer should match intermediate subject
-        assert_eq!(device_cert.issuer(), intermediate_cert.subject());
+        // POSITIVE: the genuine device cert must cryptographically validate to
+        // the trusted root (device certs carry the codeSigning EKU the
+        // validator requires; verified at issuance time, so pass `None` = now).
+        verifier
+            .verify_device_certificate(&device_cert_der, None)
+            .expect("genuine device cert must validate against its own trusted root");
 
-        // Intermediate cert issuer should match root subject
-        assert_eq!(intermediate_cert.issuer(), root_cert.subject());
+        // NEGATIVE CONTROL: a SECOND, independent root+intermediate that reuses
+        // the SAME distinguished names (a forged issuer identity). The device
+        // cert it signs carries an issuer DN identical to the trusted
+        // intermediate's subject DN, so a DN-only check would accept it. The
+        // real validator must reject it because the signatures chain to an
+        // UNTRUSTED key, not the trusted root.
+        let evil_root =
+            PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+        let evil_intermediate = PrivateCA::create_intermediate(
+            &evil_root,
+            CAConfig::new("Test Corp", "Test Intermediate CA"),
+        )
+        .unwrap();
+        let evil_device_der = evil_intermediate
+            .sign_device_certificate(&device_keypair.pk, &device_id, &cert_config)
+            .unwrap();
 
-        // Root cert should be self-signed
-        assert_eq!(root_cert.issuer(), root_cert.subject());
-
-        println!("✓ Certificate chain is valid");
-        println!("  Root: {}", root_cert.subject());
-        println!("  Intermediate: {}", intermediate_cert.subject());
-        println!("  Device: {}", device_cert.subject());
+        let result = verifier.verify_device_certificate(&evil_device_der, None);
+        assert!(
+            result.is_err(),
+            "a device cert forged under an untrusted CA with a matching issuer DN \
+             must NOT validate against the trusted root (got Ok)"
+        );
     }
 
     // ============================================================================
