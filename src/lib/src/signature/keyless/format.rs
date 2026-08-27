@@ -1197,6 +1197,586 @@ mod tests {
         );
     }
 
+    // ---------------------------------------------------------------
+    // `from_sigstore_bundle` error paths.
+    //
+    // Every test below drives ONE branch with the smallest input that
+    // reaches it and asserts the SPECIFIC message that branch emits, so
+    // deleting the branch (or letting control fall through to a
+    // neighbouring error) fails the test rather than silently passing.
+    // ---------------------------------------------------------------
+
+    /// Run `from_sigstore_bundle` on `json`, require a `KeylessFormatError`,
+    /// and return its message for substring assertions.
+    fn format_err(json: &str) -> String {
+        match KeylessSignature::from_sigstore_bundle(json) {
+            Err(WSError::KeylessFormatError(msg)) => msg,
+            Err(other) => panic!("expected KeylessFormatError, got: {other:?}"),
+            Ok(_) => panic!("expected an error, but the bundle ingested"),
+        }
+    }
+
+    /// Base64 of a minimal, well-formed `hashedrekord` body whose
+    /// `spec.data.hash.value` is a valid 32-byte SHA-256 in hex.
+    fn valid_body_b64() -> String {
+        BASE64.encode(
+            serde_json::json!({
+                "apiVersion": "0.0.1",
+                "kind": "hashedrekord",
+                "spec": { "data": { "hash": { "algorithm": "sha256", "value": "aa".repeat(32) } } }
+            })
+            .to_string(),
+        )
+    }
+
+    /// A minimal legacy `rekorBundle` bundle that ingests successfully.
+    /// Each error test clones this and breaks exactly one field, so the
+    /// branch under test is the only thing that can fail.
+    fn valid_legacy() -> serde_json::Value {
+        serde_json::json!({
+            "base64Signature": BASE64.encode([1u8, 2, 3]),
+            "cert": BASE64.encode("-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----"),
+            "rekorBundle": {
+                "SignedEntryTimestamp": BASE64.encode([9u8, 9, 9]),
+                "Payload": {
+                    "body": valid_body_b64(),
+                    "integratedTime": 1_700_000_000i64,
+                    "logIndex": 42i64,
+                    "logID": "c0d23d6a",
+                }
+            }
+        })
+    }
+
+    /// The base fixture must actually ingest — otherwise every "break one
+    /// field" test below could be passing for the wrong reason.
+    #[test]
+    fn legacy_base_is_valid_control() {
+        let sig = KeylessSignature::from_sigstore_bundle(&valid_legacy().to_string())
+            .expect("the base legacy bundle used by the error tests must ingest");
+        assert_eq!(sig.module_hash, hex::decode("aa".repeat(32)).unwrap());
+        assert_eq!(sig.rekor_entry.log_index, 42);
+        assert_eq!(sig.rekor_entry.log_id, "c0d23d6a");
+        assert_eq!(sig.rekor_entry.integrated_time, "2023-11-14T22:13:20Z");
+    }
+
+    // --- dispatch ---------------------------------------------------
+
+    #[test]
+    fn from_sigstore_bundle_rejects_malformed_json() {
+        assert!(format_err("{not json").contains("Sigstore bundle is not valid JSON"));
+    }
+
+    #[test]
+    fn from_sigstore_bundle_rejects_non_object_json() {
+        // Valid JSON, but an array — must hit the "not a JSON object" branch,
+        // not the JSON-parse branch above nor the unrecognised-format branch.
+        assert!(format_err("[1, 2, 3]").contains("Sigstore bundle is not a JSON object"));
+        assert!(format_err("\"a string\"").contains("Sigstore bundle is not a JSON object"));
+    }
+
+    #[test]
+    fn from_sigstore_bundle_dispatches_v03_on_media_type_alone() {
+        // A `mediaType` starting with the sigstore bundle prefix routes to the
+        // v0.3 parser even with no `verificationMaterial` key — proving the
+        // mediaType arm of the dispatch, not the verificationMaterial arm.
+        let msg = format_err(
+            &serde_json::json!({ "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json" })
+                .to_string(),
+        );
+        assert!(
+            msg.contains("no certificate in verificationMaterial"),
+            "got: {msg}"
+        );
+    }
+
+    // --- legacy error paths -----------------------------------------
+
+    #[test]
+    fn legacy_missing_base64_signature() {
+        let mut b = valid_legacy();
+        b.as_object_mut().unwrap().remove("base64Signature");
+        assert!(format_err(&b.to_string()).contains("missing 'base64Signature'"));
+    }
+
+    #[test]
+    fn legacy_base64_signature_not_base64() {
+        let mut b = valid_legacy();
+        b["base64Signature"] = serde_json::json!("!!!not base64!!!");
+        assert!(
+            format_err(&b.to_string()).contains("'base64Signature' is not valid base64"),
+            "expected the base64 decode error for the signature"
+        );
+    }
+
+    #[test]
+    fn legacy_missing_cert() {
+        let mut b = valid_legacy();
+        b.as_object_mut().unwrap().remove("cert");
+        assert!(format_err(&b.to_string()).contains("legacy Sigstore bundle missing 'cert'"));
+    }
+
+    #[test]
+    fn legacy_cert_not_base64() {
+        let mut b = valid_legacy();
+        b["cert"] = serde_json::json!("!!!not base64!!!");
+        assert!(format_err(&b.to_string()).contains("'cert' is not valid base64"));
+    }
+
+    #[test]
+    fn legacy_cert_not_utf8() {
+        let mut b = valid_legacy();
+        // Valid base64 that decodes to bytes which are not valid UTF-8, so the
+        // decode succeeds and the FROM_UTF8 branch is the one that fires.
+        b["cert"] = serde_json::json!(BASE64.encode([0xffu8, 0xfe, 0xfd]));
+        let msg = format_err(&b.to_string());
+        assert!(
+            msg.contains("'cert' is not valid UTF-8 PEM"),
+            "expected the UTF-8 branch, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn legacy_missing_body() {
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("body");
+        assert!(
+            format_err(&b.to_string()).contains("missing 'rekorBundle.Payload.body'"),
+            "expected the missing-body branch"
+        );
+    }
+
+    #[test]
+    fn legacy_log_index_missing_or_not_a_number() {
+        // Absent.
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("logIndex");
+        assert!(
+            format_err(&b.to_string()).contains("'rekorBundle.Payload.logIndex' is not an integer")
+        );
+
+        // Present but neither a number nor a decimal string.
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]["logIndex"] = serde_json::json!("not-a-number");
+        assert!(
+            format_err(&b.to_string()).contains("'rekorBundle.Payload.logIndex' is not an integer")
+        );
+    }
+
+    #[test]
+    fn legacy_log_index_accepts_decimal_string() {
+        // Non-vacuity partner of the test above: `json_u64` must still accept
+        // the string form, otherwise the "not an integer" assertion could be
+        // passing because the parser rejects every string.
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]["logIndex"] = serde_json::json!("2544945534");
+        let sig = KeylessSignature::from_sigstore_bundle(&b.to_string()).expect("string logIndex");
+        assert_eq!(sig.rekor_entry.log_index, 2544945534);
+    }
+
+    #[test]
+    fn legacy_missing_log_id() {
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]
+            .as_object_mut()
+            .unwrap()
+            .remove("logID");
+        assert!(format_err(&b.to_string()).contains("missing 'rekorBundle.Payload.logID'"));
+    }
+
+    #[test]
+    fn legacy_integrated_time_not_a_number() {
+        let mut b = valid_legacy();
+        b["rekorBundle"]["Payload"]["integratedTime"] = serde_json::json!({ "not": "a number" });
+        assert!(format_err(&b.to_string()).contains("integratedTime is not an integer"));
+    }
+
+    #[test]
+    fn legacy_missing_signed_entry_timestamp() {
+        let mut b = valid_legacy();
+        b["rekorBundle"]
+            .as_object_mut()
+            .unwrap()
+            .remove("SignedEntryTimestamp");
+        assert!(
+            format_err(&b.to_string()).contains("missing 'rekorBundle.SignedEntryTimestamp'"),
+            "the SET is the only offline transparency proof a legacy bundle \
+             carries; its absence must be an error, never a silent empty"
+        );
+    }
+
+    // --- v0.3 error paths -------------------------------------------
+
+    /// A minimal v0.3 bundle that ingests successfully. Structural only: the
+    /// v0.3 parser performs no cryptographic checks, so synthetic bytes are
+    /// sufficient for these branch tests (the real-material happy paths live
+    /// in `tests/sigstore_bundle.rs`).
+    fn valid_v03() -> serde_json::Value {
+        serde_json::json!({
+            "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+            "verificationMaterial": {
+                "certificate": { "rawBytes": BASE64.encode([1u8, 2, 3]) },
+                "tlogEntries": [{
+                    "logIndex": "42",
+                    "logId": { "keyId": BASE64.encode([0xc0u8, 0xd2]) },
+                    "integratedTime": "1700000000",
+                }],
+            },
+            "messageSignature": {
+                "messageDigest": { "algorithm": "SHA2_256", "digest": BASE64.encode([7u8; 32]) },
+                "signature": BASE64.encode([4u8, 5, 6]),
+            },
+        })
+    }
+
+    #[test]
+    fn v03_base_is_valid_control() {
+        let sig = KeylessSignature::from_sigstore_bundle(&valid_v03().to_string())
+            .expect("the base v0.3 bundle used by the error tests must ingest");
+        assert_eq!(sig.signature, vec![4, 5, 6]);
+        assert_eq!(sig.module_hash, vec![7u8; 32]);
+        assert_eq!(sig.rekor_entry.log_index, 42);
+        // base64 keyId is re-encoded as hex.
+        assert_eq!(sig.rekor_entry.log_id, "c0d2");
+        assert_eq!(sig.cert_chain.len(), 1);
+        assert_eq!(
+            first_certificate_der(sig.cert_chain[0].as_bytes()),
+            Some(vec![1, 2, 3]),
+            "the singular `certificate.rawBytes` DER must survive der_to_pem"
+        );
+    }
+
+    #[test]
+    fn v03_certificate_missing_raw_bytes() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]["certificate"] = serde_json::json!({});
+        assert!(format_err(&b.to_string()).contains("'certificate' missing 'rawBytes'"));
+    }
+
+    #[test]
+    fn v03_certificate_raw_bytes_not_base64() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]["certificate"]["rawBytes"] = serde_json::json!("!!!nope!!!");
+        assert!(format_err(&b.to_string()).contains("'certificate.rawBytes' is not valid base64"));
+    }
+
+    #[test]
+    fn v03_x509_chain_certificates_not_an_array() {
+        let mut b = valid_v03();
+        let vm = b["verificationMaterial"].as_object_mut().unwrap();
+        vm.remove("certificate");
+        vm.insert(
+            "x509CertificateChain".to_string(),
+            serde_json::json!({ "certificates": "not an array" }),
+        );
+        assert!(
+            format_err(&b.to_string())
+                .contains("'x509CertificateChain.certificates' is not an array")
+        );
+    }
+
+    #[test]
+    fn v03_x509_chain_entry_missing_raw_bytes() {
+        let mut b = valid_v03();
+        let vm = b["verificationMaterial"].as_object_mut().unwrap();
+        vm.remove("certificate");
+        vm.insert(
+            "x509CertificateChain".to_string(),
+            serde_json::json!({ "certificates": [{ "notRawBytes": "x" }] }),
+        );
+        let msg = format_err(&b.to_string());
+        assert!(
+            msg.contains("v0.3 certificate missing 'rawBytes'"),
+            "expected the per-entry missing-rawBytes error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn v03_x509_chain_entry_raw_bytes_not_base64() {
+        let mut b = valid_v03();
+        let vm = b["verificationMaterial"].as_object_mut().unwrap();
+        vm.remove("certificate");
+        vm.insert(
+            "x509CertificateChain".to_string(),
+            serde_json::json!({ "certificates": [
+                { "rawBytes": BASE64.encode([1u8, 2, 3]) },
+                { "rawBytes": "!!!nope!!!" },
+            ]}),
+        );
+        let msg = format_err(&b.to_string());
+        assert!(
+            msg.contains("v0.3 certificate 'rawBytes' is not valid base64"),
+            "a bad cert ANYWHERE in the chain must fail, not just the leaf; got: {msg}"
+        );
+    }
+
+    #[test]
+    fn v03_no_certificate_at_all() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]
+            .as_object_mut()
+            .unwrap()
+            .remove("certificate");
+        assert!(
+            format_err(&b.to_string()).contains("no certificate in verificationMaterial"),
+            "with neither certificate, x509CertificateChain, nor publicKey"
+        );
+    }
+
+    #[test]
+    fn v03_missing_message_signature() {
+        let mut b = valid_v03();
+        b["messageSignature"]
+            .as_object_mut()
+            .unwrap()
+            .remove("signature");
+        assert!(format_err(&b.to_string()).contains("missing 'messageSignature.signature'"));
+    }
+
+    #[test]
+    fn v03_message_signature_not_base64() {
+        let mut b = valid_v03();
+        b["messageSignature"]["signature"] = serde_json::json!("!!!nope!!!");
+        assert!(
+            format_err(&b.to_string()).contains("'messageSignature.signature' is not valid base64")
+        );
+    }
+
+    #[test]
+    fn v03_missing_message_digest() {
+        let mut b = valid_v03();
+        b["messageSignature"]["messageDigest"]
+            .as_object_mut()
+            .unwrap()
+            .remove("digest");
+        assert!(
+            format_err(&b.to_string()).contains("missing 'messageSignature.messageDigest.digest'")
+        );
+    }
+
+    #[test]
+    fn v03_digest_neither_hex_nor_base64() {
+        let mut b = valid_v03();
+        b["messageSignature"]["messageDigest"]["digest"] = serde_json::json!("!!!nope!!!");
+        assert!(
+            format_err(&b.to_string())
+                .contains("messageDigest.digest is neither 64-char hex nor base64")
+        );
+    }
+
+    #[test]
+    fn v03_digest_wrong_length() {
+        let mut b = valid_v03();
+        // Valid base64, decodes to 3 bytes — not a SHA-256.
+        b["messageSignature"]["messageDigest"]["digest"] =
+            serde_json::json!(BASE64.encode([1u8, 2, 3]));
+        assert!(
+            format_err(&b.to_string()).contains("messageDigest.digest is 3 bytes, expected 32")
+        );
+    }
+
+    #[test]
+    fn v03_missing_or_empty_tlog_entries() {
+        // Key absent entirely.
+        let mut b = valid_v03();
+        b["verificationMaterial"]
+            .as_object_mut()
+            .unwrap()
+            .remove("tlogEntries");
+        assert!(format_err(&b.to_string()).contains("no transparency-log entries"));
+
+        // Present but empty — `.first()` yields None, same branch. A bundle
+        // with zero log entries must be rejected, not accepted with a blank
+        // Rekor entry.
+        let mut b = valid_v03();
+        b["verificationMaterial"]["tlogEntries"] = serde_json::json!([]);
+        assert!(format_err(&b.to_string()).contains("no transparency-log entries"));
+    }
+
+    #[test]
+    fn v03_tlog_log_index_not_an_integer() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]["tlogEntries"][0]["logIndex"] = serde_json::json!(false);
+        assert!(format_err(&b.to_string()).contains("v0.3 tlogEntry 'logIndex' is not an integer"));
+    }
+
+    #[test]
+    fn v03_tlog_key_id_not_base64() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]["tlogEntries"][0]["logId"]["keyId"] =
+            serde_json::json!("!!!nope!!!");
+        assert!(format_err(&b.to_string()).contains("tlogEntry 'logId.keyId' is not valid base64"));
+    }
+
+    #[test]
+    fn v03_tlog_log_id_absent_yields_empty_log_id() {
+        // Documented fallback (format.rs `None => String::new()`): an absent
+        // `logId` is tolerated and produces an EMPTY log id rather than an
+        // error. Asserted explicitly so the tolerance is visible: an empty
+        // log_id cannot select a Rekor log key, so SET verification downstream
+        // has nothing to check against.
+        let mut b = valid_v03();
+        b["verificationMaterial"]["tlogEntries"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("logId");
+        let sig = KeylessSignature::from_sigstore_bundle(&b.to_string())
+            .expect("absent logId is currently tolerated");
+        assert_eq!(sig.rekor_entry.log_id, "");
+    }
+
+    #[test]
+    fn v03_tlog_integrated_time_not_a_number() {
+        let mut b = valid_v03();
+        b["verificationMaterial"]["tlogEntries"][0]["integratedTime"] = serde_json::json!([1, 2]);
+        assert!(format_err(&b.to_string()).contains("integratedTime is not an integer"));
+    }
+
+    // --- helper functions -------------------------------------------
+
+    #[test]
+    fn module_hash_from_body_rejects_non_base64() {
+        let err = module_hash_from_hashedrekord_body("!!!not base64!!!").unwrap_err();
+        assert!(format!("{err:?}").contains("Rekor body is not valid base64"));
+    }
+
+    #[test]
+    fn module_hash_from_body_rejects_non_json() {
+        let err =
+            module_hash_from_hashedrekord_body(&BASE64.encode("not json at all")).unwrap_err();
+        assert!(format!("{err:?}").contains("Rekor body is not valid JSON"));
+    }
+
+    #[test]
+    fn module_hash_from_body_rejects_missing_hash_value() {
+        let body = BASE64.encode(serde_json::json!({ "spec": { "data": {} } }).to_string());
+        let err = module_hash_from_hashedrekord_body(&body).unwrap_err();
+        assert!(format!("{err:?}").contains("Rekor body missing 'spec.data.hash.value'"));
+    }
+
+    #[test]
+    fn module_hash_from_body_rejects_non_hex_value() {
+        let body = BASE64.encode(
+            serde_json::json!({ "spec": { "data": { "hash": { "value": "zz".repeat(32) } } } })
+                .to_string(),
+        );
+        let err = module_hash_from_hashedrekord_body(&body).unwrap_err();
+        assert!(format!("{err:?}").contains("Rekor body hash value is not valid hex"));
+    }
+
+    #[test]
+    fn module_hash_from_body_rejects_wrong_length_hash() {
+        // Valid hex, but 16 bytes rather than a SHA-256's 32. A short digest
+        // must be rejected outright: it can never match a recomputed module
+        // hash, and accepting it would let a truncated digest through.
+        let body = BASE64.encode(
+            serde_json::json!({ "spec": { "data": { "hash": { "value": "ab".repeat(16) } } } })
+                .to_string(),
+        );
+        let err = module_hash_from_hashedrekord_body(&body).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("Rekor body hash is 16 bytes, expected 32"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn decode_v03_digest_accepts_both_wire_encodings() {
+        let raw: Vec<u8> = (0..32u8).collect();
+        // wsc-emitted hex form.
+        assert_eq!(decode_v03_digest(&hex::encode(&raw)).unwrap(), raw);
+        // cosign wire form (base64) — 44 chars, so it takes the other arm.
+        assert_eq!(decode_v03_digest(&BASE64.encode(&raw)).unwrap(), raw);
+    }
+
+    #[test]
+    fn decode_v03_digest_rejects_garbage_and_wrong_length() {
+        assert!(
+            format!("{:?}", decode_v03_digest("!!!").unwrap_err())
+                .contains("neither 64-char hex nor base64")
+        );
+        // Valid base64 of 31 bytes: decodes fine, wrong size.
+        let short = BASE64.encode(vec![0u8; 31]);
+        assert!(
+            format!("{:?}", decode_v03_digest(&short).unwrap_err())
+                .contains("messageDigest.digest is 31 bytes, expected 32")
+        );
+        // A 64-char string that is valid base64 but NOT hex (48 bytes encode
+        // to exactly 64 unpadded base64 chars) must take the base64 arm and
+        // decode to 48 bytes — proving the hex arm is gated on
+        // `is_ascii_hexdigit`, not on length alone.
+        let sixty_four_non_hex = BASE64.encode(vec![0xffu8; 48]);
+        assert_eq!(sixty_four_non_hex.len(), 64);
+        assert!(!sixty_four_non_hex.bytes().all(|b| b.is_ascii_hexdigit()));
+        let err = decode_v03_digest(&sixty_four_non_hex).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("messageDigest.digest is 48 bytes, expected 32"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn integrated_time_rejects_non_integer() {
+        let err = integrated_time_to_rfc3339(&serde_json::json!("not a time")).unwrap_err();
+        assert!(format!("{err:?}").contains("integratedTime is not an integer"));
+        let err = integrated_time_to_rfc3339(&serde_json::json!(null)).unwrap_err();
+        assert!(format!("{err:?}").contains("integratedTime is not an integer"));
+    }
+
+    #[test]
+    fn integrated_time_rejects_out_of_range() {
+        let err = integrated_time_to_rfc3339(&serde_json::json!(i64::MAX)).unwrap_err();
+        assert!(
+            format!("{err:?}").contains("is out of range"),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn integrated_time_accepts_number_and_decimal_string() {
+        // Both wire forms map to the SAME RFC3339 instant. `verify_cert_chain`
+        // parses this field with `parse_from_rfc3339`, so a bare Unix-seconds
+        // string here would break every ingested bundle.
+        assert_eq!(
+            integrated_time_to_rfc3339(&serde_json::json!(1_787_295_161i64)).unwrap(),
+            "2026-08-21T06:52:41Z"
+        );
+        assert_eq!(
+            integrated_time_to_rfc3339(&serde_json::json!("1787295161")).unwrap(),
+            "2026-08-21T06:52:41Z"
+        );
+    }
+
+    #[test]
+    fn split_pem_certificates_handles_one_many_and_unterminated() {
+        let one = "-----BEGIN CERTIFICATE-----\nAQID\n-----END CERTIFICATE-----\n";
+        assert_eq!(split_pem_certificates(one).len(), 1);
+
+        // Two concatenated blocks -> two chain entries (Fulcio leaf +
+        // intermediate arrive this way in the legacy `cert` field).
+        let two = format!("{one}{one}");
+        let split = split_pem_certificates(&two);
+        assert_eq!(split.len(), 2, "concatenated PEM blocks must be split");
+        assert!(
+            split
+                .iter()
+                .all(|c| c.ends_with("-----END CERTIFICATE-----"))
+        );
+
+        // No END marker at all: the whole trimmed input is returned as a
+        // single entry rather than yielding an empty chain, which would make
+        // an unterminated PEM silently look like "no certificate".
+        let unterminated = "  -----BEGIN CERTIFICATE-----\nAQID  ";
+        let split = split_pem_certificates(unterminated);
+        assert_eq!(split, vec![unterminated.trim().to_string()]);
+    }
+
     fn create_test_signature() -> KeylessSignature {
         let signature = vec![1, 2, 3, 4, 5];
         let cert_chain = vec![
