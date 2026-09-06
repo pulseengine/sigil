@@ -55,7 +55,12 @@ fn start() -> Result<(), WSError> {
     // expands to CARGO_PKG_NAME, so `wsc --version` reported `wsc-cli 0.10.0` —
     // a name that appears on no PATH. pulseengine-cli-conventions rule 1 asks
     // for the installed binary's name.
-    let matches = Command::new(env!("CARGO_BIN_NAME"))
+    //
+    // option_env!, not env!: CARGO_BIN_NAME is set by Cargo and NOT by
+    // rules_rust, so `env!` builds under cargo and fails the Bazel build with
+    // "environment variable `CARGO_BIN_NAME` not defined at compile time".
+    // This crate is built both ways (//src/cli:wasmsign_cli).
+    let matches = Command::new(option_env!("CARGO_BIN_NAME").unwrap_or("wsc"))
         .version(crate_version!())
         .about(crate_description!())
         .arg(
