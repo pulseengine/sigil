@@ -2,19 +2,21 @@ Rank source files in this repository by likelihood of containing a
 security-relevant bug, on a 1–5 scale. Output JSON:
 `[{"file": "...", "rank": N, "reason": "..."}]`, sorted descending.
 
-Scope: files under `src/lib/`, `src/cli/`, and `src/component/`.
+Scope: files under `src/lib/`, `src/verify-core/`, `src/dsse/`,
+`src/attestation/`, `src/cli/`, and `src/component/`.
+(The v0.11.0 crate split moved several tier-5 files out of `src/lib/`.)
 Exclude tests, examples, and generated code.
 
 Ranking rubric (sigil-specific):
 
 5 (crown jewels — key material, parse-before-verify, canonicalization):
-  - src/lib/src/wasm_module/**            # untrusted bytes before sig check
-  - src/lib/src/signature/keys.rs         # Ed25519 secret-key material
-  - src/lib/src/signature/sig_sections.rs # parses signature custom-section from untrusted WASM; cert chains
+  - src/verify-core/src/wasm_module/**    # untrusted bytes before sig check
+  - src/verify-core/src/signature/keys.rs # Ed25519 secret-key material
+  - src/verify-core/src/signature/sig_sections.rs # parses signature custom-section from untrusted WASM; cert chains
   - src/lib/src/airgapped/bundle.rs       # single root of trust offline
   - src/lib/src/airgapped/tuf.rs
-  - src/lib/src/secure_file.rs            # on-disk secret permissions
-  - src/lib/src/dsse.rs                   # PAE canonicalization — injectivity is load-bearing
+  - src/verify-core/src/secure_file.rs    # on-disk secret permissions
+  - src/dsse/src/lib.rs                   # PAE canonicalization — injectivity is load-bearing
   - src/lib/src/platform/{software,keyring_storage,tpm2,trustzone,sgx}.rs  # SecureKeyProvider impls — real key material
   - src/lib/src/platform/secure_element/**  # hardware key operations
   - src/lib/src/provisioning/ca.rs        # private CA root/intermediate key material, HSM

@@ -170,7 +170,7 @@ BorrowedBuf), rich `Vec` manipulation, or deep generic trait dispatch. When a
 Kani harness OOMs, that is NOT evidence the property holds — it is evidence
 the tool cannot reach the property. Fall back to the nearest lower-level
 Kani proof on the primitives the code composes (see existing proofs in
-`src/lib/src/wasm_module/varint.rs` for examples), and document the
+`src/verify-core/src/wasm_module/varint.rs` for examples), and document the
 limitation in the finding report.
 
 ### Mythos Bug-Hunt Pipeline
@@ -210,14 +210,17 @@ Procedure:
 
 ```bash
 # Identify changed tier-5 files
+# NOTE: the v0.11.0 crate split moved several crown jewels out of src/lib.
+# These are the CURRENT tier-5 locations — keep this list in sync with
+# scripts/mythos/rank.md, or the delta pass silently scopes to zero files.
 git diff --name-only v<last>..HEAD -- \
-  src/lib/src/wasm_module/ \
-  src/lib/src/signature/keys.rs \
-  src/lib/src/signature/sig_sections.rs \
+  src/verify-core/src/wasm_module/ \
+  src/verify-core/src/signature/keys.rs \
+  src/verify-core/src/signature/sig_sections.rs \
+  src/verify-core/src/secure_file.rs \
+  src/dsse/src/lib.rs \
   src/lib/src/airgapped/bundle.rs \
   src/lib/src/airgapped/tuf.rs \
-  src/lib/src/secure_file.rs \
-  src/lib/src/dsse.rs \
   src/lib/src/platform/ \
   src/lib/src/provisioning/ca.rs
 ```
