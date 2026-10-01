@@ -138,9 +138,26 @@ impl SecretKey {
         }
         let mut bytes = vec![];
         reader.read_to_end(&mut bytes)?;
-        Ok(Self {
-            sk: ed25519_compact::SecretKey::from_slice(&bytes)?,
-        })
+        let sk = ed25519_compact::SecretKey::from_slice(&bytes)?;
+
+        // SECURITY: fail closed when the stored public half is not the seed's
+        // real public key.
+        //
+        // The raw encoding is `[ED25519_SK_ID] || seed(32) || public_key(32)`,
+        // and `from_slice` copies all 64 bytes verbatim. `SecretKey::sign`
+        // then feeds the STORED public bytes into the Ed25519 challenge
+        // (`h = H(R || A || M)`, ed25519-compact 2.4.0 ed25519.rs: `let pk =
+        // &self[32..64]`), while the nonce is `r = H(az[32..64] || M)` and so
+        // depends only on the seed. A tampered or corrupted public half
+        // therefore changes `h` but NOT `r`: two signatures over the same
+        // message straddling the tamper share `r`, and
+        // `a = (s1 - s2) * (h1 - h2)^-1 mod L` recovers the long-term private
+        // scalar. Validating here (recompute from the seed and compare) turns
+        // that into a load error. `from_pem`/`from_der` are unaffected — they
+        // route through `KeyPair::from_seed`, which re-derives the public half.
+        sk.validate_public_key(&sk.public_key())?;
+
+        Ok(Self { sk })
     }
 
     /// Deserialize a PEM-encoded secret key.
@@ -433,6 +450,40 @@ mod tests {
         let result = SecretKey::from_bytes(&bytes);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), CoreError::UnsupportedKeyType));
+    }
+
+    /// A secret key whose stored public half is not the seed's real public key
+    /// must FAIL TO LOAD.
+    ///
+    /// The raw encoding is `[ED25519_SK_ID] || seed(32) || public_key(32)`, and
+    /// `SecretKey::sign` feeds the STORED public bytes into the Ed25519
+    /// challenge `h = H(R || A || M)` while the nonce `r = H(az[32..64] || M)`
+    /// depends only on the seed. So a tampered/corrupted public half changes
+    /// `h` but NOT `r`: two signatures over the same message straddling the
+    /// tamper share `r`, and `a = (s1 - s2) * (h1 - h2)^-1 mod L` recovers the
+    /// long-term private scalar. (Reproduced end-to-end during the pre-release
+    /// Mythos pass: the recovered scalar matched the genuine one and `a*B`
+    /// equalled the victim's published public key.) Loading must therefore
+    /// fail closed rather than sign with an inconsistent key.
+    #[test]
+    fn test_secret_key_rejects_foreign_public_half() {
+        let kp = create_test_keypair();
+        let good = kp.sk.to_bytes();
+
+        // Control: the genuine blob still loads. Without this, the test below
+        // could pass for the wrong reason (e.g. a malformed length).
+        SecretKey::from_bytes(&good).expect("a consistent secret key must load");
+
+        // Swap in the public half of a DIFFERENT keypair, leaving the seed.
+        let other = create_test_keypair();
+        let other_bytes = other.sk.to_bytes();
+        let mut tampered = good.clone();
+        tampered[33..65].copy_from_slice(&other_bytes[33..65]);
+        assert_ne!(good, tampered, "the tamper must actually change the blob");
+
+        let err = SecretKey::from_bytes(&tampered)
+            .expect_err("a secret key with a foreign public half must be rejected");
+        println!("rejected as expected: {err:?}");
     }
 
     #[test]
