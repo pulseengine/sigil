@@ -259,6 +259,49 @@ impl KeylessSigner {
     /// # Ok::<(), wsc::WSError>(())
     /// ```
     pub fn sign_module(&self, module: Module) -> Result<(Module, KeylessSignature), WSError> {
+        // Compute the module digest (SHA-256 of the serialized module) and
+        // delegate to the single keyless signing primitive: `sign_module` is
+        // exactly `sign_digest(sha256(module))` plus the module-embedding step,
+        // so there is one keyless signing path rather than two (REQ-26 / #256).
+        log::debug!("Computing module hash (SHA-256)");
+        let mut module_bytes = Vec::new();
+        module.serialize(&mut module_bytes)?;
+        let mut module_hasher = Sha256::new();
+        module_hasher.update(&module_bytes);
+        let module_hash: [u8; 32] = module_hasher.finalize().into();
+
+        // Keyless-sign the digest (ephemeral key -> OIDC -> Fulcio -> Rekor).
+        let keyless_sig = self.sign_digest(&module_hash)?;
+
+        // Step 9 (module-specific): embed the signature in the module.
+        log::debug!("Embedding signature in module");
+        let signed_module = self.embed_signature(module, &keyless_sig)?;
+
+        log::info!("Keyless signing completed successfully");
+        Ok((signed_module, keyless_sig))
+    }
+
+    /// Keyless-sign an arbitrary 32-byte digest — not only a WASM module.
+    ///
+    /// This is the single keyless signing primitive. A caller with bytes that
+    /// are not a WASM module — for example a layer manifest whose SHA-256 is a
+    /// 32-byte digest — can sign them here; [`sign_module`](Self::sign_module)
+    /// is `sign_digest(sha256(module))` plus the module-embedding step, so
+    /// there is one keyless signing path rather than two.
+    ///
+    /// The returned [`KeylessSignature`] verifies offline against the same
+    /// digest via `AirGappedVerifier::verify_signature` (which already accepts
+    /// a `&[u8; 32]`). The digest is signed as an ECDSA P-256 *prehash* — the
+    /// exact inverse of the verifier's `verify_prehash(module_hash)`.
+    ///
+    /// # Arguments
+    /// * `digest` - the 32-byte SHA-256 digest of the artifact to sign
+    ///
+    /// # Returns
+    /// * `KeylessSignature` - the detached keyless signature over `digest`
+    ///
+    /// REQ-26 / #256.
+    pub fn sign_digest(&self, digest: &[u8; 32]) -> Result<KeylessSignature, WSError> {
         log::info!("Starting keyless signing process");
 
         // Generate correlation ID for audit trail
@@ -360,40 +403,32 @@ impl KeylessSigner {
             certificate.cert_chain.len()
         );
 
-        // Step 5: Compute module hash and sign it
-        // Use SHA-256 for ECDSA signatures per Rekor hashedrekord spec
-        log::debug!("Computing module hash (SHA-256)");
-        let mut module_bytes = Vec::new();
-        module.serialize(&mut module_bytes)?;
+        // Step 5: Sign the provided digest as an ECDSA P-256 prehash.
+        //
+        // Rekor hashedrekord signs the pre-computed SHA-256 of the artifact;
+        // the offline verifier checks it via `verify_prehash(module_hash)`, so
+        // signing the 32-byte digest directly (rather than re-hashing bytes we
+        // do not have) is the symmetric inverse and produces a signature the
+        // verifier accepts.
+        log::debug!("Signing digest (prehash)");
+        use p256::ecdsa::signature::hazmat::PrehashSigner;
+        let signature: Signature = signing_key
+            .sign_prehash(digest)
+            .map_err(|e| WSError::InternalError(format!("failed to sign digest: {}", e)))?;
 
-        // For hashedrekord, we need to sign the pre-computed hash using DigestSigner
-        // Create hasher and sign it before finalizing
-        log::debug!("Signing module hash");
-        let mut module_hasher = Sha256::new();
-        module_hasher.update(&module_bytes);
-
-        use ecdsa::signature::DigestSigner;
-        let signature: Signature = signing_key.sign_digest(module_hasher.clone());
-
-        // Also get the hash value for Rekor upload
-        let module_hash = module_hasher.finalize();
-        let artifact_hash = format!("sha256:{}", hex::encode(&module_hash));
+        let artifact_hash = format!("sha256:{}", hex::encode(digest));
 
         // Log signing attempt (we now have identity and artifact hash)
-        audit::log_signing_attempt(
-            &correlation_id,
-            &artifact_hash,
-            Some(&oidc_token.identity),
-        );
+        audit::log_signing_attempt(&correlation_id, &artifact_hash, Some(&oidc_token.identity));
 
         // Step 7: Upload to Rekor (if not skipped)
         let rekor_entry = if self.config.skip_rekor {
             log::error!(
-                "WARNING: Rekor upload skipped. The produced module CANNOT pass keyless \
+                "WARNING: Rekor upload skipped. The produced signature CANNOT pass keyless \
                  verification (DD-2 fail-closed policy). Use only for testing."
             );
             eprintln!(
-                "\n⚠ WARNING: Rekor upload skipped — this module cannot pass keyless verification.\n"
+                "\n⚠ WARNING: Rekor upload skipped — this signature cannot pass keyless verification.\n"
             );
             // Create a dummy entry for testing
             RekorEntry {
@@ -409,7 +444,7 @@ impl KeylessSigner {
             log::debug!("Uploading signature to Rekor");
             let entry =
                 self.rekor
-                    .upload_entry(&module_hash, &signature.to_bytes(), &certificate)?;
+                    .upload_entry(digest, &signature.to_bytes(), &certificate)?;
             log::info!(
                 "Rekor entry created: {} (index: {})",
                 entry.uuid,
@@ -424,12 +459,8 @@ impl KeylessSigner {
             signature.to_bytes().to_vec(),
             certificate.cert_chain.clone(),
             rekor_entry,
-            module_hash.to_vec(),
+            digest.to_vec(),
         );
-
-        // Step 9: Embed signature in module
-        log::debug!("Embedding signature in module");
-        let signed_module = self.embed_signature(module, &keyless_sig)?;
 
         // Log signing success
         audit::log_signing_success(
@@ -441,7 +472,7 @@ impl KeylessSigner {
         );
 
         log::info!("Keyless signing completed successfully");
-        Ok((signed_module, keyless_sig))
+        Ok(keyless_sig)
     }
 
     /// Embed a keyless signature into a WASM module
@@ -1116,5 +1147,45 @@ mod tests {
         // signing_key was moved into consume_key and zeroized there
 
         assert!(len > 0);
+    }
+
+    /// REQ-26 / #256: `sign_digest` signs the caller's 32-byte digest as an
+    /// ECDSA P-256 *prehash* — the exact inverse of the airgapped verifier's
+    /// `verify_prehash(module_hash)`. This exercises that core primitive
+    /// non-gated (no OIDC/Fulcio/Rekor): a signature over an arbitrary digest
+    /// verifies under the same digest, and does NOT verify under a different
+    /// one. The full `sign_digest` glue is covered by the gated e2e in
+    /// `tests/keyless_integration.rs`.
+    #[test]
+    fn test_sign_digest_prehash_is_verifier_symmetric() {
+        use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
+        use p256::ecdsa::{Signature, SigningKey};
+
+        let sk = SigningKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let vk = sk.verifying_key();
+
+        // An arbitrary 32-byte digest (sha256("test")): not a WASM module hash.
+        let digest: [u8; 32] = [
+            0x9f, 0x86, 0xd0, 0x81, 0x88, 0x4c, 0x7d, 0x65, 0x9a, 0x2f, 0xea, 0xa0, 0xc5, 0x5a,
+            0xd0, 0x15, 0xa3, 0xbf, 0x4f, 0x1b, 0x2b, 0x0b, 0x82, 0x2c, 0xd1, 0x5d, 0x6c, 0x15,
+            0xb0, 0xf0, 0x0a, 0x08,
+        ];
+
+        let sig: Signature = sk
+            .sign_prehash(&digest)
+            .expect("sign_prehash over a 32-byte digest must succeed");
+
+        assert!(
+            vk.verify_prehash(&digest, &sig).is_ok(),
+            "sign_prehash(digest) must verify under verify_prehash(digest)"
+        );
+
+        // Negative control: flip one byte of the digest — must NOT verify.
+        let mut other = digest;
+        other[0] ^= 0xFF;
+        assert!(
+            vk.verify_prehash(&other, &sig).is_err(),
+            "signature over one digest must NOT verify against a different digest"
+        );
     }
 }

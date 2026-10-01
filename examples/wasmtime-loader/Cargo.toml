@@ -2,9 +2,19 @@
 name = "wasmtime-loader"
 version = "0.1.0"
 edition = "2021"
+# Pinned to the repo toolchain (rust-toolchain.toml channel = "1.94.0"). This
+# makes cargo's MSRV-aware resolver pick dependency versions that actually
+# build here, so an incompatible bump fails fast with a clear MSRV message
+# instead of surfacing as an opaque "requires rustc 1.96.0" build error in CI.
+rust-version = "1.94"
 
 [dependencies]
 wsc = { path = "../../src/lib" }
+# wasmtime 48.x requires rustc 1.95 and 49.x requires rustc 1.96, both newer
+# than the pinned 1.94.0 toolchain; 47.x is the newest line with MSRV 1.94.
+# Raising this requires bumping rust-toolchain.toml first, which re-qualifies
+# every formal-verification gate (Kani/Verus/Rocq/witness) and so belongs in
+# its own PR. See the toolchain-bump follow-up issue.
 wasmtime = "47.0"
 anyhow = "1.0"
 env_logger = "0.11"
