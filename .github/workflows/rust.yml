@@ -9,6 +9,13 @@ on:
     branches: [main]
     paths:
       - 'src/**'
+      # The `cargo` job's "Build Examples"/"Test Wasmtime Example" steps build
+      # examples/wasmtime-loader, so changes there must trigger this workflow.
+      # Without this, a breaking example-only change (e.g. a dependabot bump
+      # past the pinned toolchain's MSRV) merges unvalidated and then fails the
+      # next unrelated src/** push — which is how main went red (#285).
+      - 'examples/**'
+      - 'rust-toolchain.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'BUILD.bazel'
@@ -17,6 +24,8 @@ on:
   pull_request:
     paths:
       - 'src/**'
+      - 'examples/**'
+      - 'rust-toolchain.toml'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'BUILD.bazel'
