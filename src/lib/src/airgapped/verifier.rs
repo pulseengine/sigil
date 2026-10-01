@@ -378,19 +378,33 @@ impl<T: TimeSource> AirGappedVerifier<T> {
             ));
         }
 
+        use x509_parser::prelude::*;
+
         // Get leaf certificate (first in chain)
         let leaf_pem = &signature.cert_chain[0];
 
-        // Extract DER from PEM
-        let der = leaf_pem
-            .lines()
-            .filter(|line| !line.starts_with("-----"))
-            .collect::<String>();
+        // SECURITY: derive the DER with the SAME PEM parser the verification
+        // legs use (`parse_x509_pem`, step 4 of `verify_crypto`), so the
+        // revocation fingerprint is a function of the CERTIFICATE and not of
+        // its textual encoding.
+        //
+        // This previously rebuilt the DER by concatenating every line that did
+        // not start with "-----" and base64-decoding the result. Any
+        // attacker-chosen line that does not start with "-----" — e.g. a line
+        // of junk before the BEGIN header — was therefore folded into the
+        // "DER", changing the SHA-256 while every PEM-aware reader (cert-chain
+        // verification, signature verification, Rekor body binding) skipped
+        // the junk and resolved the identical certificate. The fingerprint
+        // then missed `TrustBundle::is_revoked`, so a REVOKED leaf verified:
+        // steps 1-5 all passed and only the revocation check silently flipped.
+        // Revocation is the only post-hoc control for a compromised signing
+        // identity in the offline flow, so that is a wrong-accept, not a
+        // fail-closed bug.
+        let (_, pem) = parse_x509_pem(leaf_pem.as_bytes()).map_err(|e| {
+            WSError::CertificateError(format!("Invalid certificate PEM: {}", e))
+        })?;
 
-        let der_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &der)
-            .map_err(|e| WSError::CertificateError(format!("Invalid certificate PEM: {}", e)))?;
-
-        let hash = hmac_sha256::Hash::hash(&der_bytes);
+        let hash = hmac_sha256::Hash::hash(&pem.contents);
         Ok(hex::encode(hash))
     }
 
@@ -1223,6 +1237,54 @@ mod tests {
         match err {
             WSError::VerificationError(m) => assert!(m.contains("revoked"), "got: {}", m),
             o => panic!("expected VerificationError (revoked), got {:?}", o),
+        }
+    }
+
+    /// Revocation must survive a cosmetic re-encoding of the leaf PEM.
+    ///
+    /// `compute_cert_fingerprint` used to rebuild the DER by concatenating
+    /// every line that did not start with "-----" and base64-decoding the
+    /// result. A line of attacker-chosen junk before the BEGIN header was
+    /// therefore folded into the "DER", changing the SHA-256 — while every
+    /// PEM-aware reader (chain verification, signature verification, Rekor
+    /// body binding) skipped it and resolved the identical certificate. The
+    /// fingerprint then missed `is_revoked`, so steps 1-5 passed and only the
+    /// revocation check silently flipped: a REVOKED leaf verified. That is a
+    /// wrong-accept, and revocation is the only post-hoc control for a
+    /// compromised signing identity offline.
+    #[test]
+    fn test_revocation_is_invariant_to_leaf_pem_reencoding() {
+        let (mut bundle, sig, module_hash, _sk) = valid_case();
+
+        // A variant of the SAME certificate with junk before the BEGIN header.
+        let mut junked = sig.clone();
+        junked.cert_chain[0] = format!("AAAA\n{}", sig.cert_chain[0]);
+
+        let v = verifier_for(&bundle);
+        let fp_canonical = v.compute_cert_fingerprint(&sig).unwrap();
+        let fp_junked = v.compute_cert_fingerprint(&junked).unwrap();
+
+        // The fingerprint identifies the CERTIFICATE, not its encoding.
+        assert_eq!(
+            fp_canonical, fp_junked,
+            "revocation fingerprint must be a function of the certificate, \
+             not of its textual encoding"
+        );
+
+        // End-to-end: revoke the leaf, then confirm the re-encoded variant is
+        // still rejected. This is the assertion that actually closes the hole.
+        bundle.revocations.push(fp_canonical);
+        let verifier = verifier_for(&bundle);
+
+        for (label, s) in [("canonical", &sig), ("re-encoded", &junked)] {
+            let err = verifier.verify_crypto(s, &module_hash).unwrap_err();
+            match err {
+                WSError::VerificationError(m) => assert!(
+                    m.contains("revoked"),
+                    "{label} leaf must be rejected as revoked, got: {m}"
+                ),
+                o => panic!("{label}: expected VerificationError (revoked), got {o:?}"),
+            }
         }
     }
 
