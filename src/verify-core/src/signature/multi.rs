@@ -246,7 +246,11 @@ impl PublicKey {
         }
 
         let signed_hashes_set = signature_data.signed_hashes_set;
-        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set)?;
+        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, false)?;
+        // The terminal (whole-stream) hashes, used after the loop to pin the
+        // END of the stream: the prefix set alone authorises every delimiter
+        // prefix, so without this a module truncated AT a delimiter verifies.
+        let terminal_hashes = self.valid_hashes_for_pk(&signed_hashes_set, true)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
             return Err(CoreError::VerificationFailed);
@@ -257,6 +261,7 @@ impl PublicKey {
         }
         let mut hasher = Hash::new();
         let mut matching_section_ranges = vec![];
+        let mut last_compared_hash: Option<Vec<u8>> = None;
         debug!("Computed hashes:");
         let mut section_sequence_must_be_signed: Option<bool> = None;
         for (idx, section) in sections {
@@ -272,6 +277,7 @@ impl PublicKey {
                 if !valid_hashes.contains(&h) {
                     return Err(CoreError::VerificationFailedForPredicates);
                 }
+                last_compared_hash = Some(h);
                 matching_section_ranges.push(0..=idx);
                 section_sequence_must_be_signed = None;
             } else {
@@ -288,6 +294,51 @@ impl PublicKey {
                 }
             }
         }
+        // SECURITY: fail closed when no signature delimiter was ever reached.
+        //
+        // The hash comparison above lives ONLY inside the
+        // `is_signature_delimiter()` branch. A module that carries a signature
+        // header but NO delimiter section (i.e. one signed without `wsc split`)
+        // therefore runs this loop doing predicate bookkeeping only, never
+        // compares the running hash against any signed hash, and used to fall
+        // through to `Ok(())` — reporting "Signature is valid." for content that
+        // was never checked. That is a wrong-accept reachable from
+        // `wsc verify --split <rx>`, which routes here instead of the
+        // whole-stream `PublicKey::verify`.
+        //
+        // `matching_section_ranges` is non-empty iff at least one delimiter was
+        // processed, i.e. iff the signed hash was actually compared.
+        if matching_section_ranges.is_empty() {
+            debug!("No signature delimiter found: nothing was verified");
+            return Err(CoreError::VerificationFailed);
+        }
+
+        // SECURITY: the stream must END where the signer stopped.
+        //
+        // `valid_hashes` authorises EVERY cumulative prefix hash, so without
+        // this check a module can be truncated at any signature delimiter and
+        // still verify: the truncated stream's hash is itself a signed prefix
+        // hash, the in-loop `contains` check passes, and `matching_section_ranges`
+        // is non-empty so the guard above is satisfied too. Requiring the LAST
+        // hash we compared to be a TERMINAL (whole-stream) hash rejects that.
+        match &last_compared_hash {
+            Some(h) if terminal_hashes.contains(h) => {}
+            _ => {
+                debug!("Stream did not end at a signed terminal hash (truncated?)");
+                return Err(CoreError::VerificationFailedForPredicates);
+            }
+        }
+
+        // SECURITY: sections AFTER the last delimiter are never hash-compared,
+        // so if the predicate says they must be signed, we cannot affirm them.
+        // The in-loop bookkeeping already rejects the inverse case, so leaving
+        // this un-finalized accepted unverified trailing content that the
+        // caller's own predicate demanded be signed.
+        if section_sequence_must_be_signed == Some(true) {
+            debug!("Trailing sections require signing but follow the last delimiter");
+            return Err(CoreError::VerificationFailedForPredicates);
+        }
+
         debug!("Valid, signed ranges:");
         for range in &matching_section_ranges {
             debug!("  - {}...{}", range.start(), range.end());
@@ -295,9 +346,27 @@ impl PublicKey {
         Ok(())
     }
 
+    /// Collect the signed hashes this key authorises.
+    ///
+    /// `sign_multi` NEVER resets its hasher: at each signature delimiter it
+    /// pushes `hasher.finalize()`, so a signed `hashes` list is a sequence of
+    /// CUMULATIVE PREFIX hashes `[H(P1), H(P2), ... H(Pn)]`, and only the LAST
+    /// element is the hash of the complete section stream.
+    ///
+    /// `terminal_only` selects which of those a caller may accept:
+    ///
+    /// * `true`  — only `hashes.last()`, i.e. the whole-stream hash. Required by
+    ///   any WHOLE-MODULE verifier: accepting a non-terminal prefix would let a
+    ///   module be truncated at a delimiter and still verify, because the
+    ///   truncated stream's hash is itself a signed prefix hash.
+    /// * `false` — every prefix hash. Needed only by the partial verifiers
+    ///   (`verify_multi` / `verify_matrix`), which legitimately check
+    ///   delimiter-bounded ranges — and which must therefore separately pin the
+    ///   terminal hash to reject truncation.
     pub(crate) fn valid_hashes_for_pk<'t>(
         &self,
         signed_hashes_set: &'t [SignedHashes],
+        terminal_only: bool,
     ) -> Result<HashSet<&'t Vec<u8>>, CoreError> {
         let mut valid_hashes = HashSet::new();
         for signed_section_sequence in signed_hashes_set {
@@ -334,11 +403,111 @@ impl PublicKey {
                     "Hash signature is valid for key [{}]",
                     Hex::encode_to_string(*self.pk).unwrap_or_else(|_| "<hex error>".to_string())
                 );
-                for hash in hashes {
-                    valid_hashes.insert(hash);
+                if terminal_only {
+                    if let Some(terminal) = hashes.last() {
+                        valid_hashes.insert(terminal);
+                    }
+                } else {
+                    for hash in hashes {
+                        valid_hashes.insert(hash);
+                    }
                 }
             }
         }
         Ok(valid_hashes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    fn serialize_module(module: &Module) -> Vec<u8> {
+        let mut buffer = Vec::new();
+        module.serialize(&mut buffer).unwrap();
+        buffer
+    }
+
+    /// A module with a signature header but NO signature delimiter must be
+    /// REJECTED by `verify_multi`.
+    ///
+    /// The hash comparison in `verify_multi` runs ONLY inside the
+    /// `is_signature_delimiter()` branch. A module signed without `wsc split`
+    /// has no delimiter, so the loop did predicate bookkeeping only, never
+    /// compared the running hash against any signed hash, and fell through to
+    /// `Ok(())` — reporting "Signature is valid." for content that was never
+    /// checked. Reachable from `wsc verify --split <rx>` (src/cli/main.rs:961),
+    /// which routes here instead of the whole-stream `PublicKey::verify`.
+    #[test]
+    fn test_verify_multi_rejects_tampered_module_without_delimiter() {
+        let kp = KeyPair::generate();
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        };
+        // No `.split(..)` -> no delimiter sections are inserted.
+        let (signed, _) = kp.sk.sign_multi(module, None, false, false).unwrap();
+
+        // Tamper a payload AFTER signing, leaving the signature header intact.
+        let mut sections = signed.sections.clone();
+        for sec in sections.iter_mut() {
+            if matches!(sec, Section::Standard(_)) {
+                *sec = Section::Standard(StandardSection::new(SectionId::Type, vec![9, 9, 9]));
+                break;
+            }
+        }
+        let tampered = Module {
+            header: signed.header,
+            sections,
+        };
+
+        // A CONSTANT predicate is essential here. `verify_multi`'s predicate
+        // bookkeeping rejects when the predicate's verdict CHANGES across a run
+        // of non-delimiter sections, so a varying predicate (e.g. "Type only")
+        // rejects for that unrelated reason and would make this test vacuous —
+        // it would pass even with the missing-delimiter guard removed. With a
+        // constant predicate the bookkeeping never fires, so the ONLY thing that
+        // can reject is the guard under test.
+        let mut reader = Cursor::new(serialize_module(&tampered));
+        let result = kp.pk.verify_multi(&mut reader, None, |_section| true);
+
+        assert!(
+            result.is_err(),
+            "a tampered module with no signature delimiter must be rejected, but \
+             verify_multi returned Ok — nothing was ever compared against a signed hash"
+        );
+    }
+
+    /// Control: a properly split-and-signed module still verifies, so the guard
+    /// above cannot pass by rejecting everything.
+    #[test]
+    fn test_verify_multi_accepts_properly_split_signed_module() {
+        let kp = KeyPair::generate();
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        };
+        let split = module
+            .split(|section| matches!(section.id(), SectionId::Type | SectionId::Code))
+            .unwrap();
+        let (signed, _) = kp.sk.sign_multi(split, None, false, false).unwrap();
+
+        let mut reader = Cursor::new(serialize_module(&signed));
+        let result = kp
+            .pk
+            .verify_multi(&mut reader, None, |_section| true);
+
+        assert!(
+            result.is_ok(),
+            "a properly split-and-signed module must still verify: {:?}",
+            result.err()
+        );
     }
 }

@@ -63,8 +63,14 @@ impl PublicKeySet {
 
         let signed_hashes_set = signature_data.signed_hashes_set;
         let mut valid_hashes_for_pks = HashMap::new();
+        // Terminal (whole-stream) hashes per key, used after the loop to pin
+        // the END of the stream — the prefix set authorises every delimiter
+        // prefix, so without this a truncated module verifies.
+        let mut terminal_hashes_for_pks: HashMap<PublicKey, _> = HashMap::new();
         for pk in &self.pks {
-            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set)?;
+            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set, false)?;
+            let terminal = pk.valid_hashes_for_pk(&signed_hashes_set, true)?;
+            terminal_hashes_for_pks.insert(pk.clone(), terminal);
             if !valid_hashes.is_empty() {
                 valid_hashes_for_pks.insert(pk.clone(), valid_hashes);
             }
@@ -86,11 +92,21 @@ impl PublicKeySet {
         }
 
         let mut hasher = Hash::new();
+        // SECURITY: the hash comparison below lives ONLY inside the
+        // `is_signature_delimiter()` branch, so a module carrying a signature
+        // header but NO delimiter section never has its content compared
+        // against any signed hash. Track whether a comparison actually ran so
+        // we can fail closed instead of returning keys that were simply never
+        // pruned. See the check after the loop.
+        let mut compared_against_a_signed_hash = false;
+        let mut last_compared_hash: Option<Vec<u8>> = None;
         for section in sections {
             let section = section?;
             section.serialize(&mut hasher)?;
             if section.is_signature_delimiter() {
+                compared_against_a_signed_hash = true;
                 let h = hasher.finalize().to_vec();
+                last_compared_hash = Some(h.clone());
                 for (pk, section_sequence_must_be_signed) in
                     section_sequence_must_be_signed_for_pks.iter_mut()
                 {
@@ -124,6 +140,59 @@ impl PublicKeySet {
                             _ => {}
                         }
                     }
+                }
+            }
+        }
+
+        // SECURITY: fail closed when nothing was ever compared.
+        //
+        // Without this, a module with no signature delimiter leaves
+        // `valid_hashes_for_pks` unpruned, so every key that merely appears in
+        // the signature header is reported as valid and the CLI prints
+        // "Valid public keys: ..." and exits 0 for tampered content — an
+        // affirmative wrong-accept, not merely a missing rejection.
+        if !compared_against_a_signed_hash {
+            debug!("No signature delimiter found: nothing was verified");
+            return Err(CoreError::VerificationFailed);
+        }
+
+        // SECURITY: the stream must END where the signer stopped. `valid_hashes`
+        // authorises EVERY cumulative prefix hash and this loop only PRUNES a
+        // key when a delimiter hash is ABSENT — so a module truncated at an
+        // earlier delimiter leaves every key unpruned and is reported valid.
+        // Drop any key for which the final compared hash is not a terminal
+        // (whole-stream) hash.
+        match &last_compared_hash {
+            Some(h) => {
+                let stale: Vec<PublicKey> = valid_hashes_for_pks
+                    .keys()
+                    .filter(|pk| {
+                        !terminal_hashes_for_pks
+                            .get(*pk)
+                            .map(|t| t.contains(h))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect();
+                for pk in stale {
+                    debug!("Stream did not end at a signed terminal hash for a key (truncated?)");
+                    valid_hashes_for_pks.remove(&pk);
+                }
+            }
+            None => return Err(CoreError::VerificationFailed),
+        }
+
+        // SECURITY: sections AFTER the last delimiter are never hash-compared, so
+        // a key cannot be affirmed for a predicate that demanded they be signed.
+        // The in-loop bookkeeping rejects the inverse case but never finalizes
+        // this one, so unverified trailing content the caller's own predicate
+        // required to be signed was reported valid. The state is shared across
+        // predicates here, so fail closed for all of them.
+        for (pk, must_be_signed) in &section_sequence_must_be_signed_for_pks {
+            if *must_be_signed == Some(true) {
+                debug!("Trailing sections require signing but follow the last delimiter");
+                for failures in verify_failures_for_predicates.iter_mut() {
+                    failures.insert(pk.clone());
                 }
             }
         }
@@ -179,6 +248,61 @@ mod tests {
         let mut buffer = Vec::new();
         module.serialize(&mut buffer).unwrap();
         buffer
+    }
+
+    /// Build a module signed WITHOUT `split`, so it carries a signature header
+    /// but NO signature-delimiter section, then tamper its payload.
+    fn signed_without_delimiter_then_tampered(kp: &KeyPair) -> Module {
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        };
+        // No `.split(..)` -> no delimiter sections are inserted.
+        let (signed, _) = kp.sk.sign_multi(module, None, false, false).unwrap();
+
+        // Tamper a payload AFTER signing, keeping the signature header intact.
+        let mut sections = signed.sections.clone();
+        for sec in sections.iter_mut() {
+            if matches!(sec, Section::Standard(_)) {
+                *sec = Section::Standard(StandardSection::new(SectionId::Type, vec![9, 9, 9]));
+                break;
+            }
+        }
+        Module {
+            header: signed.header,
+            sections,
+        }
+    }
+
+    /// A module with a signature header but NO delimiter must be REJECTED.
+    ///
+    /// The hash comparison in `verify_matrix` runs ONLY inside the
+    /// `is_signature_delimiter()` branch. With no delimiter it never ran, so
+    /// `valid_hashes_for_pks` was never pruned and every key present in the
+    /// signature header came back "valid" — the CLI printed
+    /// "Valid public keys: ..." and exited 0 for tampered content. That is an
+    /// affirmative wrong-accept, reachable from `wsc verify --split <rx>` and
+    /// `wsc verify-matrix`.
+    #[test]
+    fn test_verify_matrix_rejects_tampered_module_without_delimiter() {
+        let kp = KeyPair::generate();
+        let tampered = signed_without_delimiter_then_tampered(&kp);
+
+        let mut key_set = PublicKeySet::empty();
+        key_set.insert(kp.pk.clone()).unwrap();
+        let predicate = |section: &Section| matches!(section.id(), SectionId::Type);
+
+        let mut reader = Cursor::new(serialize_module(&tampered));
+        let result = key_set.verify_matrix(&mut reader, None, &[predicate]);
+
+        assert!(
+            result.is_err(),
+            "a tampered module with no signature delimiter must be rejected, but              verify_matrix returned valid keys: {:?}",
+            result.map(|m| m.iter().map(|s| s.len()).collect::<Vec<_>>())
+        );
     }
 
     #[test]

@@ -371,6 +371,18 @@ fn start() -> Result<(), WSError> {
                         .short('s')
                         .value_name("regex")
                         .help("Custom section names to be verified"),
+                )
+                // The handler reads this id for detached-signature support.
+                // It was never declared, and clap v4 panics on an unknown id
+                // (clap v3's `value_of` returned None), so `verify-matrix`
+                // aborted on EVERY invocation. Declaring it both fixes the
+                // panic and makes detached signatures work as intended.
+                .arg(
+                    Arg::new("signature_file")
+                        .value_name("signature_file")
+                        .long("signature-file")
+                        .short('S')
+                        .help("Signature file"),
                 ),
         )
         .subcommand(
@@ -1050,15 +1062,34 @@ fn start() -> Result<(), WSError> {
         } else {
             vec![Box::new(|_| true)]
         };
-        let matrix = pks.verify_matrix(&mut reader, detached_signatures, &predicates)?;
+        // `verify_matrix` verifies DELIMITER-BOUNDED section ranges, so it can
+        // only speak about modules produced with `wsc split`. A module signed
+        // without splitting carries no delimiter, and the matrix machinery has
+        // no range to check — it now fails closed rather than reporting keys it
+        // never actually checked. Say so explicitly, otherwise that rejection
+        // reads as "my signed module is broken" instead of "wrong verb".
+        let matrix = pks
+            .verify_matrix(&mut reader, detached_signatures, &predicates)
+            .map_err(|e| {
+                eprintln!(
+                    "note: `verify-matrix` only verifies modules split with `wsc split` \
+                     (it checks delimiter-bounded section ranges). For a whole-module \
+                     signature, use `wsc verify`."
+                );
+                e
+            })?;
         let valid_pks = matrix.first().ok_or(WSError::UsageError("No predicates"))?;
         if valid_pks.is_empty() {
-            println!("No valid public keys found");
-        } else {
-            println!("Valid public keys:");
-            for pk in valid_pks {
-                println!("  - {pk:x?}");
-            }
+            // Must be an error, not a printed note: this is the only
+            // machine-readable signal, and `wsc verify-matrix && deploy`
+            // treated a verification failure as success (exit 0) while plain
+            // `wsc verify` exits 1 on the same bytes.
+            eprintln!("No valid public keys found");
+            return Err(WSError::VerificationFailedForPredicates);
+        }
+        println!("Valid public keys:");
+        for pk in valid_pks {
+            println!("  - {pk:x?}");
         }
     } else if let Some(matches) = matches.subcommand_matches("bundle") {
         handle_bundle_command(matches, verbose)?;
