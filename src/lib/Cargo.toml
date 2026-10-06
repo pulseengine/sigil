@@ -29,7 +29,7 @@ log = "0.4.28"
 # Structured audit logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
-sha2 = "0.10"
+sha2 = "0.11"
 regex = "1.12.2"
 thiserror = "2.0.17"
 # Security: zeroize sensitive data on drop
