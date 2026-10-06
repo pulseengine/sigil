@@ -55,6 +55,31 @@ are fixed, including a revocation bypass that was a wrong-accept.
 
 ### Fixed
 
+- **`verify_multi`/`verify_matrix` accepted modules with no signature delimiter
+  — WRONG-ACCEPT (`verify-core/signature/{multi,matrix}.rs`).** In both, the
+  running content hash is compared against the signed hashes ONLY inside
+  `if section.is_signature_delimiter()`, and neither finalizes after the section
+  loop. A module carrying a signature header but NO delimiter — i.e. signed
+  without `wsc split` — therefore ran the loop doing predicate bookkeeping only,
+  never compared its content against any signed hash, and still succeeded:
+  `verify_multi` fell through to `Ok(())`, so `wsc verify -k K -i M --split <rx>`
+  printed "Signature is valid." for content that was never checked, and
+  `verify_matrix` returned every key merely present in the signature header as
+  "valid" — an affirmative accept. `PublicKey::verify` (the default `wsc verify`
+  path) is unaffected: it hashes the whole remaining stream. Both now fail closed
+  when no delimiter was processed. Also in the same change: `wsc verify-matrix`
+  **panicked on every invocation** (it read an argument id the subcommand never
+  declared; clap v4 panics where v3 returned `None`), and an empty valid-key set
+  **exited 0**, reporting a verification failure to CI as success — both fixed,
+  with a diagnostic pointing at `wsc verify` for non-split modules.
+  *Falsification:* mutation-verified guards in both files, each with a control
+  asserting a properly split-and-signed module still verifies. End-to-end:
+  split+signed → exit 0; one byte flipped → exit 1 (was 0); no invocation panics
+  (was exit 101 always). **The multi-path test was itself vacuous on the first
+  attempt** — a varying predicate tripped unrelated bookkeeping so it passed with
+  the guard removed; it now uses a constant predicate. `multi.rs` previously had
+  no test module at all.
+
 - **Revocation bypass — WRONG-ACCEPT (`airgapped/verifier.rs`).**
   `compute_cert_fingerprint` rebuilt the leaf DER by concatenating every line that
   did not start with `-----` and base64-decoding the result, so any
@@ -146,6 +171,20 @@ Accepted for 0.12.0 because: this release's surface (REQ-26/27/30) does not touc
 wrong-accept**; and each has a filed issue carrying a reproducing oracle. The one
 finding that *was* a wrong-accept (the revocation bypass) is fixed above rather
 than accepted.
+
+**Gate potency (what "CI green" does and does not cover).** Audited every CI
+gate for whether it can actually fail. Proven potent by mutation this cycle: the
+vacuous-oracle gate (clean → 0, coverage omission → 1, bogus selector → 1), the
+witness MC/DC gate (baseline −1 vs measured gap 0 → `::error::`, exit 1), and
+each security regression test above. Unmasked and therefore potent: `kani varint`,
+`kani dsse`, `kani wasm_module`. **Masked — cannot fail CI:** `kani format` and
+`kani merkle` (`tolerate_failure: true`), Verus (both steps — `theorem_*` end in
+`assume(false)`, audit C-1), the Rocq translation (documented as a stub), the
+Bazel `test` step (audit C-7), and the Rekor fresh-data tests. Stated because
+`format.rs` carries this release's largest piece of new attacker-facing code
+(REQ-27's bundle parser), so the formal gate over it is advisory, not blocking —
+its oracle here is the committed fixture tests and negative controls, not Kani.
+Unmasking is tracked separately rather than attempted during a release.
 
 **Scope moved.** REQ-28 (`SigstoreBundle::verify` + DER acceptance, #231) and
 REQ-29 (Ed25519 Rekor-v2 SET path + embedded-root refresh, #259) are reassigned
