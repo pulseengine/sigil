@@ -246,7 +246,11 @@ impl PublicKey {
         }
 
         let signed_hashes_set = signature_data.signed_hashes_set;
-        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set)?;
+        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, false)?;
+        // The terminal (whole-stream) hashes, used after the loop to pin the
+        // END of the stream: the prefix set alone authorises every delimiter
+        // prefix, so without this a module truncated AT a delimiter verifies.
+        let terminal_hashes = self.valid_hashes_for_pk(&signed_hashes_set, true)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
             return Err(CoreError::VerificationFailed);
@@ -257,6 +261,7 @@ impl PublicKey {
         }
         let mut hasher = Hash::new();
         let mut matching_section_ranges = vec![];
+        let mut last_compared_hash: Option<Vec<u8>> = None;
         debug!("Computed hashes:");
         let mut section_sequence_must_be_signed: Option<bool> = None;
         for (idx, section) in sections {
@@ -272,6 +277,7 @@ impl PublicKey {
                 if !valid_hashes.contains(&h) {
                     return Err(CoreError::VerificationFailedForPredicates);
                 }
+                last_compared_hash = Some(h);
                 matching_section_ranges.push(0..=idx);
                 section_sequence_must_be_signed = None;
             } else {
@@ -307,6 +313,32 @@ impl PublicKey {
             return Err(CoreError::VerificationFailed);
         }
 
+        // SECURITY: the stream must END where the signer stopped.
+        //
+        // `valid_hashes` authorises EVERY cumulative prefix hash, so without
+        // this check a module can be truncated at any signature delimiter and
+        // still verify: the truncated stream's hash is itself a signed prefix
+        // hash, the in-loop `contains` check passes, and `matching_section_ranges`
+        // is non-empty so the guard above is satisfied too. Requiring the LAST
+        // hash we compared to be a TERMINAL (whole-stream) hash rejects that.
+        match &last_compared_hash {
+            Some(h) if terminal_hashes.contains(h) => {}
+            _ => {
+                debug!("Stream did not end at a signed terminal hash (truncated?)");
+                return Err(CoreError::VerificationFailedForPredicates);
+            }
+        }
+
+        // SECURITY: sections AFTER the last delimiter are never hash-compared,
+        // so if the predicate says they must be signed, we cannot affirm them.
+        // The in-loop bookkeeping already rejects the inverse case, so leaving
+        // this un-finalized accepted unverified trailing content that the
+        // caller's own predicate demanded be signed.
+        if section_sequence_must_be_signed == Some(true) {
+            debug!("Trailing sections require signing but follow the last delimiter");
+            return Err(CoreError::VerificationFailedForPredicates);
+        }
+
         debug!("Valid, signed ranges:");
         for range in &matching_section_ranges {
             debug!("  - {}...{}", range.start(), range.end());
@@ -314,9 +346,27 @@ impl PublicKey {
         Ok(())
     }
 
+    /// Collect the signed hashes this key authorises.
+    ///
+    /// `sign_multi` NEVER resets its hasher: at each signature delimiter it
+    /// pushes `hasher.finalize()`, so a signed `hashes` list is a sequence of
+    /// CUMULATIVE PREFIX hashes `[H(P1), H(P2), ... H(Pn)]`, and only the LAST
+    /// element is the hash of the complete section stream.
+    ///
+    /// `terminal_only` selects which of those a caller may accept:
+    ///
+    /// * `true`  — only `hashes.last()`, i.e. the whole-stream hash. Required by
+    ///   any WHOLE-MODULE verifier: accepting a non-terminal prefix would let a
+    ///   module be truncated at a delimiter and still verify, because the
+    ///   truncated stream's hash is itself a signed prefix hash.
+    /// * `false` — every prefix hash. Needed only by the partial verifiers
+    ///   (`verify_multi` / `verify_matrix`), which legitimately check
+    ///   delimiter-bounded ranges — and which must therefore separately pin the
+    ///   terminal hash to reject truncation.
     pub(crate) fn valid_hashes_for_pk<'t>(
         &self,
         signed_hashes_set: &'t [SignedHashes],
+        terminal_only: bool,
     ) -> Result<HashSet<&'t Vec<u8>>, CoreError> {
         let mut valid_hashes = HashSet::new();
         for signed_section_sequence in signed_hashes_set {
@@ -353,8 +403,14 @@ impl PublicKey {
                     "Hash signature is valid for key [{}]",
                     Hex::encode_to_string(*self.pk).unwrap_or_else(|_| "<hex error>".to_string())
                 );
-                for hash in hashes {
-                    valid_hashes.insert(hash);
+                if terminal_only {
+                    if let Some(terminal) = hashes.last() {
+                        valid_hashes.insert(terminal);
+                    }
+                } else {
+                    for hash in hashes {
+                        valid_hashes.insert(hash);
+                    }
                 }
             }
         }

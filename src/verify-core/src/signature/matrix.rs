@@ -63,8 +63,14 @@ impl PublicKeySet {
 
         let signed_hashes_set = signature_data.signed_hashes_set;
         let mut valid_hashes_for_pks = HashMap::new();
+        // Terminal (whole-stream) hashes per key, used after the loop to pin
+        // the END of the stream — the prefix set authorises every delimiter
+        // prefix, so without this a truncated module verifies.
+        let mut terminal_hashes_for_pks: HashMap<PublicKey, _> = HashMap::new();
         for pk in &self.pks {
-            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set)?;
+            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set, false)?;
+            let terminal = pk.valid_hashes_for_pk(&signed_hashes_set, true)?;
+            terminal_hashes_for_pks.insert(pk.clone(), terminal);
             if !valid_hashes.is_empty() {
                 valid_hashes_for_pks.insert(pk.clone(), valid_hashes);
             }
@@ -93,12 +99,14 @@ impl PublicKeySet {
         // we can fail closed instead of returning keys that were simply never
         // pruned. See the check after the loop.
         let mut compared_against_a_signed_hash = false;
+        let mut last_compared_hash: Option<Vec<u8>> = None;
         for section in sections {
             let section = section?;
             section.serialize(&mut hasher)?;
             if section.is_signature_delimiter() {
                 compared_against_a_signed_hash = true;
                 let h = hasher.finalize().to_vec();
+                last_compared_hash = Some(h.clone());
                 for (pk, section_sequence_must_be_signed) in
                     section_sequence_must_be_signed_for_pks.iter_mut()
                 {
@@ -146,6 +154,47 @@ impl PublicKeySet {
         if !compared_against_a_signed_hash {
             debug!("No signature delimiter found: nothing was verified");
             return Err(CoreError::VerificationFailed);
+        }
+
+        // SECURITY: the stream must END where the signer stopped. `valid_hashes`
+        // authorises EVERY cumulative prefix hash and this loop only PRUNES a
+        // key when a delimiter hash is ABSENT — so a module truncated at an
+        // earlier delimiter leaves every key unpruned and is reported valid.
+        // Drop any key for which the final compared hash is not a terminal
+        // (whole-stream) hash.
+        match &last_compared_hash {
+            Some(h) => {
+                let stale: Vec<PublicKey> = valid_hashes_for_pks
+                    .keys()
+                    .filter(|pk| {
+                        !terminal_hashes_for_pks
+                            .get(*pk)
+                            .map(|t| t.contains(h))
+                            .unwrap_or(false)
+                    })
+                    .cloned()
+                    .collect();
+                for pk in stale {
+                    debug!("Stream did not end at a signed terminal hash for a key (truncated?)");
+                    valid_hashes_for_pks.remove(&pk);
+                }
+            }
+            None => return Err(CoreError::VerificationFailed),
+        }
+
+        // SECURITY: sections AFTER the last delimiter are never hash-compared, so
+        // a key cannot be affirmed for a predicate that demanded they be signed.
+        // The in-loop bookkeeping rejects the inverse case but never finalizes
+        // this one, so unverified trailing content the caller's own predicate
+        // required to be signed was reported valid. The state is shared across
+        // predicates here, so fail closed for all of them.
+        for (pk, must_be_signed) in &section_sequence_must_be_signed_for_pks {
+            if *must_be_signed == Some(true) {
+                debug!("Trailing sections require signing but follow the last delimiter");
+                for failures in verify_failures_for_predicates.iter_mut() {
+                    failures.insert(pk.clone());
+                }
+            }
         }
 
         let mut res: Vec<HashSet<&PublicKey>> = vec![];
