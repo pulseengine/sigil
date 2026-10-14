@@ -86,10 +86,18 @@ impl PublicKeySet {
         }
 
         let mut hasher = Hash::new();
+        // SECURITY: the hash comparison below lives ONLY inside the
+        // `is_signature_delimiter()` branch, so a module carrying a signature
+        // header but NO delimiter section never has its content compared
+        // against any signed hash. Track whether a comparison actually ran so
+        // we can fail closed instead of returning keys that were simply never
+        // pruned. See the check after the loop.
+        let mut compared_against_a_signed_hash = false;
         for section in sections {
             let section = section?;
             section.serialize(&mut hasher)?;
             if section.is_signature_delimiter() {
+                compared_against_a_signed_hash = true;
                 let h = hasher.finalize().to_vec();
                 for (pk, section_sequence_must_be_signed) in
                     section_sequence_must_be_signed_for_pks.iter_mut()
@@ -126,6 +134,18 @@ impl PublicKeySet {
                     }
                 }
             }
+        }
+
+        // SECURITY: fail closed when nothing was ever compared.
+        //
+        // Without this, a module with no signature delimiter leaves
+        // `valid_hashes_for_pks` unpruned, so every key that merely appears in
+        // the signature header is reported as valid and the CLI prints
+        // "Valid public keys: ..." and exits 0 for tampered content — an
+        // affirmative wrong-accept, not merely a missing rejection.
+        if !compared_against_a_signed_hash {
+            debug!("No signature delimiter found: nothing was verified");
+            return Err(CoreError::VerificationFailed);
         }
 
         let mut res: Vec<HashSet<&PublicKey>> = vec![];
@@ -179,6 +199,61 @@ mod tests {
         let mut buffer = Vec::new();
         module.serialize(&mut buffer).unwrap();
         buffer
+    }
+
+    /// Build a module signed WITHOUT `split`, so it carries a signature header
+    /// but NO signature-delimiter section, then tamper its payload.
+    fn signed_without_delimiter_then_tampered(kp: &KeyPair) -> Module {
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        };
+        // No `.split(..)` -> no delimiter sections are inserted.
+        let (signed, _) = kp.sk.sign_multi(module, None, false, false).unwrap();
+
+        // Tamper a payload AFTER signing, keeping the signature header intact.
+        let mut sections = signed.sections.clone();
+        for sec in sections.iter_mut() {
+            if matches!(sec, Section::Standard(_)) {
+                *sec = Section::Standard(StandardSection::new(SectionId::Type, vec![9, 9, 9]));
+                break;
+            }
+        }
+        Module {
+            header: signed.header,
+            sections,
+        }
+    }
+
+    /// A module with a signature header but NO delimiter must be REJECTED.
+    ///
+    /// The hash comparison in `verify_matrix` runs ONLY inside the
+    /// `is_signature_delimiter()` branch. With no delimiter it never ran, so
+    /// `valid_hashes_for_pks` was never pruned and every key present in the
+    /// signature header came back "valid" — the CLI printed
+    /// "Valid public keys: ..." and exited 0 for tampered content. That is an
+    /// affirmative wrong-accept, reachable from `wsc verify --split <rx>` and
+    /// `wsc verify-matrix`.
+    #[test]
+    fn test_verify_matrix_rejects_tampered_module_without_delimiter() {
+        let kp = KeyPair::generate();
+        let tampered = signed_without_delimiter_then_tampered(&kp);
+
+        let mut key_set = PublicKeySet::empty();
+        key_set.insert(kp.pk.clone()).unwrap();
+        let predicate = |section: &Section| matches!(section.id(), SectionId::Type);
+
+        let mut reader = Cursor::new(serialize_module(&tampered));
+        let result = key_set.verify_matrix(&mut reader, None, &[predicate]);
+
+        assert!(
+            result.is_err(),
+            "a tampered module with no signature delimiter must be rejected, but              verify_matrix returned valid keys: {:?}",
+            result.map(|m| m.iter().map(|s| s.len()).collect::<Vec<_>>())
+        );
     }
 
     #[test]
