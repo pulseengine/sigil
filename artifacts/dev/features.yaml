@@ -809,7 +809,7 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:14:26Z
-    release: v0.13.0
+    release: v0.12.0
 
   - id: REQ-32
     type: requirement
@@ -845,4 +845,52 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:14:26Z
+    release: v0.13.0
+
+  - id: REQ-35
+    type: requirement
+    title: Publish a CycloneDX VEX per release and re-issue it when advisories land
+    status: draft
+    description: "Advisories now gate the release: the v0.12.0 cycle lost significant time to RUSTSEC churn (12 advisories appeared in one week, incl. a 9.3 CRITICAL in an OPTIONAL non-default dependency). A VEX is how that distinction is stated machine-readably — 'not affected: wasmtime is behind the non-default runtime feature and absent from default builds' — instead of an --ignore line in a workflow whose rationale lives only in a YAML comment. Scope: emit a CycloneDX VEX alongside the SBOM in release.yml, with a documented status per advisory affecting the dependency graph (affected / not_affected + justification / fixed), and a path to re-issue it when new advisories land against an already-published release. Pairs with the existing SBOM work in sigil#165. sigil#280."
+    tags: [release, sbom, vex, supply-chain, advisories]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:16:44Z
+    release: v0.13.0
+
+  - id: REQ-36
+    type: requirement
+    title: Honour CertificateConfig::serial_number; stop colliding serials on re-issuance
+    status: draft
+    description: "CertificateConfig::serial_number is documented 'auto-generated if None' but is never read by any certificate-creation path, so rcgen derives the serial as SHA-256(subject SPKI)[0..20] — a pure function of the subject key. Because a device key is hardware-locked and write-once, every renewal/re-issue produces an IDENTICAL serial, so any CRL, audit log or transparency consumer that identifies a certificate by (issuer, serialNumber) cannot distinguish a revoked certificate from its replacement. Separately ProvisioningSession generates its OWN serial into ProvisioningResult.serial_number which also never reaches the certificate, so the provisioning audit record claims a serial the issued cert does not carry — arguably the sharper half. Interacts with REQ-34/#288: fixing that makes the collision live on the HSM path too, since today serials differ there only because the subject key is randomized. One fix: honour config.serial_number. sigil#289."
+    tags: [provisioning, audit, revocation, tier-5]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:16:44Z
+    release: v0.13.0
+
+  - id: REQ-37
+    type: requirement
+    title: Ship musl Linux builds — releases are glibc-only with a 2.39 floor
+    status: draft
+    description: "Linux release binaries are dynamically linked against glibc with a 2.39 floor, so they do not run on older distributions or on musl-based systems (Alpine, many container images). For a verification CLI that consumers are expected to run in arbitrary CI and air-gapped environments, a static musl build is the portable artifact. Scope: add x86_64-unknown-linux-musl (and aarch64 where feasible) to the release matrix, confirm the TPM/keyring optional features degrade correctly without glibc-only dependencies, and include the musl artifacts in the signed SHA256SUMS + attestation set so they carry the same provenance as the glibc builds. sigil#279."
+    tags: [release, portability, musl, distribution]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:16:44Z
+    release: v0.13.0
+
+  - id: REQ-38
+    type: requirement
+    title: Scope what wsc still owes varve for keyless at v1.0
+    status: draft
+    description: "varve has filed a consolidated statement of what it needs from wsc to go keyless at its v1.0, including what 0.11.0 already solved. This release line has been varve-driven throughout (REQ-26 sign_digest, REQ-27 from_sigstore_bundle, REQ-30's oracle sweep all came from varve reports), and varve's reports have twice surfaced real wrong-accepts, so their consolidated ask is the highest-signal roadmap input available. Scope: read sigil#268 against the current state, identify which asks are already satisfied by v0.12.0's content, which map to existing scoped requirements (REQ-28 #231, REQ-29 #259), and which are genuinely new capability gaps needing their own requirements; then reshape the v0.13.0+ plan around the result rather than guessing. Also fold in the open feedback thread sigil#272. sigil#268."
+    tags: [varve, roadmap, keyless, consumer-driven]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:16:44Z
     release: v0.13.0
