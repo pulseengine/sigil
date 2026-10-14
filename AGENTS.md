@@ -18,7 +18,12 @@ This project uses **Rivet** for SDLC artifact traceability.
 - Config: `rivet.yaml`
 - Schemas: common, dev, stpa, stpa-sec, cybersecurity
 - Artifacts: 452 across 23 types
-- Validation: `rivet validate` (current status: 9 errors)
+- Validation: `rivet validate` (current status: **22 errors**, 0 broken
+  cross-refs). The errors are all controller-constraint (`CC-*`) artifacts
+  missing required links — a known STPA backlog, not a code defect, and not
+  a release gate (the release checklist gates on CI and the Mythos delta
+  pass). The count drifted up from 9; treat a rise as something to triage
+  rather than to re-baseline silently.
 
 ## Available Commands
 
