@@ -38,7 +38,12 @@ jobs:
       uses: pulseengine/rivet/.github/actions/compliance@v0.39.0
       with:
         theme: dark
-        rivet-version: v0.3.0
+        # Must track the compliance action version above. This was frozen at
+        # v0.3.0 while dependabot advanced the action (0.32 -> 0.35 on
+        # 2026-09-01, then 0.37, 0.39); release.yml first failed 2026-09-08,
+        # the next release run after that bump. A rivet 0.3.0 cannot parse this
+        # repo's schemas (dev@0.4.0, on-disk stpa-sec, external-anchor). #284.
+        rivet-version: v0.39.0
         # Emit artifacts.yaml (generic-yaml) into the bundle so the website's
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true

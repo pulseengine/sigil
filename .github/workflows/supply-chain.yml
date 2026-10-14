@@ -47,7 +47,17 @@ jobs:
     - name: Install cargo-audit
       run: cargo install --locked cargo-audit
     - name: Run cargo audit
-      # Ignore list stays in sync with deny.toml [advisories].ignore.
+      # NOTE: advisories are gated HERE only. The cargo-deny job below runs
+      # bans/licenses/sources, so deny.toml's [advisories].ignore is not the
+      # gate and the two lists are not actually kept in sync.
+      #
+      # RUSTSEC-2026-0315 / -0325 (wasmtime, 5.7 and 5.9 medium) are fixed only
+      # in 48.0.3+/49.0.1+, which need rustc 1.95/1.96 while rust-toolchain.toml
+      # pins 1.94. The HIGH in the same crate — RUSTSEC-2026-0269, 8.8,
+      # filesystem sandbox escape — IS fixed: wasmtime is pinned >=47.0.4.
+      # wasmtime is an OPTIONAL dependency behind the non-default `runtime`
+      # feature, so a default `wsc` build does not pull it at all. Drop these two
+      # when #302 lands the toolchain bump and wasmtime can move to 49.x.
       # RUSTSEC-2026-0097 (rand 0.8.5 transitive) was removed from this
       # list when regorus was bumped 0.2.8 → 0.10 — the residual 0.8.5
       # instance now drops out of the dep graph entirely.
@@ -60,7 +70,9 @@ jobs:
           --ignore RUSTSEC-2026-0021 \
           --ignore RUSTSEC-2025-0057 \
           --ignore RUSTSEC-2025-0134 \
-          --ignore RUSTSEC-2024-0436
+          --ignore RUSTSEC-2024-0436 \
+          --ignore RUSTSEC-2026-0315 \
+          --ignore RUSTSEC-2026-0325
 
   cargo-deny:
     name: Cargo Deny
