@@ -15,7 +15,8 @@ wsc = { path = "../../src/lib" }
 # Raising this requires bumping rust-toolchain.toml first, which re-qualifies
 # every formal-verification gate (Kani/Verus/Rocq/witness) and so belongs in
 # its own PR. See the toolchain-bump follow-up issue.
-wasmtime = "47.0"
+# >=47.0.4 clears RUSTSEC-2026-0269 (8.8 HIGH); see src/lib/Cargo.toml.
+wasmtime = "47.0.4"
 anyhow = "1.0"
 env_logger = "0.11"
 log = "0.4"
