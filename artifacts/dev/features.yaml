@@ -798,3 +798,51 @@ artifacts:
       model: claude-opus-4-8
       timestamp: 2026-08-21T17:09:28Z
     release: v0.12.0
+
+  - id: REQ-31
+    type: requirement
+    title: Toolchain 1.94 -> 1.96 and re-qualify every formal-verification gate
+    status: draft
+    description: "SECURITY-FORCED, not cleanup. wasmtime 47.x carries RUSTSEC-2026-0327 (9.3 CRITICAL, component async-lifted callback result count unvalidated -> native stack buffer overflow) plus -0326 (5.7) and -0316 (1.0), all fixed ONLY in 48.0.4+/49.0.2+, which require rustc 1.95/1.96 while rust-toolchain.toml pins 1.94. So the toolchain bump is the sole path to clearing a CRITICAL. Mitigating: wasmtime is optional behind the non-default 'runtime' feature, so default wsc builds do not pull it. Scope: bump rust-toolchain.toml alone; confirm the UNMASKED gates stay green (kani varint/dsse/wasm_module, witness MC/DC, vacuous-oracle, full cargo matrix both OSes); record each MASKED gate's status before/after so the mask is not hiding a new failure (kani format+merkle tolerate_failure, Verus assume(false) audit C-1, Rocq stub, Bazel test audit C-7); then relax the wasmtime/rust-version pins and let #295/#290 land. Also reconcile rust.yml's env RUST_VERSION=1.90.0 with the toolchain file. sigil#302."
+    tags: [toolchain, security, advisory, wasmtime, ci]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:14:26Z
+    release: v0.13.0
+
+  - id: REQ-32
+    type: requirement
+    title: Sign the WASM preamble — the signature does not bind the artifact bytes
+    status: draft
+    description: "The 8-byte WASM preamble is hashed by neither sign nor verify: SecretKey::sign hashes only section.serialize output, and Module::init_from_reader consumes the preamble before hashing begins while accepting BOTH WASM_HEADER and WASM_COMPONENT_HEADER. So a signed core module's preamble can be rewritten to the component preamble (or vice versa) and the signature still verifies — two distinct files share one valid signature, and the preamble is what selects every WASM runtime's parse mode. validate_format_consistency runs only at sign time, never on verify. Found by the v0.12.0 Mythos pass; oracle kept as an #[ignore]d test (poc_verify_accepts_rewritten_module_preamble) with positive and negative controls. BREAKING: hashing the preamble changes what is signed and invalidates every existing signature, so this needs a SIGNATURE_VERSION bump, a migration decision on whether v1 signatures stay acceptable, and a ModuleStreamReader::header() accessor in wasm_module. Adjacent to AS-17/UCA-16 but distinct (intra-WASM, same parser). sigil#303."
+    tags: [soundness, signature-format, breaking, wasm]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:14:26Z
+    release: v0.13.0
+
+  - id: REQ-33
+    type: requirement
+    title: Do not retain stale signed_hashes_set entries on re-sign (rollback)
+    status: draft
+    description: "sign_multi documents that a new signature 'is added to the existing ones', and build_header_section retains previous signed_hashes_set entries; ct_eq_hashes merges only when hash sets are EQUAL, so re-signing modified content appends a second entry while keeping the stale one. PublicKey::verify accepts a stream matching ANY entry, so a composite artifact (v2 header + v1 content) verifies though the publisher never produced it, and a consumer pinning the v2 detached signature accepts v1 content. NOT fixed by the v0.12.0 terminal-hash pinning: v1's hash is terminal within its own entry. Freshness/rollback failure rather than forgery (the key did sign that content once), so severity is below the v0.12.0 truncation wrong-accepts. Oracle kept as an #[ignore]d test with positive and negative controls. Remedy is sign-side: drop entries whose hashes disagree with the content being signed, or make retention opt-in and scoped (legitimate multi-signer co-signing has EQUAL hash sets, which ct_eq_hashes already merges). sigil#304."
+    tags: [soundness, freshness, rollback, signing]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:14:26Z
+    release: v0.13.0
+
+  - id: REQ-34
+    type: requirement
+    title: Device certificates must bind the device's public key (HSM provisioning path)
+    status: draft
+    description: "PrivateCA::create_device_cert (the public-key-only / HSM path via sign_device_certificate) fabricates a signer because rcgen needs one: it builds KeyPair { sk: temp_full_keypair.sk, pk: device_public_key } and passes it to ed25519_to_pem, which is keypair.sk.to_pem() and reads ONLY sk. rcgen re-derives the SPKI from that ephemeral seed, so the pk field is dead code and every certificate on this path carries a throwaway key's SPKI. Measured: device pk 8053c7a6... vs cert SPKI 7d70cad9... Fail-closed rather than forgery (verify_with_certificate checks against the cert's SPKI, so a genuine hardware signature can never validate), but hardware-backed provisioning is non-functional and the certificate attests a binding no party holds, contradicting ProvisioningSession::provision's documented guarantees. Survived because the EKU regression test issues via this same path and passes — webpki never checks subject-key possession. Correct fix: give rcgen the subject SPKI rather than a fabricated keypair; do NOT simply make it error, which would break ProvisioningSession::provision and the shipped examples/iot_provisioning.rs. Predates v0.11.0 (2025-11-14, 7ca8f5a). sigil#288."
+    tags: [provisioning, hsm, soundness, tier-5]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5
+      timestamp: 2026-10-14T19:14:26Z
+    release: v0.13.0
