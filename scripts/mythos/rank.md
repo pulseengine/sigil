@@ -24,7 +24,8 @@ Ranking rubric (sigil-specific):
 4 (direct security boundary — verification/signing + host bridges + CLI env surface):
   - src/lib/src/signature/keyless/{cert_verifier,cert_pinning,rekor_verifier,merkle,checkpoint,format,signer}.rs
   - src/lib/src/airgapped/verifier.rs
-  - src/lib/src/signature/{mod,matrix,multi,simple,hash}.rs
+  - src/lib/src/signature/mod.rs
+  - src/verify-core/src/signature/{mod,matrix,multi,simple,hash}.rs  # moved by the v0.11.0 split
   - src/lib/src/{intoto,slsa,sct}.rs
   - src/lib/src/platform/mod.rs           # SecureKeyProvider trait shape — constrains all providers
   - src/lib/src/runtime/crypto_host.rs    # wasmtime host ↔ SecureKeyProvider bridge
@@ -33,7 +34,7 @@ Ranking rubric (sigil-specific):
 
 3 (one hop from untrusted input):
   - src/lib/src/signature/keyless/{oidc,fulcio,rekor,transport,proof_cache,mod}.rs
-  - src/lib/src/signature/info.rs
+  - src/verify-core/src/signature/info.rs
   - src/lib/src/format/**
   - src/lib/src/airgapped/{state,storage,config,mod}.rs
   - src/lib/src/pqc.rs
@@ -47,7 +48,7 @@ Ranking rubric (sigil-specific):
   - src/lib/src/{http,policy,audit,composition,container}/**
   - src/lib/src/runtime/mod.rs
   - src/lib/src/signature/keyless/rate_limit.rs
-  - src/lib/src/split.rs
+  - src/verify-core/src/split.rs
 
 1 (config / constants / metrics / proof artifacts):
   - src/lib/src/metrics/**
