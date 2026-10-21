@@ -64,14 +64,17 @@ def _count(pattern, globs, root):
 def _capture(patterns, globs, root):
     """Collect capture-group 1 of every match of every pattern across globs.
 
-    Returns (found, matched_any_file) where `found` is a list of
+    Returns (found, matched_any_file, bad) where `found` is a list of
     (value, filename, pattern) so a disagreement can name both sides rather
-    than just reporting that one exists.
+    than just reporting that one exists, and `bad` holds defects in the claim
+    itself (a pattern with no capture group, or a group that did not
+    participate) — reported as failures, never swallowed.
     """
     patterns = [patterns] if isinstance(patterns, str) else patterns
     globs = [globs] if isinstance(globs, str) else globs
     rxs = [re.compile(p) for p in patterns]
     found = []
+    bad = []
     matched_any = False
     for g in globs:
         # Same root-relative resolution as _count: a glob resolved against the
@@ -83,9 +86,25 @@ def _capture(patterns, globs, root):
             matched_any = True
             body = p.read_text(errors="ignore")
             for rx in rxs:
+                if rx.groups < 1:
+                    bad.append(f'pattern has no capture group: /{rx.pattern}/')
+                    continue
                 for m in rx.finditer(body):
-                    found.append((m.group(1), p.name, rx.pattern))
-    return found, matched_any
+                    v = m.group(1)
+                    if v is None:
+                        # An alternation can match while group 1 does not
+                        # participate. That is a defect in the CLAIM, and it
+                        # used to raise a TypeError in the sort below — which
+                        # aborted main() and left every later claim
+                        # unevaluated. Name it instead.
+                        bad.append(
+                            f'group 1 did not participate in a match of '
+                            f'/{rx.pattern}/ in {p.name} — the pattern cannot '
+                            f'express the value it claims to compare'
+                        )
+                        continue
+                    found.append((v, p.name, rx.pattern))
+    return found, matched_any, bad
 
 
 def check_claim(c, root):
@@ -147,9 +166,11 @@ def check_claim(c, root):
             # rotted into matching nothing), or more than one distinct value.
             # The third is the drift the gate exists for; the second is what
             # stops the gate from going quietly vacuous when the first vanishes.
-            found, matched = _capture(ev["patterns"], ev["glob"], root)
+            found, matched, bad = _capture(ev["patterns"], ev["glob"], root)
             need = ev.get("min-captures", 2)
             distinct = sorted({v for v, _, _ in found})
+            # dedupe: one defective pattern otherwise reports once per file
+            fails.extend(dict.fromkeys(bad))
             if not matched:
                 fails.append(f'predicate matched NO files (measures nothing): glob {ev["glob"]}')
             elif len(found) < need:

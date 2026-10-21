@@ -1203,7 +1203,7 @@ artifacts:
   - id: CV-20
     type: cybersecurity-verification
     title: Verus SMT proof — Merkle proof soundness (unbounded)
-    status: in-progress
+    status: approved
     tags: [verus, rules_verus]
     fields:
       method: formal-verification
@@ -1214,7 +1214,7 @@ artifacts:
   - id: CV-21
     type: cybersecurity-verification
     title: Verus SMT proof — air-gapped verifier anti-rollback invariant
-    status: in-progress
+    status: approved
     tags: [verus, rules_verus]
     fields:
       method: formal-verification
@@ -1225,7 +1225,7 @@ artifacts:
   - id: CV-22
     type: cybersecurity-verification
     title: Rocq proof — signature verification protocol correctness
-    status: in-progress
+    status: approved
     tags: [rocq, coq-of-rust, rules_rocq_rust]
     fields:
       method: formal-verification
@@ -1807,7 +1807,7 @@ artifacts:
       - type: satisfies
         target: CR-25
 
-  - id: CV-25
+  - id: CV-35
     type: cybersecurity-verification
     title: Mechanised sister logic for compositional attestation-chain trust
     status: draft

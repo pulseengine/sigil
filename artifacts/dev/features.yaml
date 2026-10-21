@@ -201,7 +201,7 @@ artifacts:
   - id: FEAT-2
     type: feature
     title: Sign native artifacts from synth (ELF / MCUboot)
-    status: in-progress
+    status: implemented
     description: >
       Implement format-aware signing backends for MCUboot TLV (embedded
       Cortex-M) and ELF .signature section (Linux targets). Carry attestation
@@ -294,7 +294,7 @@ artifacts:
   - id: FEAT-6
     type: feature
     title: WASM-to-native transcoding attestation protocol
-    status: in-progress
+    status: implemented
     description: >
       Define and implement the attestation protocol for carrying cryptographic
       provenance across the WASM-to-native compilation boundary. Enables synth
@@ -368,7 +368,7 @@ artifacts:
   - id: FEAT-7
     type: feature
     title: Cosign delegation with binary integrity verification
-    status: in-progress
+    status: implemented
     description: >
       Safe cosign subprocess delegation for container image signing with
       binary integrity verification (AS-20), tag-to-digest resolution
@@ -383,7 +383,7 @@ artifacts:
   - id: FEAT-8
     type: feature
     title: Rekor inclusion proof caching
-    status: in-progress
+    status: implemented
     description: >
       TTL-based cache for verified Rekor inclusion proofs to provide
       availability resilience during transient Rekor outages. Cache is
@@ -448,7 +448,7 @@ artifacts:
   - id: REQ-14
     type: requirement
     title: Verus formal proofs for Merkle and DSSE
-    status: in-progress
+    status: approved
     description: >
       Merkle tree inclusion proof soundness (CV-20), anti-rollback
       invariant (CV-21), DSSE PAE injectivity and domain separation
@@ -464,7 +464,7 @@ artifacts:
   - id: FEAT-9
     type: feature
     title: OCI 1.1 referrers API and Sigstore bundle format
-    status: in-progress
+    status: implemented
     description: >
       Store container signatures using OCI 1.1 referrers API instead
       of tag-based storage to reduce GC risk (AS-19). Support Sigstore
@@ -478,7 +478,7 @@ artifacts:
   - id: FEAT-10
     type: feature
     title: Formal verification CI workflow
-    status: in-progress
+    status: implemented
     description: >
       GitHub Actions workflow running Verus SMT verification and
       Kani bounded model checking on every PR touching proof files.
@@ -488,7 +488,7 @@ artifacts:
   - id: FEAT-11
     type: feature
     title: WASM Component Model signing
-    status: in-progress
+    status: implemented
     description: >
       Support signing and verification of WASM Component Model modules,
       including recursive handling of nested components and preservation
@@ -549,6 +549,8 @@ artifacts:
       - type: traces-to
         target: EXTERNALANCHOR-001
 
+      - type: satisfies
+        target: REQ-17
   - id: REQ-17
     type: requirement
     title: wsc:crypto hardware-verify interface with curve negotiation (Ed25519 / ECDSA-P256)
@@ -588,6 +590,8 @@ artifacts:
       - type: traces-to
         target: FEAT-12
 
+      - type: satisfies
+        target: REQ-15
   - id: DD-10
     type: design-decision
     title: MAX_SLICE_LEN = 256MB to hold a wasm component's embedded core-module section
@@ -596,6 +600,9 @@ artifacts:
     fields:
       description: "Decision behind the #213 fix that unblocks wasm32-wasip2 component signing (#164)."
       rationale: A wasm32-wasip2 component embeds a whole core module as one section; a full CLI (wsc-cli.wasm) exceeds the old 16MB bound, so Section::deserialize rejected it with ParseError at sign time (#164). 256MB is generous headroom for any realistic component while still bounding a single host allocation; the excessive-length rejection still holds (test value exceeds 256MB). Tighter input-bounded read deferred to the embedded profile (REQ-15).
+    links:
+      - type: satisfies
+        target: REQ-19
 
   - id: REQ-19
     type: requirement
@@ -705,6 +712,9 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-08T06:00:07Z
+    links:
+      - type: satisfies
+        target: REQ-23
 
   - id: DD-12
     type: design-decision
@@ -719,6 +729,9 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-08T06:00:07Z
+    links:
+      - type: satisfies
+        target: REQ-23
 
   - id: DD-13
     type: design-decision
@@ -733,6 +746,9 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-08T15:04:57Z
+    links:
+      - type: satisfies
+        target: REQ-24
 
   - id: REQ-26
     type: requirement

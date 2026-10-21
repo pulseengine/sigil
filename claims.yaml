@@ -108,3 +108,19 @@ claims:
         pattern: 'tolerate_failure:\s*false'
         glob: ['.github/workflows/formal-verification.yml']
         min: 1
+
+  # --- The synth external pin, in both compliance callers -------------------
+  - id: SYNTH-PIN-AGREES
+    doc: .github/workflows/release.yml
+    # Both callers of the rivet compliance action clone synth to resolve
+    # rivet.yaml's `../synth` external. If they pin different refs, the
+    # release-time report and the on-demand report validate against different
+    # cross-repo stores and can disagree about whether a link is broken — with
+    # the release path being the one nobody re-runs by hand. Same shape as
+    # RIVET-ACTION-PIN-AGREES: two hand-kept copies, one machine watching.
+    evidence:
+      - kind: captures-agree
+        patterns:
+          - '--branch (v[0-9]+\.[0-9]+\.[0-9]+) \\\n\s*https://github\.com/pulseengine/synth'
+        glob: ['.github/workflows/*.yml']
+        min-captures: 2
