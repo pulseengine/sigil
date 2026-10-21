@@ -203,6 +203,13 @@ jobs:
     - name: Install pinned Rust toolchain
       run: rustup show
 
+    # Milliseconds, and it runs FIRST: if the gate's verdict logic has drifted,
+    # the number it prints below is not worth reading. Covers the empty-scope
+    # guard, the regression trip, and that recalibrating the baseline for the
+    # 1.96 codegen did not make the gate toothless.
+    - name: Witness gate verdict table
+      run: bash verification/witness-harness/gate-logic-test.sh
+
     - name: Run witness MC/DC regression gate
       run: bash verification/witness-harness/witness-gate.sh
       env:

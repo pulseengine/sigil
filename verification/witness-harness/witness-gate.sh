@@ -82,7 +82,50 @@ WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
 # length-8 header reads (the try_parse_wasm scenarios) strips a read_exact
 # condition's unique-cause pair, SRC_GAP rises 3 -> 4 > baseline, exit 1 (a real
 # verify-core coverage regression is caught, not just a threshold trip).
-SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-3}"
+# ---------------------------------------------------------------------------
+# RECALIBRATION, 2026-10-21 (REQ-31 / #302: toolchain 1.94.0 -> 1.96.1)
+#
+# The analysis above reasons about the count as if it were a property of
+# verify-core's logic. It is not. With IDENTICAL source, four configurations:
+#
+#   host    toolchain   src/-path decisions in scope        src gaps   gate
+#   linux   1.94.0      varint.rs:28                             2     pass
+#   linux   1.96.1      varint.rs:28 + wasm_module/mod.rs:455    4     FAIL
+#   macOS   1.94.0      (per the note above)                     3     pass
+#   macOS   1.96.1      NONE                                     0     pass (!)
+#
+# Two findings, and the second is the serious one.
+#
+# 1. The +2 on linux is mod.rs:455 — `header != WASM_HEADER && header !=
+#    WASM_COMPONENT_HEADER` — becoming visible, while varint.rs:28 is unchanged.
+#    It is NOT lost coverage: both of its conditions have reachable unique-cause
+#    pairs and the scenario set already supplies them (`0,97,115,109,1,0,0,0`
+#    gives c0=F; `...,13,0,1,0` gives c0=T,c1=F; the byte-flip rows give
+#    c0=T,c1=T). witness's own suggestion for the second gap is `{c0=F, c1=F}`,
+#    which is INFEASIBLE twice over for a short-circuit `&&` — the two headers
+#    differ, and c1 is not evaluated when c0 is false. A row the gate asks for
+#    that no input can produce is an attribution artifact of 1.96's codegen, not
+#    a hole in the scenario set. Filed; see the issue referenced in the commit.
+#
+# 2. macOS/1.96 put ZERO decisions in scope, so SRC_GAP was 0, and the old
+#    `SRC_GAP < baseline` branch printed a friendly notice and PASSED. That is
+#    the gate measuring nothing and reporting OK — the `MISSED=0` failure mode,
+#    on the only unmasked formal gate this repo has besides `kani varint`. The
+#    guard below now makes an empty scope a hard error, which is the same rule
+#    claim-check's `matched_any` enforces for a glob that matches no files.
+#
+# The baseline moves 3 -> 4 to the MEASURED linux/1.96 value. Note it was
+# already stale-high: linux/1.94 measured 2, so the committed 3 carried a unit
+# of headroom that silently absorbed the first half of this move. A floor left
+# above the real count is exactly the headroom a new gap slips into.
+#
+# This number is still a constant compared against a codegen-dependent quantity,
+# which is the real defect. The end state is a per-decision assertion for
+# verify-core's own two decisions, so a codegen shift surfaces as *which
+# decision changed* rather than as a sum crossing a line. Tracked separately;
+# this change buys back the potency the empty-scope path had given away.
+# ---------------------------------------------------------------------------
+SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-4}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
@@ -151,12 +194,35 @@ SRC_GAP="$(awk '
   /: GAP/       { if (insrc) n++ }
   END           { print n+0 }
 ' out/mcdc-report.txt)"
-echo "MC/DC gaps — verify-core (src/): ${SRC_GAP} (baseline ${SRC_BASELINE_GAP}); whole-wasm total: ${TOTAL_GAP} (informational, not gated — see #128)"
+
+# How many decisions were in scope AT ALL. Counted separately from the gaps
+# because zero gaps means two completely different things depending on this
+# number, and the gate used to conflate them.
+SRC_DECISIONS="$(awk '
+  /^decision #/ { if ($3 ~ /^src\//) n++ }
+  END           { print n+0 }
+' out/mcdc-report.txt)"
+
+echo "MC/DC gaps — verify-core (src/): ${SRC_GAP} (baseline ${SRC_BASELINE_GAP}) across ${SRC_DECISIONS} in-scope decision(s); whole-wasm total: ${TOTAL_GAP} (informational, not gated — see #128)"
+
+# --- guard: MEASURES NOTHING is a failure, never a pass. ---
+#
+# The `^src/` scope is codegen-dependent (see RECALIBRATION above). On
+# macOS/1.96.1 it collapsed to ZERO decisions, SRC_GAP came out 0, and the
+# "below baseline" branch below printed a cheerful notice and exited 0 — the
+# gate reporting OK while measuring nothing, on one of only two unmasked formal
+# gates in this repo. An absent measurement must be red, exactly as
+# claim-check treats a glob that matches no files.
+if [ "${SRC_DECISIONS:-0}" -eq 0 ]; then
+  echo "::error:: the witness report contains NO decision whose path starts with src/, so this gate measured nothing — 0 gaps here is an empty scope, not full coverage. The ^src/ attribution is codegen-dependent and has collapsed before (macOS + rustc 1.96.1). Inspect out/mcdc-report.txt and fix the scoping; do not read this as a pass."
+  exit 1
+fi
+
 if [ "${SRC_GAP:-9999}" -gt "$SRC_BASELINE_GAP" ]; then
-  echo "::error:: MC/DC regression in verify-core — scoped gap conditions rose ${SRC_BASELINE_GAP} -> ${SRC_GAP}. A verify-core decision lost coverage; add a witness scenario or restore the branch."
+  echo "::error:: MC/DC regression in verify-core — scoped gap conditions rose ${SRC_BASELINE_GAP} -> ${SRC_GAP}. A verify-core decision lost coverage; add a witness scenario or restore the branch. Read the GAP rows and check each suggested row is FEASIBLE before touching the baseline: an infeasible suggestion means an attribution artifact, and re-pinning the number to get green is the one thing this gate exists to prevent."
   exit 1
 fi
 if [ "${SRC_GAP}" -lt "$SRC_BASELINE_GAP" ]; then
-  echo "::notice:: verify-core scoped gaps ${SRC_GAP} < baseline ${SRC_BASELINE_GAP}. On the CI host (linux) this means a scenario closed a gap — lower SRC_BASELINE_GAP to lock it in. On a non-CI host (e.g. macOS yields 3) this is just per-target codegen and the committed baseline should NOT be lowered from it."
+  echo "::notice:: verify-core scoped gaps ${SRC_GAP} < baseline ${SRC_BASELINE_GAP} over ${SRC_DECISIONS} in-scope decision(s). On the CI host (linux) this may mean a scenario closed a gap — lower SRC_BASELINE_GAP to lock it in, but only after confirming the in-scope decision set did not SHRINK (a vanished decision also lowers the count, and that is a scoping regression, not progress)."
 fi
-echo "witness MC/DC gate: OK (verify-core scoped)"
+echo "witness MC/DC gate: OK (verify-core scoped, ${SRC_DECISIONS} decision(s) measured)"
