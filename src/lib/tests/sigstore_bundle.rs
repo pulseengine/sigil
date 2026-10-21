@@ -4,6 +4,8 @@
 //!
 //! Fixtures are real bundles committed under
 //! `tests/fixtures/sigstore_bundles/` and loaded with `include_str!`.
+//!
+//! rivet: verifies REQ-27
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64};
 use wsc::WSError;
