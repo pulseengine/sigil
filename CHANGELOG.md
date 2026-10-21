@@ -3,11 +3,21 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0] — 2026-10-06
+## [0.12.0] — 2026-10-21
 
 varve-driven interop: wsc can now sign any digest and ingest the ecosystem's
-bundles, not just its own. Two security findings from the pre-release bug hunt
-are fixed, including a revocation bypass that was a wrong-accept.
+bundles, not just its own.
+
+**Four security findings are fixed, three of them wrong-accepts, and one of
+those is reachable from plain `wsc verify` with no key and no forgery — a
+split-signed module truncated at any delimiter verified.** Upgrade from 0.11.0.
+The other two wrong-accepts are a revocation bypass in the air-gapped verifier
+and `verify_multi`/`verify_matrix` accepting modules whose content was never
+compared against any signed hash.
+
+A 9.3 CRITICAL in wasmtime also forced the pinned toolchain to 1.96.1 (the
+`runtime` feature now needs rustc ≥ 1.96), and the compliance report — this
+project's V-model evidence, missing for two releases — is produced again.
 
 ### Added
 
@@ -55,6 +65,32 @@ are fixed, including a revocation bypass that was a wrong-accept.
 
 ### Fixed
 
+- **A split-signed module truncated at any delimiter verified — WRONG-ACCEPT
+  (#305, `verify-core/signature/{simple,multi,matrix}.rs`).** The most severe
+  finding of this cycle, and reachable from plain `wsc verify`. `sign_multi`
+  never resets its hasher between delimiters, so it signs the sequence of
+  *cumulative prefix* hashes `[H(P₁), H(P₂), … H(Pₙ)]`; `valid_hashes_for_pk`
+  then inserted all of them into an unordered set, and **no verifier required
+  the terminal one**. Deleting every section after any delimiter therefore left
+  a stream whose hash is itself a signed prefix hash: the in-loop `contains`
+  check passed, nothing noticed the stream ended early, and the module verified
+  — including through `PublicKey::verify`, with the Function and Code sections
+  removed. An attacker needed no key and no signature forgery, only scissors.
+  `valid_hashes_for_pk` gains a `terminal_only: bool`; both whole-module
+  verifiers in `simple.rs` pass `true`, while `multi.rs`/`matrix.rs` keep the
+  prefix set (they legitimately verify ranges) but now pin the last compared
+  hash as terminal and reject must-be-signed sections trailing the final
+  delimiter.
+  *Falsification:* 8 regression tests, each with a positive **and** a negative
+  control, and each guard independently mutation-verified — deleting the
+  terminal pin fails `poc_split_signed_module_accepts_truncation_at_a_delimiter`
+  with the explicit message "signed Function+Code sections were deleted and
+  verify_multi still returned Ok". Two deeper oracles are committed `#[ignore]`d
+  rather than deleted, because fixing them is a signature-format break: #303
+  (the 8-byte WASM preamble is outside the signature) and #304 (re-signing
+  retains stale `signed_hashes_set` entries, so rolled-back content verifies
+  under a newer signature). Both are v0.13.0 scope.
+
 - **`verify_multi`/`verify_matrix` accepted modules with no signature delimiter
   — WRONG-ACCEPT (`verify-core/signature/{multi,matrix}.rs`).** In both, the
   running content hash is compared against the signed hashes ONLY inside
@@ -79,6 +115,19 @@ are fixed, including a revocation bypass that was a wrong-accept.
   attempt** — a varying predicate tripped unrelated bookkeeping so it passed with
   the guard removed; it now uses a constant predicate. `multi.rs` previously had
   no test module at all.
+  *Oracle correction:* once #305's terminal-hash check landed in the same
+  function, it **subsumed** this guard — measured on main, deleting the
+  no-delimiter guard left all 177 verify-core tests green while deleting the
+  terminal check failed 2. So the mutation verification above was true when
+  written and stopped being true afterwards, which is the sibling of a vacuous
+  oracle: a test that still asserts a real property but can no longer tell you
+  the mechanism it names is present. The test now pins the **error variant**
+  (`VerificationFailed` for the no-delimiter guard vs
+  `VerificationFailedForPredicates` for the terminal check), which makes the
+  mutation fail again — one oracle per guard. `matrix.rs` carries the same
+  redundancy and cannot be separated this way (both arms return
+  `VerificationFailed`, and the `match` arm is compile-enforced); that is stated
+  rather than papered over with a test that only appears to isolate it.
 
 - **Revocation bypass — WRONG-ACCEPT (`airgapped/verifier.rs`).**
   `compute_cert_fingerprint` rebuilt the leaf DER by concatenating every line that
@@ -131,9 +180,13 @@ are fixed, including a revocation bypass that was a wrong-accept.
   builds `examples/wasmtime-loader` but its path filters did not include
   `examples/**`, so dependabot's wasmtime bumps merged with zero validation and
   the resulting MSRV break (wasmtime 49.0.1 needs rustc 1.96.0; the toolchain
-  pins 1.94.0) surfaced on later unrelated `src/**` pushes. wasmtime is pinned to
-  the newest MSRV-1.94 line (47.0) with `rust-version = "1.94"` so the resolver
-  enforces it, and `examples/**` plus `rust-toolchain.toml` now trigger CI.
+  pins 1.94.0) surfaced on later unrelated `src/**` pushes. `examples/**` plus
+  `rust-toolchain.toml` now trigger CI. The wasmtime pin that change introduced
+  (47.0, the newest MSRV-1.94 line) is itself superseded inside this release —
+  see **Changed** below — and the example now carries a **committed
+  `Cargo.lock`** (#274), which is the half that actually makes it stay fixed:
+  without one, CI re-resolved 310 packages on every build and any transitive
+  MSRV bump broke it with no commit of ours.
 
 - **The mandatory pre-release bug-hunt gate was itself vacuous (#286).** The
   Mythos delta pass greps tier-5 paths that the 0.11.0 crate split moved out of
@@ -143,6 +196,70 @@ are fixed, including a revocation bypass that was a wrong-accept.
   clean. Repointed in both AGENTS.md and `scripts/mythos/rank.md`.
   *Falsification:* on the real `v0.11.0..main` delta the old paths matched 0 files
   and the corrected paths matched a changed tier-5 file.
+
+### Changed
+
+- **Toolchain 1.94.0 → 1.96.1, wasmtime 47.0.4 → 49.0.4 (REQ-31 / #302) —
+  retiring a security exception rather than renewing it.** wasmtime 47.x carried
+  **RUSTSEC-2026-0327 (9.3 CRITICAL** — a component async-lifted callback result
+  count left unvalidated, reaching a native stack buffer overflow), plus -0326
+  (5.7), -0316 (1.0), -0315 and -0325. All five are fixed only in
+  48.0.4+/49.0.1+, which require rustc 1.95/1.96, so the toolchain bump was the
+  only path to clearing a CRITICAL and moved from v0.13.0 cleanup into a
+  prerequisite for this release.
+
+  Shipping under a documented exception was available and was **declined**:
+  wasmtime is optional and not in `default`, so a default `wsc` build never
+  pulled it and the exposure was opt-in. For a signing and verification tool an
+  exception retired beats an exception renewed, and the two `--ignore` lines in
+  `supply-chain.yml` are deleted rather than re-justified. `cargo audit` with
+  the remaining ignore list now exits **0** — the first clean audit of this
+  cycle.
+
+  **MSRV, for consumers:** the `runtime` feature now requires **rustc ≥ 1.96**.
+  No crate in this workspace declares `rust-version`, so nothing mechanically
+  prevents a newer `std` API from raising the floor for the default build
+  either; that is a known gap, not a claim of 1.94 compatibility.
+
+- **`rustls-webpki` 0.103.15 → 0.103.16 and `webpki-roots` 1.0.9 → 1.0.10.**
+  Not incidental housekeeping. Re-auditing the new lockfile surfaced two
+  advisories published within 48 hours of this release, both on certificate
+  verification: **RUSTSEC-2026-0382** (rustls-webpki — *certificate verification
+  may accept distrusted intermediates*) and **RUSTSEC-2026-0381**
+  (webpki-roots — *bundled root certificates allow trust in distrusted emSign
+  intermediates*). Both land on the webpki validation that is **step 1 of
+  `PinnedCertVerifier::verify_server_cert`**, i.e. the chain every keyless path
+  here trusts before pin matching runs. Note 0.103.15 — the vulnerable version —
+  arrived via a dependabot bump merged six days earlier: a lockfile is only as
+  fresh as its last audit.
+
+- **The compliance report is produced again (#284).** `release.yml`'s compliance
+  job had failed every run since 2026-09-08. The cause, from the first failing
+  run's log, is not the one originally recorded: rivet **0.3.0** byte-slices an
+  artifact title during HTML export and `artifacts/dev/features.yaml` gained an
+  em dash —
+  `byte index 26 is not a char boundary … of 'Lightweight DSSE verify — …'`.
+  The step that died was *Export*, not *Install* or *Validate*. The binary pin
+  (`rivet-version:`) had been frozen at v0.3.0 since March while dependabot
+  advanced the action tag to v0.40.0; both now track v0.41.0, and a
+  `captures-agree` claim keeps them equal, since dependabot only ever rewrites
+  the `uses:` line.
+
+  Two further things had to be true for the job to go green, and both are also
+  fixed here: `rivet validate` exited 1 on **22 mechanical errors** (11
+  off-vocabulary `in-progress` statuses, 6 `satisfies` links declared with zero
+  targets, 3 undeclared `related-to` link types, and one **duplicate artifact
+  id** — `CV-25` was declared twice, so one verification artifact had been
+  silently absent from the trace since it was introduced); and `rivet.yaml`'s
+  `../synth` external can never resolve in a single-repo checkout, which made
+  rivet abandon cross-ref checking for *all* externals and count 9 valid links
+  as broken (31 errors in CI where a developer saw 22). Both compliance callers
+  now clone synth at a pinned ref. `rivet validate` → **PASS**.
+
+  **No release was ever blocked by #284.** `build-and-release` needs only
+  `build-native-cli` and nothing depends on `build-compliance`, which is why
+  0.11.0 shipped from a red release run. What #284 cost was the compliance
+  *evidence* — the V-model artifact for two releases.
 
 ### Verification notes
 
@@ -176,15 +293,45 @@ than accepted.
 gate for whether it can actually fail. Proven potent by mutation this cycle: the
 vacuous-oracle gate (clean → 0, coverage omission → 1, bogus selector → 1), the
 witness MC/DC gate (baseline −1 vs measured gap 0 → `::error::`, exit 1), and
-each security regression test above. Unmasked and therefore potent: `kani varint`,
-`kani dsse`, `kani wasm_module`. **Masked — cannot fail CI:** `kani format` and
-`kani merkle` (`tolerate_failure: true`), Verus (both steps — `theorem_*` end in
-`assume(false)`, audit C-1), the Rocq translation (documented as a stub), the
-Bazel `test` step (audit C-7), and the Rekor fresh-data tests. Stated because
-`format.rs` carries this release's largest piece of new attacker-facing code
-(REQ-27's bundle parser), so the formal gate over it is advisory, not blocking —
-its oracle here is the committed fixture tests and negative controls, not Kani.
-Unmasking is tracked separately rather than attempted during a release.
+each security regression test above.
+
+**Correction to an earlier draft of this entry,** which said "unmasked and
+therefore potent: `kani varint`, `kani dsse`, `kani wasm_module`". That was
+false, and it was false because it copied `formal-verification.yml`'s own
+summary comment, which contradicted the matrix three lines below it. Measured
+during REQ-31 by reading each step's **pre-mask exit code out of the run logs**
+rather than its API conclusion (which `continue-on-error` reports as success),
+on main `@74665d9b`, run `38971394138`:
+
+| gate | masked | pre-mask exit | detail |
+|---|---|---|---|
+| `kani varint` | no | 0 | 5/5 verified |
+| `kani merkle` | **yes** | **1** | 2 ok / **3 failed** of 5 |
+| `kani dsse` | **yes** | **1** | 0 ok / **1 failed** |
+| `kani format` | **yes** | **1** | 2 ok / **2 failed** of 4 |
+| `kani wasm_module` | **yes** | **1** | 0 ok / **1 failed** |
+| Verus (Merkle proofs) | **yes** | **1** | `assume(false)`, audit C-1 |
+| Verus (tests) | **yes** | **1** | audit C-1 |
+| Rocq translation | **yes** | **1** | documented stub |
+| witness MC/DC | no | 0 | clean |
+
+**One Kani module is a gate. Seven failing harnesses sit behind a green
+board.** Also masked: the Bazel `test` step (audit C-7) and the Rekor
+fresh-data tests. `claims.yaml` now carries `KANI-MASK-RATCHET`, so the number
+of masked modules can shrink but not grow (negative-controlled both ways:
+a fifth mask → red; `varint` losing its unmasked entry → red).
+
+This matters most for `format.rs`, which carries this release's largest piece
+of new attacker-facing code (REQ-27's bundle parser): its formal gate is not
+merely advisory, it is **currently failing**. The oracle that does hold for it
+is the committed real-cosign fixtures and their negative controls, not Kani.
+Unmasking the four is tracked in #145 rather than attempted during a release.
+
+**Every gate named here is advisory in a second sense.** main's
+`required_status_checks.contexts` is empty and the repository has no rulesets,
+so no check — potent or not — blocks a merge today. The merges for this release
+were verified green by hand. An always-run aggregator context is the fix and is
+tracked separately.
 
 **Scope moved.** REQ-28 (`SigstoreBundle::verify` + DER acceptance, #231) and
 REQ-29 (Ed25519 Rekor-v2 SET path + embedded-root refresh, #259) are reassigned
