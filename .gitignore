@@ -51,3 +51,7 @@ result
 # Local audit working notes (intentionally untracked — formal findings
 # land in docs/security/ once distilled).
 /audit/
+
+# Python bytecode (claim-check, verification scripts)
+__pycache__/
+*.pyc
