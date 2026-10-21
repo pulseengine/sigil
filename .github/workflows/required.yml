@@ -45,6 +45,14 @@ jobs:
       # verdict below is not trustworthy and the job stops here.
       run: python3 verification/required-checks/required-checks.py --self-test
 
+    # 5400s = 90 minutes. Measured on recent runs, created -> completed INCLUDING
+    # queue time on the self-hosted pool: rust.yml 8-15m, supply-chain 6-16m,
+    # formal-verification 19-32m. Kani's own step timeout is 60m, so a single
+    # slow harness plus a queue can legitimately exceed an hour. The deadline has
+    # to clear the worst legitimate case, because rule 3 fails closed — too tight
+    # a deadline turns a healthy PR red, which trains people to bypass the gate,
+    # which is how a required check becomes advisory again by social means rather
+    # than configuration.
     - name: Every other check on this commit must be acceptable
       env:
         GH_TOKEN: ${{ github.token }}
@@ -52,4 +60,4 @@ jobs:
         python3 verification/required-checks/required-checks.py \
           --repo "${GITHUB_REPOSITORY}" \
           --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-          --deadline-secs 3600
+          --deadline-secs 5400

@@ -34,6 +34,18 @@ The rules
    token — all exit non-zero. This is the classifier error path the audit calls
    out as the usual place a gate fails open.
 
+Two limits this gate does not close
+-----------------------------------
+* **A PR can edit the gate that judges it.** The workflow runs `required.yml`
+  and this script from the PR's own head, so a PR may weaken its own gate. The
+  standard mitigation is CODEOWNERS over `.github/workflows/` and
+  `verification/`, which makes such an edit need a second pair of eyes; it is
+  not something this script can enforce about itself.
+* **Re-running one failed check does not re-trigger this job.** GitHub re-runs
+  the failed workflow, not the aggregator, so after fixing an infrastructure
+  flake this job must be re-run by hand (or via `workflow_dispatch`) for the
+  context to flip green.
+
 What it deliberately does NOT do
 --------------------------------
 It does not re-derive which workflows *should* have run from the path globs.

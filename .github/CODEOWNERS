@@ -1,0 +1,17 @@
+# The gate cannot enforce anything about itself.
+#
+# `required.yml` runs from the PULL REQUEST's own head, so a PR can edit the
+# workflow and the script that judge it — raise the deadline, add a conclusion
+# to the allowlist, delete the canary — and the weakened gate is what reports on
+# that very PR. No amount of logic inside the script closes that; review does.
+#
+# Same reasoning for the other instruments: claims.yaml and claim-check.py gate
+# the repo's public claims, the vacuous-oracle check gates test selectors, and
+# formal-verification.yml is where a `tolerate_failure` flips. An edit to any of
+# them changes what "CI green" means, which is exactly the class of change that
+# should not land unseen.
+/.github/workflows/           @pulseengine
+/.github/CODEOWNERS           @pulseengine
+/verification/               @pulseengine
+/claims.yaml                 @pulseengine
+/rust-toolchain.toml         @pulseengine
