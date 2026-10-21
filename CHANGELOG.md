@@ -212,9 +212,24 @@ project's V-model evidence, missing for two releases — is produced again.
   wasmtime is optional and not in `default`, so a default `wsc` build never
   pulled it and the exposure was opt-in. For a signing and verification tool an
   exception retired beats an exception renewed, and the two `--ignore` lines in
-  `supply-chain.yml` are deleted rather than re-justified. `cargo audit` with
-  the remaining ignore list now exits **0** — the first clean audit of this
-  cycle.
+  `supply-chain.yml` are deleted rather than re-justified.
+
+  Measured on 2026-10-21 with a freshly fetched advisory database and the
+  workflow's own ignore list, because the database moved sharply during this
+  cycle and an older snapshot understated it by a factor of three:
+
+  | lockfile | `cargo audit` |
+  |---|---|
+  | 0.11.0 / pre-release main | **31 vulnerabilities**, exit 1 |
+  | wasmtime pinned to 47.0.4 (the MSRV-1.94 ceiling) | **18**, exit 1 |
+  | this release | **0**, exit **0** |
+
+  wasmtime alone accounted for 20 of the 31, quinn-proto 5, rustls 4. Eight
+  advisories stood against 47.0.4 — five of them (-0353, -0354, -0356, -0357,
+  -0361, -0378) a run of component-model panics published after this cycle
+  began, all fixed in 49.0.3/49.0.4. Staying inside the MSRV-1.94 line could
+  clear nine of the 31 and no more, which is the concrete reason the toolchain
+  bump stopped being deferrable.
 
   **MSRV, for consumers:** the `runtime` feature now requires **rustc ≥ 1.96**.
   No crate in this workspace declares `rust-version`, so nothing mechanically
