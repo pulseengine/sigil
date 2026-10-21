@@ -28,6 +28,10 @@ claims.yaml shape:
           pattern: '\\bAdmitted\\b'
           glob: ['proofs/**/*.v']
           recorded: 74
+        - kind: captures-agree                 # N hand-kept copies of one value must be equal
+          patterns: ['tool@(v[0-9.]+)', 'tool-version:\\s*(v[0-9.]+)']
+          glob: ['.github/workflows/*.yml']
+          min-captures: 4
 """
 import sys
 import re
@@ -55,6 +59,33 @@ def _count(pattern, globs, root):
                 matched_any = True
                 total += len(rx.findall(p.read_text(errors="ignore")))
     return total, matched_any
+
+
+def _capture(patterns, globs, root):
+    """Collect capture-group 1 of every match of every pattern across globs.
+
+    Returns (found, matched_any_file) where `found` is a list of
+    (value, filename, pattern) so a disagreement can name both sides rather
+    than just reporting that one exists.
+    """
+    patterns = [patterns] if isinstance(patterns, str) else patterns
+    globs = [globs] if isinstance(globs, str) else globs
+    rxs = [re.compile(p) for p in patterns]
+    found = []
+    matched_any = False
+    for g in globs:
+        # Same root-relative resolution as _count: a glob resolved against the
+        # CWD silently matches nothing and greens a claim it never checked.
+        for f in sorted(glob.glob(str(root / g), recursive=True)):
+            p = pathlib.Path(f)
+            if not p.is_file():
+                continue
+            matched_any = True
+            body = p.read_text(errors="ignore")
+            for rx in rxs:
+                for m in rx.finditer(body):
+                    found.append((m.group(1), p.name, rx.pattern))
+    return found, matched_any
 
 
 def check_claim(c, root):
@@ -107,6 +138,31 @@ def check_claim(c, root):
                 fails.append(
                     f'new unproven obligations: {n} > recorded {ev.get("recorded", 0)}  '
                     f'[/{ev["pattern"]}/]'
+                )
+        elif kind == "captures-agree":
+            # AGREEMENT claim: two or more hand-maintained copies of the SAME
+            # value must stay equal, with group 1 of each pattern being one copy.
+            # Fails three ways — no files matched (measures nothing), fewer
+            # captures than `min-captures` (a copy was deleted or a pattern
+            # rotted into matching nothing), or more than one distinct value.
+            # The third is the drift the gate exists for; the second is what
+            # stops the gate from going quietly vacuous when the first vanishes.
+            found, matched = _capture(ev["patterns"], ev["glob"], root)
+            need = ev.get("min-captures", 2)
+            distinct = sorted({v for v, _, _ in found})
+            if not matched:
+                fails.append(f'predicate matched NO files (measures nothing): glob {ev["glob"]}')
+            elif len(found) < need:
+                fails.append(
+                    f'captures missing: {len(found)} < required min-captures {need}  '
+                    f'[{" , ".join(ev["patterns"])}]  — a copy was removed, or a '
+                    f'pattern no longer matches the file it was written for'
+                )
+            elif len(distinct) > 1:
+                sites = "; ".join(f"{v} in {f}" for v, f, _ in found)
+                fails.append(
+                    f'copies disagree: {distinct}  — {sites}  '
+                    f'— these must name the same version'
                 )
         else:
             fails.append(f'unknown evidence kind: {kind!r}')

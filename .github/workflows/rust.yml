@@ -21,6 +21,14 @@ on:
       - 'BUILD.bazel'
       - 'MODULE.bazel'
       - '.github/workflows/rust.yml'
+      # The `Vacuous-oracle gate` job below RUNS
+      # verification/vacuous-oracle-check/check.py, so a change to the gate's
+      # own source must trigger the gate. It did not: this workflow's filters
+      # listed every input except the checker itself, so an edit to check.py
+      # landed with the job that runs it never re-running. Same shape as #285
+      # (examples/** missing here) and #286 (Mythos paths left behind by the
+      # crate split) — a gate scoped to everything but itself.
+      - 'verification/**'
   pull_request:
     paths:
       - 'src/**'
@@ -31,10 +39,17 @@ on:
       - 'BUILD.bazel'
       - 'MODULE.bazel'
       - '.github/workflows/rust.yml'
+      # The `Vacuous-oracle gate` job below RUNS
+      # verification/vacuous-oracle-check/check.py, so a change to the gate's
+      # own source must trigger the gate. It did not: this workflow's filters
+      # listed every input except the checker itself, so an edit to check.py
+      # landed with the job that runs it never re-running. Same shape as #285
+      # (examples/** missing here) and #286 (Mythos paths left behind by the
+      # crate split) — a gate scoped to everything but itself.
+      - 'verification/**'
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.90.0"
 
 jobs:
   # REQ-30 / #258: fail CI when a test/proof selector matches zero targets or

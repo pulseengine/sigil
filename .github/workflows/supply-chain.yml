@@ -47,7 +47,16 @@ jobs:
     - name: Install cargo-audit
       run: cargo install --locked cargo-audit
     - name: Run cargo audit
-      # Ignore list stays in sync with deny.toml [advisories].ignore.
+      # NOTE: advisories are gated HERE only. The cargo-deny job below runs
+      # bans/licenses/sources, so deny.toml's [advisories].ignore is not the
+      # gate and the two lists are not actually kept in sync.
+      #
+      # No wasmtime entry here any more. RUSTSEC-2026-0315 and -0325 were the
+      # last two documented exceptions in this list; REQ-31 / #302 moved the
+      # toolchain to 1.96.1 and wasmtime to 49.0.4, which retires them along
+      # with -0327 (9.3 CRITICAL), -0326 and -0316. An exception retired beats
+      # an exception renewed: each `--ignore` line here is a standing
+      # obligation, not a closed item.
       # RUSTSEC-2026-0097 (rand 0.8.5 transitive) was removed from this
       # list when regorus was bumped 0.2.8 → 0.10 — the residual 0.8.5
       # instance now drops out of the dep graph entirely.

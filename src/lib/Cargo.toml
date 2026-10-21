@@ -98,7 +98,16 @@ optional = true
 # Wasmtime runtime for hosting WASM components (optional)
 # Enables running WASM components that use wsc:crypto interface
 [dependencies.wasmtime]
-version = "47"
+# 49.x (MSRV 1.96.0, matching rust-toolchain.toml) is the first line with no
+# open advisory against it. 47.x carried RUSTSEC-2026-0327 (9.3 CRITICAL —
+# component async-lifted callback result count unvalidated -> native stack
+# buffer overflow), -0326 (5.7), -0316 (1.0), -0315 and -0325, fixed only in
+# 48.0.4+/49.0.1+. Staying on 47.x was a documented exception; this is the
+# exception being retired rather than renewed. REQ-31 / #302.
+#
+# This dep is OPTIONAL and NOT in `default`, so a default `wsc` build pulls no
+# wasmtime — but the `runtime` feature now requires rustc >= 1.96.
+version = "49.0.4"
 features = ["component-model"]
 optional = true
 

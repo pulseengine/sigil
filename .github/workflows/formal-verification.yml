@@ -139,10 +139,18 @@ jobs:
         cargo install --locked kani-verifier
         cargo kani setup
 
-    # Audit 2026-04-30 finding C-7 (partial): mask is now per-matrix-entry via
-    # matrix.tolerate_failure. varint, dsse, and wasm_module run unmasked;
-    # merkle and format remain masked with diagnosis at the matrix include
-    # site above and in the harness doc-comments.
+    # Audit 2026-04-30 finding C-7 (partial): the mask is per-matrix-entry via
+    # matrix.tolerate_failure. ONE module runs unmasked — `varint` (5/5
+    # verified). merkle, dsse, format and wasm_module are all masked, each with
+    # its diagnosis at the matrix include site above.
+    #
+    # This comment previously claimed "varint, dsse, and wasm_module run
+    # unmasked", which the matrix below contradicts: a reader believed 3 of 5
+    # were real gates when only 1 is. Measured on main @74665d9b, every masked
+    # module exited 1 while its job reported success — merkle 3 failed of 5,
+    # format 2 of 4, dsse 1 of 1, wasm_module 1 of 1, i.e. SEVEN failing
+    # harnesses behind a green board. claims.yaml's KANI-MASK-RATCHET keeps
+    # that number from growing silently; unmasking them is #145.
     - name: Run Kani ${{ matrix.module }} proofs
       env:
         HARNESS: ${{ matrix.harness }}
@@ -191,9 +199,16 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
-    # Installs the pinned toolchain (1.94.0) from rust-toolchain.toml.
+    # Installs the pinned toolchain (1.96.1) from rust-toolchain.toml.
     - name: Install pinned Rust toolchain
       run: rustup show
+
+    # Milliseconds, and it runs FIRST: if the gate's verdict logic has drifted,
+    # the number it prints below is not worth reading. Covers the empty-scope
+    # guard, the regression trip, and that recalibrating the baseline for the
+    # 1.96 codegen did not make the gate toothless.
+    - name: Witness gate verdict table
+      run: bash verification/witness-harness/gate-logic-test.sh
 
     - name: Run witness MC/DC regression gate
       run: bash verification/witness-harness/witness-gate.sh

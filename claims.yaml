@@ -55,3 +55,56 @@ claims:
         path: .github/workflows/release.yml
       - kind: file-exists
         path: src/attestation/src/reproducibility.rs
+
+  # --- The compliance action and the rivet binary it installs (#284) --------
+  - id: RIVET-ACTION-PIN-AGREES
+    doc: .github/workflows/release.yml
+    # release.yml failed 8 times from 2026-09-08 because dependabot advanced the
+    # compliance ACTION (0.32 -> 0.35 on 2026-09-01, then 0.37, 0.39, 0.40) while
+    # `rivet-version:` — the rivet BINARY that action downloads — stayed frozen at
+    # v0.3.0, which cannot parse this repo's schemas (dev@0.4.0, on-disk stpa-sec,
+    # external-anchor). Dependabot only ever rewrites the `uses:` line, so the two
+    # drift apart by construction: PR #312 does it again, in the open, today.
+    #
+    # The input cannot simply be dropped. Its default is "source", which runs
+    # `cargo build --release -p rivet-cli` in the CALLER's workspace — correct
+    # inside rivet, fatal here, since sigil has no rivet-cli crate. So the copies
+    # have to agree, and keeping them equal is now a machine's job: a reviewer
+    # held this invariant for eight failed releases.
+    evidence:
+      - kind: captures-agree
+        patterns:
+          - 'rivet/\.github/actions/compliance@(v[0-9]+\.[0-9]+\.[0-9]+)'
+          - 'rivet-version:\s*(v[0-9]+\.[0-9]+\.[0-9]+)'
+        glob: ['.github/workflows/*.yml']
+        # 2 callers x 2 copies. A floor, not an equality: a third caller is fine,
+        # a deleted pin is not.
+        min-captures: 4
+
+  # --- Kani masking may shrink, never grow (#145, audit C-7) ---------------
+  - id: KANI-MASK-RATCHET
+    doc: .github/workflows/formal-verification.yml
+    # Four of the five Kani modules run with `tolerate_failure: true`, so the
+    # job reports success over a non-zero `cargo kani` exit. Measured on main
+    # @74665d9b: merkle 3 failed of 5, format 2 of 4, dsse 1 of 1, wasm_module
+    # 1 of 1 — seven failing harnesses behind a green board. Each mask carries
+    # an honest diagnosis at its matrix include site, and unmasking them is
+    # tracked in #145.
+    #
+    # What this claim gates is the DIRECTION. A mask is a standing obligation;
+    # adding a fifth one must be a deliberate, visible act rather than a line
+    # in a diff nobody reads. count-max is a ratchet: it greens at 4 or fewer
+    # and goes red at 5. Lower the number when a module is unmasked — that is
+    # the only edit this claim invites.
+    evidence:
+      - kind: count-max
+        pattern: 'tolerate_failure:\s*true'
+        glob: ['.github/workflows/formal-verification.yml']
+        max: 4
+      # The unmasked module must stay unmasked. count-max would green a zero,
+      # so presence needs its dual: if `varint` ever loses its
+      # `tolerate_failure: false`, no Kani module is a gate at all.
+      - kind: count-min
+        pattern: 'tolerate_failure:\s*false'
+        glob: ['.github/workflows/formal-verification.yml']
+        min: 1
