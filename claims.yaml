@@ -80,3 +80,31 @@ claims:
         # 2 callers x 2 copies. A floor, not an equality: a third caller is fine,
         # a deleted pin is not.
         min-captures: 4
+
+  # --- Kani masking may shrink, never grow (#145, audit C-7) ---------------
+  - id: KANI-MASK-RATCHET
+    doc: .github/workflows/formal-verification.yml
+    # Four of the five Kani modules run with `tolerate_failure: true`, so the
+    # job reports success over a non-zero `cargo kani` exit. Measured on main
+    # @74665d9b: merkle 3 failed of 5, format 2 of 4, dsse 1 of 1, wasm_module
+    # 1 of 1 — seven failing harnesses behind a green board. Each mask carries
+    # an honest diagnosis at its matrix include site, and unmasking them is
+    # tracked in #145.
+    #
+    # What this claim gates is the DIRECTION. A mask is a standing obligation;
+    # adding a fifth one must be a deliberate, visible act rather than a line
+    # in a diff nobody reads. count-max is a ratchet: it greens at 4 or fewer
+    # and goes red at 5. Lower the number when a module is unmasked — that is
+    # the only edit this claim invites.
+    evidence:
+      - kind: count-max
+        pattern: 'tolerate_failure:\s*true'
+        glob: ['.github/workflows/formal-verification.yml']
+        max: 4
+      # The unmasked module must stay unmasked. count-max would green a zero,
+      # so presence needs its dual: if `varint` ever loses its
+      # `tolerate_failure: false`, no Kani module is a gate at all.
+      - kind: count-min
+        pattern: 'tolerate_failure:\s*false'
+        glob: ['.github/workflows/formal-verification.yml']
+        min: 1

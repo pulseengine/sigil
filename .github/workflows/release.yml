@@ -22,7 +22,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: pulseengine/wsc
-  RUST_VERSION: "1.90.0"
 
 jobs:
   # Generate compliance report from rivet artifacts

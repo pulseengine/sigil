@@ -10,9 +10,6 @@ on:
     # Nightly run at 03:17 UTC (memory profiling is too slow for every PR)
     - cron: '17 3 * * *'
 
-env:
-  RUST_VERSION: "1.90.0"
-
 jobs:
   bytehound-profile:
     name: ByteHound Memory Profile

@@ -1,2 +1,4 @@
 target/
-Cargo.lock
+# Cargo.lock IS committed: this example is outside the workspace, so without
+# a lock CI re-resolves every build and any transitive MSRV bump breaks it
+# with no commit of ours (#274 — cranelift-assembler-x64 raised MSRV to 1.95).

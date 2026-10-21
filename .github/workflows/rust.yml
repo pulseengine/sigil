@@ -34,7 +34,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_VERSION: "1.90.0"
 
 jobs:
   # REQ-30 / #258: fail CI when a test/proof selector matches zero targets or
