@@ -288,6 +288,8 @@ fn test_module_serialization() {
 /// offline half of the contract — that a signature over an arbitrary digest
 /// verifies — is covered non-gated by the `airgapped::verifier` fixture tests,
 /// which already verify over a synthetic (non-module) digest.
+///
+/// rivet: verifies REQ-26
 #[test]
 #[ignore] // Requires OIDC provider + network access (Fulcio/Rekor)
 fn test_sign_digest_arbitrary_roundtrip() {

@@ -737,7 +737,7 @@ artifacts:
   - id: REQ-26
     type: requirement
     title: sign_digest — keyless signing over an arbitrary 32-byte digest, not only a WASM Module
-    status: draft
+    status: verified
     description: "KeylessSigner::sign_module requires a WASM Module, but AirGappedVerifier::verify_signature already takes a &[u8;32] digest — so a caller with non-WASM bytes (varve signs a layer manifest whose sha256 is a 32-byte digest) can verify with wsc but cannot sign. Add pub fn sign_digest(&self, digest: &[u8;32]) -> Result<KeylessSignature, WSError>; sign_module becomes sign_digest(hash_of(module)) + the module-embedding step, collapsing two keyless signing paths into one. Reported from varve (DD-025), sigil#256."
     tags: [keyless, signing, offline, varve]
     provenance:
@@ -749,7 +749,7 @@ artifacts:
   - id: REQ-27
     type: requirement
     title: from_sigstore_bundle — ingest a cosign/Sigstore bundle into KeylessSignature
-    status: draft
+    status: verified
     description: "SigstoreBundle can emit wsc's own signatures (from_keyless_signature/to_json/from_json) but there is no path from an existing cosign-produced bundle back into a KeylessSignature the verifiers accept — so wsc verification only works on artifacts wsc itself signed. Add pub fn KeylessSignature::from_sigstore_bundle(json: &str) -> Result<Self, WSError> supporting BOTH wire shapes in the wild: legacy rekorBundle JSON (cosign v2.4.x, what varve's release carries) and protobuf bundle.sigstore.dev/v0.3. Round-trip from_sigstore_bundle -> from_keyless_signature -> to_json must be lossless or the loss documented (a verifier that silently drops an unmodelled field is how a check stops checking). varve v0.28.0 bundle is a real public keyless GitHub-OIDC fixture; negative control = flip a digest byte. Reported from varve (DD-026), sigil#260."
     tags: [keyless, interop, cosign, offline, varve]
     provenance:
@@ -773,7 +773,7 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-21T17:09:28Z
-    release: v0.12.0
+    release: v0.13.0
 
   - id: REQ-29
     type: requirement
@@ -785,12 +785,12 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-21T17:09:28Z
-    release: v0.12.0
+    release: v0.13.0
 
   - id: REQ-30
     type: requirement
     title: No vacuous oracles — verification tests must exercise the SUT with a negative control; sweep the suite
-    status: draft
+    status: verified
     description: "The airgapped e2e test (test_keyless_sign_then_airgapped_verify) is named for sign-then-verify-offline but NEVER calls verify_signature — it asserts only cert_chain non-empty and log_index>0, so a verifier returning Ok unconditionally passes it. That is exactly how #219's stub shipped: the check ran, the check passed, the check could not see the thing. This is the THIRD instance of the shape this cycle (kani matrix entry pkg:wsc matched zero harnesses after the dsse move; coverage ran -p wsc only, missing moved code). Scope: (a) fix the e2e test to do the real round trip WITH a negative control (corrupt digest / non-anchoring roots -> assert FAILS); (b) sweep for vacuous oracles — tests that never call the SUT, CI matrix entries matching zero targets, coverage filters missing workspace crates, cargo test filters matching nothing; (c) a standing check so it does not recur. Without a negative control an assertion cannot distinguish 'verified' from 'returned Ok'. sigil#258."
     tags: [oracle-integrity, testing, negative-control, ci]
     provenance:

@@ -3,6 +3,368 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] — 2026-10-21
+
+varve-driven interop: wsc can now sign any digest and ingest the ecosystem's
+bundles, not just its own.
+
+**Four security findings are fixed, three of them wrong-accepts, and one of
+those is reachable from plain `wsc verify` with no key and no forgery — a
+split-signed module truncated at any delimiter verified.** Upgrade from 0.11.0.
+The other two wrong-accepts are a revocation bypass in the air-gapped verifier
+and `verify_multi`/`verify_matrix` accepting modules whose content was never
+compared against any signed hash.
+
+A 9.3 CRITICAL in wasmtime also forced the pinned toolchain to 1.96.1 (the
+`runtime` feature now needs rustc ≥ 1.96), and the compliance report — this
+project's V-model evidence, missing for two releases — is produced again.
+
+### Added
+
+- **`sign_digest` — keyless signing over an arbitrary 32-byte digest (#256 /
+  REQ-26).** Verification was already general (`AirGappedVerifier::verify_signature`
+  takes a `&[u8; 32]`), but signing required a WASM `Module`, so a caller with
+  non-WASM bytes — varve signs a layer manifest, whose sha256 *is* a 32-byte
+  digest — could verify with wsc but not sign. `KeylessSigner::sign_digest` is now
+  the single keyless signing primitive and `sign_module` is
+  `sign_digest(sha256(module))` plus the module-embedding step, so there is one
+  signing path rather than two. The digest is signed as an ECDSA P-256 *prehash*,
+  the exact inverse of the verifier's `verify_prehash(module_hash)`.
+  *Falsification:* a non-gated test proves the primitive round-trips for an
+  arbitrary digest **and rejects a different one** (built-in negative control, so
+  it cannot pass vacuously); a gated e2e signs `sha256("test")` — a deliberately
+  non-module digest — and asserts the signature binds to exactly that digest.
+
+- **`from_sigstore_bundle` — ingest cosign/Sigstore bundles (#260 / REQ-27).**
+  `SigstoreBundle` could *emit* wsc's own signatures but nothing converted an
+  existing cosign bundle back into a `KeylessSignature`, so wsc verification only
+  worked on artifacts wsc itself signed. Both wire shapes are parsed: the legacy
+  `rekorBundle` JSON (cosign v2.4.x — what varve ships) and the protobuf
+  `bundle.sigstore.dev/v0.3+json` envelope. `module_hash` is read from the
+  hashedrekord body, never recomputed.
+  *Falsification:* two **real** fixtures are committed — varve's public v0.28.0
+  keyless bundle and real `cosign --new-bundle-format` output — and negative
+  controls for both shapes flip one hex char of the body digest and assert the
+  extracted hash changes; a v0.3 raw-public-key bundle is rejected with a specific
+  error; a cross-format round-trip asserts field-by-field fidelity. Ingested
+  bundles pass `verify_cert_chain` and `verify_rekor_body_binds_to_bundle`.
+  **Known limitation:** cosign emits ECDSA signatures in ASN.1 DER (71 bytes,
+  `3045…`) while the offline `verify_crypto` uses `P256Signature::from_slice`
+  (64-byte P1363), so an ingested DER signature is not yet *verified* — DER
+  acceptance plus `SigstoreBundle::verify` is #231 / REQ-28, deferred to v0.13.0.
+  No test here claims otherwise.
+
+- **Vacuous-oracle CI gate (#258 / REQ-30).** Fails CI when a workflow test
+  selector matches **zero** targets (`cargo kani --harness`, `-p <pkg>`,
+  `--test <target>`) or when a lib-bearing workspace crate is omitted from
+  `cargo llvm-cov` without an explicit exemption — the class that let a kani
+  `pkg: wsc` entry and a coverage `-p` omission run green. Coverage now measures
+  `wsc-verify-core` and `wsc-attestation`, previously unmeasured.
+  *Falsification:* the gate exits 0 clean, 1 on a coverage omission, and 1 on a
+  bogus selector (all three observed).
+
+### Fixed
+
+- **A split-signed module truncated at any delimiter verified — WRONG-ACCEPT
+  (#305, `verify-core/signature/{simple,multi,matrix}.rs`).** The most severe
+  finding of this cycle, and reachable from plain `wsc verify`. `sign_multi`
+  never resets its hasher between delimiters, so it signs the sequence of
+  *cumulative prefix* hashes `[H(P₁), H(P₂), … H(Pₙ)]`; `valid_hashes_for_pk`
+  then inserted all of them into an unordered set, and **no verifier required
+  the terminal one**. Deleting every section after any delimiter therefore left
+  a stream whose hash is itself a signed prefix hash: the in-loop `contains`
+  check passed, nothing noticed the stream ended early, and the module verified
+  — including through `PublicKey::verify`, with the Function and Code sections
+  removed. An attacker needed no key and no signature forgery, only scissors.
+  `valid_hashes_for_pk` gains a `terminal_only: bool`; both whole-module
+  verifiers in `simple.rs` pass `true`, while `multi.rs`/`matrix.rs` keep the
+  prefix set (they legitimately verify ranges) but now pin the last compared
+  hash as terminal and reject must-be-signed sections trailing the final
+  delimiter.
+  *Falsification:* 8 regression tests, each with a positive **and** a negative
+  control, and each guard independently mutation-verified — deleting the
+  terminal pin fails `poc_split_signed_module_accepts_truncation_at_a_delimiter`
+  with the explicit message "signed Function+Code sections were deleted and
+  verify_multi still returned Ok". Two deeper oracles are committed `#[ignore]`d
+  rather than deleted, because fixing them is a signature-format break: #303
+  (the 8-byte WASM preamble is outside the signature) and #304 (re-signing
+  retains stale `signed_hashes_set` entries, so rolled-back content verifies
+  under a newer signature). Both are v0.13.0 scope.
+
+- **`verify_multi`/`verify_matrix` accepted modules with no signature delimiter
+  — WRONG-ACCEPT (`verify-core/signature/{multi,matrix}.rs`).** In both, the
+  running content hash is compared against the signed hashes ONLY inside
+  `if section.is_signature_delimiter()`, and neither finalizes after the section
+  loop. A module carrying a signature header but NO delimiter — i.e. signed
+  without `wsc split` — therefore ran the loop doing predicate bookkeeping only,
+  never compared its content against any signed hash, and still succeeded:
+  `verify_multi` fell through to `Ok(())`, so `wsc verify -k K -i M --split <rx>`
+  printed "Signature is valid." for content that was never checked, and
+  `verify_matrix` returned every key merely present in the signature header as
+  "valid" — an affirmative accept. `PublicKey::verify` (the default `wsc verify`
+  path) is unaffected: it hashes the whole remaining stream. Both now fail closed
+  when no delimiter was processed. Also in the same change: `wsc verify-matrix`
+  **panicked on every invocation** (it read an argument id the subcommand never
+  declared; clap v4 panics where v3 returned `None`), and an empty valid-key set
+  **exited 0**, reporting a verification failure to CI as success — both fixed,
+  with a diagnostic pointing at `wsc verify` for non-split modules.
+  *Falsification:* mutation-verified guards in both files, each with a control
+  asserting a properly split-and-signed module still verifies. End-to-end:
+  split+signed → exit 0; one byte flipped → exit 1 (was 0); no invocation panics
+  (was exit 101 always). **The multi-path test was itself vacuous on the first
+  attempt** — a varying predicate tripped unrelated bookkeeping so it passed with
+  the guard removed; it now uses a constant predicate. `multi.rs` previously had
+  no test module at all.
+  *Oracle correction:* once #305's terminal-hash check landed in the same
+  function, it **subsumed** this guard — measured on main, deleting the
+  no-delimiter guard left all 177 verify-core tests green while deleting the
+  terminal check failed 2. So the mutation verification above was true when
+  written and stopped being true afterwards, which is the sibling of a vacuous
+  oracle: a test that still asserts a real property but can no longer tell you
+  the mechanism it names is present. The test now pins the **error variant**
+  (`VerificationFailed` for the no-delimiter guard vs
+  `VerificationFailedForPredicates` for the terminal check), which makes the
+  mutation fail again — one oracle per guard. `matrix.rs` carries the same
+  redundancy and cannot be separated this way (both arms return
+  `VerificationFailed`, and the `match` arm is compile-enforced); that is stated
+  rather than papered over with a test that only appears to isolate it.
+
+- **Revocation bypass — WRONG-ACCEPT (`airgapped/verifier.rs`).**
+  `compute_cert_fingerprint` rebuilt the leaf DER by concatenating every line that
+  did not start with `-----` and base64-decoding the result, so any
+  attacker-chosen line that does not start with `-----` (e.g. one junk line before
+  the BEGIN header) was folded into the "DER" and changed the SHA-256 — while
+  every PEM-aware reader (chain verification, signature verification, Rekor
+  body-binding) skipped it and resolved the **identical** certificate. The
+  fingerprint then missed `TrustBundle::is_revoked`: steps 1–5 of `verify_crypto`
+  all passed and only the revocation check silently flipped, so **a revoked leaf
+  verified**. Revocation is the only post-hoc control for a compromised signing
+  identity offline. Now derived with the same `parse_x509_pem` the verification
+  legs use, so the fingerprint is a function of the certificate rather than of its
+  textual encoding. Present since 0.11.0 (introduced in #219 / REQ-23).
+  *Falsification:* `test_revocation_is_invariant_to_leaf_pem_reencoding` asserts
+  encoding-invariance **and** that a revoked leaf stays rejected through the
+  re-encoded variant; mutation-verified — restoring the line-filtering
+  implementation fails it with two different hashes for the same certificate.
+
+- **Secret-key integrity — fail closed on an inconsistent public half
+  (`verify-core/signature/keys.rs`).** The raw encoding is
+  `[0x81] || seed(32) || public_key(32)` and `from_bytes` copied all 64 bytes
+  verbatim without checking the stored public half against the seed.
+  `SecretKey::sign` feeds those stored bytes into the Ed25519 challenge
+  (`H(R ‖ A ‖ M)`) while the nonce `r = H(az[32..64] ‖ M)` depends only on the
+  seed, so a tampered or corrupted public half changes `h` but not `r`: two
+  signatures over the same message straddling the tamper share `r` and
+  `a = (s1 − s2)·(h1 − h2)^-1 mod L` recovers the long-term private scalar. This
+  was reproduced end-to-end during validation (recovered scalar matched; `a·B`
+  equalled the victim's published key). `from_bytes`/`from_file` is the only
+  key-loading path for `wsc sign`; `from_pem`/`from_der` were never affected
+  (they re-derive via `KeyPair::from_seed`). Impact HIGH, feasibility LOW — the
+  leak needs write-without-read on the key file, not grantable against a
+  correctly-permissioned 0600 key — net MEDIUM. Predates 0.11.0.
+  *Falsification:* `test_secret_key_rejects_foreign_public_half`, with a control
+  asserting a consistent key still loads so it cannot pass for the wrong reason;
+  mutation-verified — removing the `validate_public_key` call fails it.
+
+- **Bundle emitter was non-conformant (#260).** `SigstoreBundle` wrote
+  `logId.keyId` as hex, but the spec types it as protobuf `bytes` (base64 in
+  JSON); a 64-char hex string is *also* valid base64, so it did not error — it
+  decoded to 48 junk bytes, corrupting the Rekor log identity with no diagnostic.
+  It also wrote the SET at a top-level `signedEntryTimestamp` while every other
+  implementation reads `inclusionPromise.signedEntryTimestamp`, so the SET — the
+  only offline transparency proof a legacy bundle carries — was silently dropped
+  on wsc's own round trip. Both are fixed against real cosign output as ground
+  truth; reading remains backward compatible with bundles wsc emitted at ≤ 0.11.0.
+
+- **CI could not see example breakage, and main was red (#285).** `rust.yml`
+  builds `examples/wasmtime-loader` but its path filters did not include
+  `examples/**`, so dependabot's wasmtime bumps merged with zero validation and
+  the resulting MSRV break (wasmtime 49.0.1 needs rustc 1.96.0; the toolchain
+  pins 1.94.0) surfaced on later unrelated `src/**` pushes. `examples/**` plus
+  `rust-toolchain.toml` now trigger CI. The wasmtime pin that change introduced
+  (47.0, the newest MSRV-1.94 line) is itself superseded inside this release —
+  see **Changed** below — and the example now carries a **committed
+  `Cargo.lock`** (#274), which is the half that actually makes it stay fixed:
+  without one, CI re-resolved 310 packages on every build and any transitive
+  MSRV bump broke it with no commit of ours.
+
+- **The mandatory pre-release bug-hunt gate was itself vacuous (#286).** The
+  Mythos delta pass greps tier-5 paths that the 0.11.0 crate split moved out of
+  `src/lib` (`wasm_module/`, `signature/keys.rs`, `secure_file.rs`, `dsse.rs`), so
+  those patterns matched nothing and the gate guarding the crown jewels — the
+  untrusted-bytes WASM parser among them — scoped to zero files and reported
+  clean. Repointed in both AGENTS.md and `scripts/mythos/rank.md`.
+  *Falsification:* on the real `v0.11.0..main` delta the old paths matched 0 files
+  and the corrected paths matched a changed tier-5 file.
+
+### Changed
+
+- **Toolchain 1.94.0 → 1.96.1, wasmtime 47.0.4 → 49.0.4 (REQ-31 / #302) —
+  retiring a security exception rather than renewing it.** wasmtime 47.x carried
+  **RUSTSEC-2026-0327 (9.3 CRITICAL** — a component async-lifted callback result
+  count left unvalidated, reaching a native stack buffer overflow), plus -0326
+  (5.7), -0316 (1.0), -0315 and -0325. All five are fixed only in
+  48.0.4+/49.0.1+, which require rustc 1.95/1.96, so the toolchain bump was the
+  only path to clearing a CRITICAL and moved from v0.13.0 cleanup into a
+  prerequisite for this release.
+
+  Shipping under a documented exception was available and was **declined**:
+  wasmtime is optional and not in `default`, so a default `wsc` build never
+  pulled it and the exposure was opt-in. For a signing and verification tool an
+  exception retired beats an exception renewed, and the two `--ignore` lines in
+  `supply-chain.yml` are deleted rather than re-justified.
+
+  Measured on 2026-10-21 with a freshly fetched advisory database and the
+  workflow's own ignore list, because the database moved sharply during this
+  cycle and an older snapshot understated it by a factor of three:
+
+  | lockfile | `cargo audit` |
+  |---|---|
+  | 0.11.0 / pre-release main | **31 vulnerabilities**, exit 1 |
+  | wasmtime pinned to 47.0.4 (the MSRV-1.94 ceiling) | **18**, exit 1 |
+  | this release | **0**, exit **0** |
+
+  wasmtime alone accounted for 20 of the 31, quinn-proto 5, rustls 4. Eight
+  advisories stood against 47.0.4 — five of them (-0353, -0354, -0356, -0357,
+  -0361, -0378) a run of component-model panics published after this cycle
+  began, all fixed in 49.0.3/49.0.4. Staying inside the MSRV-1.94 line could
+  clear nine of the 31 and no more, which is the concrete reason the toolchain
+  bump stopped being deferrable.
+
+  **MSRV, for consumers:** the `runtime` feature now requires **rustc ≥ 1.96**.
+  No crate in this workspace declares `rust-version`, so nothing mechanically
+  prevents a newer `std` API from raising the floor for the default build
+  either; that is a known gap, not a claim of 1.94 compatibility.
+
+- **`rustls-webpki` 0.103.15 → 0.103.16 and `webpki-roots` 1.0.9 → 1.0.10.**
+  Not incidental housekeeping. Re-auditing the new lockfile surfaced two
+  advisories published within 48 hours of this release, both on certificate
+  verification: **RUSTSEC-2026-0382** (rustls-webpki — *certificate verification
+  may accept distrusted intermediates*) and **RUSTSEC-2026-0381**
+  (webpki-roots — *bundled root certificates allow trust in distrusted emSign
+  intermediates*). Both land on the webpki validation that is **step 1 of
+  `PinnedCertVerifier::verify_server_cert`**, i.e. the chain every keyless path
+  here trusts before pin matching runs. Note 0.103.15 — the vulnerable version —
+  arrived via a dependabot bump merged six days earlier: a lockfile is only as
+  fresh as its last audit.
+
+- **The compliance report is produced again (#284).** `release.yml`'s compliance
+  job had failed every run since 2026-09-08. The cause, from the first failing
+  run's log, is not the one originally recorded: rivet **0.3.0** byte-slices an
+  artifact title during HTML export and `artifacts/dev/features.yaml` gained an
+  em dash —
+  `byte index 26 is not a char boundary … of 'Lightweight DSSE verify — …'`.
+  The step that died was *Export*, not *Install* or *Validate*. The binary pin
+  (`rivet-version:`) had been frozen at v0.3.0 since March while dependabot
+  advanced the action tag to v0.40.0; both now track v0.41.0, and a
+  `captures-agree` claim keeps them equal, since dependabot only ever rewrites
+  the `uses:` line.
+
+  Two further things had to be true for the job to go green, and both are also
+  fixed here: `rivet validate` exited 1 on **22 mechanical errors** (11
+  off-vocabulary `in-progress` statuses, 6 `satisfies` links declared with zero
+  targets, 3 undeclared `related-to` link types, and one **duplicate artifact
+  id** — `CV-25` was declared twice, so one verification artifact had been
+  silently absent from the trace since it was introduced); and `rivet.yaml`'s
+  `../synth` external can never resolve in a single-repo checkout, which made
+  rivet abandon cross-ref checking for *all* externals and count 9 valid links
+  as broken (31 errors in CI where a developer saw 22). Both compliance callers
+  now clone synth at a pinned ref. `rivet validate` → **PASS**.
+
+  **No release was ever blocked by #284.** `build-and-release` needs only
+  `build-native-cli` and nothing depends on `build-compliance`, which is why
+  0.11.0 shipped from a red release run. What #284 cost was the compliance
+  *evidence* — the V-model artifact for two releases.
+
+### Verification notes
+
+**Mythos pre-release delta pass (minor ⇒ tier-5 + tier-4 changed since
+v0.11.0).** Scope, recomputed with the corrected paths: tier-5
+`provisioning/ca.rs`, `verify-core/signature/keys.rs`; tier-4 `cli/main.rs`,
+`airgapped/verifier.rs`, `keyless/format.rs`, `keyless/signer.rs`.
+`verify-core/wasm_module/**` did **not** change, so the untrusted parser is out
+of scope for this release. Four findings cleared the oracle bar; two are fixed
+above. The remaining two are **risk-accepted** for this release, and the
+rationale is recorded here deliberately so it is auditable:
+
+- **#288 (HIGH, fail-closed)** — `sign_device_certificate` (the HSM /
+  public-key-only provisioning path) certifies a random ephemeral key instead of
+  the device's, because `ed25519_to_pem` reads only the secret half and rcgen
+  re-derives the SPKI from it; the `pk` field is dead code. Hardware-backed
+  provisioning is non-functional and the certificate attests a binding no party
+  holds. Dates to 2025-11-14; shipped in 0.9.x–0.11.0.
+- **#289 (MEDIUM)** — `CertificateConfig::serial_number` is never read, so rcgen
+  derives the serial from the subject key and re-issued certificates collide on
+  `(issuer, serialNumber)`; separately, `ProvisioningSession` records a serial the
+  certificate does not carry.
+
+Accepted for 0.12.0 because: this release's surface (REQ-26/27/30) does not touch
+`provisioning/` at all; both findings are **fail-closed rather than
+wrong-accept**; and each has a filed issue carrying a reproducing oracle. The one
+finding that *was* a wrong-accept (the revocation bypass) is fixed above rather
+than accepted.
+
+**Gate potency (what "CI green" does and does not cover).** Audited every CI
+gate for whether it can actually fail. Proven potent by mutation this cycle: the
+vacuous-oracle gate (clean → 0, coverage omission → 1, bogus selector → 1), the
+witness MC/DC gate (baseline −1 vs measured gap 0 → `::error::`, exit 1), and
+each security regression test above.
+
+**Correction to an earlier draft of this entry,** which said "unmasked and
+therefore potent: `kani varint`, `kani dsse`, `kani wasm_module`". That was
+false, and it was false because it copied `formal-verification.yml`'s own
+summary comment, which contradicted the matrix three lines below it. Measured
+during REQ-31 by reading each step's **pre-mask exit code out of the run logs**
+rather than its API conclusion (which `continue-on-error` reports as success),
+on main `@74665d9b`, run `38971394138`:
+
+| gate | masked | pre-mask exit | detail |
+|---|---|---|---|
+| `kani varint` | no | 0 | 5/5 verified |
+| `kani merkle` | **yes** | **1** | 2 ok / **3 failed** of 5 |
+| `kani dsse` | **yes** | **1** | 0 ok / **1 failed** |
+| `kani format` | **yes** | **1** | 2 ok / **2 failed** of 4 |
+| `kani wasm_module` | **yes** | **1** | 0 ok / **1 failed** |
+| Verus (Merkle proofs) | **yes** | **1** | `assume(false)`, audit C-1 |
+| Verus (tests) | **yes** | **1** | audit C-1 |
+| Rocq translation | **yes** | **1** | documented stub |
+| witness MC/DC | no | 0 | clean |
+
+**One Kani module is a gate. Seven failing harnesses sit behind a green
+board.** Also masked: the Bazel `test` step (audit C-7) and the Rekor
+fresh-data tests. `claims.yaml` now carries `KANI-MASK-RATCHET`, so the number
+of masked modules can shrink but not grow (negative-controlled both ways:
+a fifth mask → red; `varint` losing its unmasked entry → red).
+
+This matters most for `format.rs`, which carries this release's largest piece
+of new attacker-facing code (REQ-27's bundle parser): its formal gate is not
+merely advisory, it is **currently failing**. The oracle that does hold for it
+is the committed real-cosign fixtures and their negative controls, not Kani.
+Unmasking the four is tracked in #145 rather than attempted during a release.
+
+**Every gate named here is advisory in a second sense.** main's
+`required_status_checks.contexts` is empty and the repository has no rulesets,
+so no check — potent or not — blocks a merge today. The merges for this release
+were verified green by hand. An always-run aggregator context is the fix and is
+tracked separately.
+
+**Scope moved.** REQ-28 (`SigstoreBundle::verify` + DER acceptance, #231) and
+REQ-29 (Ed25519 Rekor-v2 SET path + embedded-root refresh, #259) are reassigned
+to v0.13.0. REQ-29 is not a data refresh: `RekorKeyring::from_trusted_root`
+silently skips non-P256 keys and `verify_set` is P256-only, so the new Ed25519
+`log2025-1` log needs a verification path, and whether that is a v1
+`SignedEntryTimestamp` arm or a second checkpoint-based path is still open.
+
+**Provenance correction.** REQ-27's implementation reached `main` inside commit
+`2ed3344`, whose message is *"fix(cli): `wsc --version` reports `wsc`, not
+`wsc-cli` (#273)"* — that branch was cut on top of the REQ-27 branch, so the
+squash absorbed its parent's 1,721 insertions under a 13-line fix's message. The
+code was reviewed as #264 and is attributed here because the commit record does
+not. PR #264 is closed as already-merged.
+
+Feature-loop coverage: steps 1–2 (spar AADL → WIT) N/A — no architecture or
+interface-definition change.
+
 ## [0.11.0] — 2026-08-11
 
 Offline verification, made real and lightweight. The airgapped keyless verifier
