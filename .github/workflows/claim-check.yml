@@ -13,6 +13,16 @@ on:
 permissions:
   contents: read
 
+# Without this, every push to a branch queues ANOTHER Claim Check run and all of
+# them execute. Observed 2026-10-21: four pushes to one release branch left four
+# queued runs of this workflow behind a saturated runner pool, three of them
+# already superseded, while the release's own CI waited. rust.yml and
+# formal-verification.yml have carried a concurrency group all along; this
+# workflow and `required.yml` were the gaps.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   claim-check:
     name: Documentation claims hold
