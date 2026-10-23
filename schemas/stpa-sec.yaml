@@ -305,6 +305,25 @@ link-types:
     source-types: [data-flow]
     target-types: [controller, controlled-process]
 
+  # H-36/37/38 record that a hazard is a variant of, or shares a mechanism
+  # with, an already-analysed hazard (proof-cache exhaustion with H-25,
+  # PATH-resolved execution with H-33/H-34, undersized MCUboot ih_img_size with
+  # H-14). No STPA link type expresses hazard-to-hazard adjacency: `prevents`
+  # runs constraint->hazard and `leads-to-hazard` runs uca->hazard, so the
+  # relation was written as an undeclared `related-to` and `rivet validate`
+  # rejected it (correctly — an undeclared link type is unenforceable and
+  # invisible to coverage rules). Declared here rather than deleted: the
+  # adjacency is real analysis, and dropping it would lose the reason those
+  # three hazards were filed as separate entries at all.
+  #
+  # Deliberately NOT a substitute for `sub-hazard`: these are peers, not
+  # refinements, so neither hazard inherits the other's constraints.
+  - name: related-to
+    inverse: related-from
+    description: Hazard shares a mechanism with, or is a variant of, another hazard
+    source-types: [hazard, sub-hazard]
+    target-types: [hazard, sub-hazard]
+
   - name: property-of
     inverse: has-property
     description: Security property applies to a process, flow, or controller
