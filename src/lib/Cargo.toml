@@ -52,7 +52,7 @@ ureq = "3.1.2"
 # SPKI encoding for public keys
 spki = { version = "0.7", features = ["alloc"] }
 # ECDSA P-256 for keyless signing (required by Sigstore/Rekor hashedrekord)
-p256 = { version = "0.13", features = ["ecdsa", "pem"] }
+p256 = { version = "0.14", features = ["ecdsa", "pem"] }
 ecdsa = { version = "0.16", features = ["signing"] }
 # Certificate chain verification (WebPKI)
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
