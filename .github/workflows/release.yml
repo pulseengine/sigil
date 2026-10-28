@@ -177,7 +177,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup C++ Build Tools
       run: |
@@ -187,12 +187,12 @@ jobs:
     # Nix is required for rules_rocq_rust toolchain registered in MODULE.bazel
     # (Bazel evaluates all toolchains during loading, even for non-Rocq builds)
     - name: Install Nix
-      uses: cachix/install-nix-action@v31
+      uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@0.19.1
+      uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
       with:
         bazelisk-cache: true
         # Use a shared cache key across all builds for better reuse
@@ -200,7 +200,7 @@ jobs:
         repository-cache: true
 
     - name: Install Cosign
-      uses: sigstore/cosign-installer@v3
+      uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
       with:
         cosign-release: 'v2.4.1'
 
@@ -300,7 +300,7 @@ jobs:
     # below covers wsc-component.wasm, wsc-cli.wasm, and every other asset.
 
     - name: Log in to Container Registry
-      uses: docker/login-action@v4
+      uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ github.actor }}
@@ -373,7 +373,7 @@ jobs:
         echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
 
     - name: Install crane
-      uses: imjasonh/setup-crane@v0.7
+      uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
 
     - name: Resolve image digests
       id: digest
@@ -504,14 +504,14 @@ jobs:
     # SHA256SUMS.txt below.
 
     - name: Download Native CLI Artifacts
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         path: native-cli
         pattern: wsc-*
         merge-multiple: true
 
     - name: Download Compliance Report
-      uses: actions/download-artifact@v8
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: compliance-report
         path: compliance/
@@ -641,7 +641,7 @@ jobs:
     # records it in the Rekor transparency log. Consumers verify with:
     #   gh attestation verify <file> --repo pulseengine/sigil
     - name: Generate SLSA build provenance
-      uses: actions/attest-build-provenance@v4
+      uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
       with:
         subject-path: "release-assets/*"
 

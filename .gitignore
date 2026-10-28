@@ -66,3 +66,6 @@ result
 # Python bytecode (claim-check, verification scripts)
 __pycache__/
 *.pyc
+
+# Per-user agent settings (local permissions); never committed.
+.claude/settings.local.json
