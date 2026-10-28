@@ -466,7 +466,7 @@ mod tests {
 // proof_leaf_hash_deterministic, proof_node_hash_deterministic) do not pass
 // at --default-unwind 4 — see per-harness doc-comments below for diagnosis.
 #[cfg(kani)]
-mod proofs {
+mod proofs_arith {
     use super::*;
 
     /// Prove: largest_power_of_two_less_than never panics and returns correct values.
@@ -504,6 +504,20 @@ mod proofs {
         // n=3 returns 2
         assert_eq!(largest_power_of_two_less_than(3), 2);
     }
+}
+
+// The SHA-256 harnesses live in their own module so CI can run them apart
+// from the arithmetic ones above. They used to share one `mod proofs` and
+// therefore one `cargo kani` invocation; under sha2 0.11 these three
+// exhaust the runner, and the two VERIFIED arithmetic proofs lost their
+// evidence with them. Split here, the arithmetic module runs UNMASKED in
+// formal-verification.yml (`merkle-arith`) and this one stays masked and
+// memory-capped (`merkle-sha256`). Module paths, not function names, are
+// what the vacuous-oracle gate can resolve, which is why the split is in
+// the code rather than only in the CI matrix.
+#[cfg(kani)]
+mod proofs_sha256 {
+    use super::*;
 
     /// Prove: compute_leaf_hash produces different output than compute_node_hash
     /// for the same input data.

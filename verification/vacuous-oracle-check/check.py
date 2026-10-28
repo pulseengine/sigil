@@ -230,12 +230,19 @@ def _matrix_pairs(lines):
                 entries.append(cur)
                 stripped = stripped[2:].strip()
             if cur is not None:
-                m = re.match(r"(pkg|harness)\s*:\s*(\S+)", stripped)
+                # Capture the WHOLE value, not just its first token. A matrix
+                # `harness:` may list several names separated by whitespace (the
+                # merkle split runs three SHA-256 harnesses in one entry), and
+                # the step passes each as its own `--harness`. Reading only the
+                # first token would check one name and silently skip the rest —
+                # so a typo in the second or third would pass this gate.
+                m = re.match(r"(pkg|harness)\s*:\s*(.+?)\s*$", stripped)
                 if m:
-                    cur[m.group(1)] = m.group(2).strip('"\'')
+                    cur[m.group(1)] = m.group(2).strip('"\'').strip()
     for e in entries:
         if "pkg" in e and "harness" in e:
-            pairs.append((e["pkg"], e["harness"]))
+            for name in e["harness"].split():
+                pairs.append((e["pkg"], name))
     return pairs
 
 
@@ -253,16 +260,20 @@ def parse_workflow(path):
         # cargo kani ... --harness <H>
         if re.search(r"\bcargo\s+kani\b", line):
             hm = re.search(r"--harness\s+(\S+)", line)
-            if hm:
-                harness = hm.group(1).strip('"\'')
-                pkg_m = re.search(r"(?:-p|--package)\s+(\S+)", line)
-                pkg = pkg_m.group(1).strip('"\'') if pkg_m else None
-                if _is_var(harness) or (pkg and _is_var(pkg)):
-                    # Matrix-driven: expand pairs from this file's include block.
-                    for p_pkg, p_harness in matrix_pairs:
-                        selectors.append(Selector("kani-harness", p_harness, path, i, pkg=p_pkg))
-                else:
-                    selectors.append(Selector("kani-harness", harness, path, i, pkg=pkg))
+            pkg_m = re.search(r"(?:-p|--package)\s+(\S+)", line)
+            pkg = pkg_m.group(1).strip('"\'') if pkg_m else None
+            harness = hm.group(1).strip('"\'') if hm else None
+            # Matrix-driven when EITHER the harness or the package is a
+            # variable. Keying this only on a literal `--harness` on the same
+            # line was a trap: the natural way to pass several harnesses builds
+            # an argument array (`"${args[@]}"`), which drops `--harness` from
+            # the `cargo kani` line — and then this gate expanded ZERO matrix
+            # pairs, checked no Kani selector at all, and still reported OK.
+            if (harness and _is_var(harness)) or (pkg and _is_var(pkg)):
+                for p_pkg, p_harness in matrix_pairs:
+                    selectors.append(Selector("kani-harness", p_harness, path, i, pkg=p_pkg))
+            elif harness:
+                selectors.append(Selector("kani-harness", harness, path, i, pkg=pkg))
             continue
 
         # cargo test / llvm-cov / nextest
@@ -294,6 +305,64 @@ def find_test_target(target):
 # --------------------------------------------------------------------------- #
 # Main
 # --------------------------------------------------------------------------- #
+
+SCRIPT_RUN_RE = re.compile(
+    r"""(?:^|[\s;&|(])(?:ba)?sh\s+(?:-[A-Za-z]+\s+)*([A-Za-z0-9_./-]+\.sh)\b"""
+)
+
+
+def workflow_script_findings(workflows):
+    """Every `bash <path>.sh` a workflow runs must be a TRACKED file.
+
+    Added after a live miss: `.gitignore` carries `*.sh` with only
+    `!scripts/*.sh` negated, so a new gate script under `verification/` is
+    silently not committed. `git add -A` skipped it without a word, the commit
+    looked clean, and the workflow step referencing it failed with exit 127 —
+    a gate that ran nothing. Exit 127 was luck: a step written
+    `bash foo.sh || true`, or one whose script is treated as optional, would
+    have reported GREEN while measuring nothing, which is this gate's charter.
+
+    Checks TRACKED-ness, not existence on disk. The file is present in whatever
+    working copy created it, so an `os.path.exists` check passes locally and
+    fails only in CI — the worst possible place to find out.
+    """
+    import subprocess
+
+    try:
+        tracked = set(
+            subprocess.run(
+                ["git", "-C", REPO_ROOT, "ls-files"],
+                capture_output=True, text=True, check=True,
+            ).stdout.split()
+        )
+    except Exception as e:
+        # Fail closed: an unreadable index must never green the check.
+        return ["could not list tracked files to validate workflow scripts: {}".format(e)]
+
+    out = []
+    for wf in workflows:
+        with open(wf, "r", encoding="utf-8", errors="ignore") as fh:
+            for i, line in enumerate(fh, 1):
+                for m in SCRIPT_RUN_RE.finditer(strip_comment(line)):
+                    rel = m.group(1).lstrip("./")
+                    if "$" in rel or "{" in rel:
+                        continue  # interpolated path; not statically resolvable
+                    if rel not in tracked:
+                        extra = ""
+                        if os.path.exists(os.path.join(REPO_ROOT, rel)):
+                            extra = (
+                                " — the file EXISTS on disk but is NOT tracked; check "
+                                ".gitignore (`*.sh` is ignored in this repo) and "
+                                "`git add -f` it"
+                            )
+                        out.append(
+                            "{}:{}: workflow runs `{}` which is not a tracked file{}".format(
+                                os.path.relpath(wf, REPO_ROOT), i, rel, extra
+                            )
+                        )
+    return out
+
+
 def run(list_mode):
     members = discover_members()
     lib_members = {n for n, m in members.items() if m.has_lib}
@@ -311,6 +380,7 @@ def run(list_mode):
         selectors.extend(parse_workflow(wf))
 
     findings = []
+    findings.extend(workflow_script_findings(workflows))
     covered_pkgs = set()
 
     for sel in selectors:

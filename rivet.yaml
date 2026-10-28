@@ -23,11 +23,13 @@ externals:
   synth:
     path: ../synth
     prefix: synth
-  # kiln owns the resource-limits section + on-board loader for the embedded
-  # trust chain (FEAT-12 / #187 ← kiln#415, AD-WCMC-001). Cross-repo linkable.
-  kiln:
-    path: ../kiln
-    prefix: kiln
+  # kiln is NOT declared as an external yet: it has no rivet.yaml, and a single
+  # unresolvable external makes rivet abandon cross-ref checking for ALL of them
+  # ("cross-refs NOT CHECKED — externals failed to load"), which turned 9 valid
+  # synth links into errors and broke the compliance report. Same convention as
+  # gale below — add it when it arrives. kiln owns the resource-limits section +
+  # on-board loader for the embedded trust chain (FEAT-12 / #187 <- kiln#415,
+  # AD-WCMC-001); tracked there until kiln has a rivet store. #284.
   # gale (OS/BSP/HW-crypto) has no rivet setup yet — link via gale#164 for now;
   # add as an external here when it gains rivet artifacts ("when it arrives").
 

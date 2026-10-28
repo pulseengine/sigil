@@ -152,7 +152,13 @@ impl<In: Transport> Connector<In> for PinnedRustlsConnector {
         let conn = ClientConnection::new(self.config.clone(), name)?;
         let stream = StreamOwned {
             conn,
-            sock: TransportAdapter::new(transport.boxed()),
+            // ureq 3.5 made the clock an explicit argument. It drives this adapter's
+            // TIMEOUTS (`timeout_set_at`, `set_timeout`), so it must be the agent's
+            // own clock — exactly what ureq's built-in rustls connector passes
+            // (`tls/rustls.rs`: `details.current_time.clone()`). A stand-in clock, e.g.
+            // a constant, would compile and silently stop timeouts from ever firing,
+            // letting a hung Fulcio/Rekor connection block instead of failing.
+            sock: TransportAdapter::new(transport.boxed(), details.current_time.clone()),
         };
 
         let buffers = LazyBuffers::new(

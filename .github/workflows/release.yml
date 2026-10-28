@@ -22,7 +22,6 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: pulseengine/wsc
-  RUST_VERSION: "1.90.0"
 
 jobs:
   # Generate compliance report from rivet artifacts
@@ -33,12 +32,40 @@ jobs:
     steps:
     - uses: actions/checkout@v7
 
+    # rivet.yaml declares `synth` as an external at ../synth, and ONE
+    # unresolvable external makes rivet abandon cross-ref checking for all of
+    # them: it reports "cross-refs NOT CHECKED — externals failed to load" and
+    # counts sigil's 9 valid synth links as broken (31 validate errors instead
+    # of 22). A single-repo checkout has no sibling, so the compliance job saw
+    # that state on every run. actions/checkout refuses to write outside
+    # GITHUB_WORKSPACE, so clone it directly: $GITHUB_WORKSPACE is
+    # .../work/sigil/sigil, and rivet resolves ../synth against the project
+    # dir, so .../work/sigil/synth is exactly where it looks.
+    #
+    # PINNED, not `main`, deliberately. A compliance bundle is audit evidence:
+    # re-running the release must re-derive the same report, which a moving
+    # HEAD cannot promise. The cost is that a cross-ref sigil still claims
+    # could rot in synth's later commits without this job noticing — that drift
+    # surfaces in a developer's local run, where ../synth is a live checkout,
+    # and when this pin is next raised. claims.yaml's SYNTH-PIN-AGREES keeps
+    # the two callers from disagreeing about which pin that is.
+    - name: Check out synth (rivet external, for cross-repo links)
+      run: |
+        git clone --depth 1 --branch v0.87.0 \
+          https://github.com/pulseengine/synth "${GITHUB_WORKSPACE}/../synth"
+
     - name: Generate compliance report
       id: report
-      uses: pulseengine/rivet/.github/actions/compliance@v0.39.0
+      uses: pulseengine/rivet/.github/actions/compliance@v0.41.1
       with:
         theme: dark
-        rivet-version: v0.3.0
+        # The rivet BINARY the action downloads. Must equal the action tag
+        # above; claim RIVET-ACTION-PIN-AGREES in claims.yaml enforces it, so
+        # dependabot can no longer advance one and leave the other behind —
+        # which is what broke eight releases from 2026-09-08 (#284). Do not
+        # drop this input: its default "source" builds rivet-cli from the
+        # CALLER's workspace, and sigil has no rivet-cli crate.
+        rivet-version: v0.41.1
         # Emit artifacts.yaml (generic-yaml) into the bundle so the website's
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true
@@ -165,7 +192,7 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@0.19.0
+      uses: bazel-contrib/setup-bazel@0.19.1
       with:
         bazelisk-cache: true
         # Use a shared cache key across all builds for better reuse

@@ -30,9 +30,20 @@ profiles/
 *.key
 *.key2
 
-# Scripts (local testing) - but allow scripts/ directory
+# Scripts (local testing) - but allow anything CI actually runs.
+#
+# `*.sh` with only `!scripts/*.sh` negated silently dropped a new gate script
+# under verification/: `git add -A` skipped it without a word, the commit looked
+# clean, and the workflow step referencing it failed in CI with exit 127 — a
+# gate that ran nothing. Exit 127 was luck; `bash foo.sh || true` would have
+# been green. Any directory whose scripts a workflow invokes must be negated
+# here, and the vacuous-oracle gate now asserts that every `bash <path>.sh` a
+# workflow runs is a TRACKED file, so the next omission fails loudly instead.
 *.sh
 !scripts/*.sh
+!scripts/**/*.sh
+!verification/**/*.sh
+!.github/**/*.sh
 
 # Signatures
 /signature
@@ -51,3 +62,7 @@ result
 # Local audit working notes (intentionally untracked — formal findings
 # land in docs/security/ once distilled).
 /audit/
+
+# Python bytecode (claim-check, verification scripts)
+__pycache__/
+*.pyc
