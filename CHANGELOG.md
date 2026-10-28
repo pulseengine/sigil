@@ -65,6 +65,46 @@ project's V-model evidence, missing for two releases — is produced again.
 
 ### Fixed
 
+- **`wsc --version` reports `wsc`, not `wsc-cli` (#255, #273).** The installed
+  binary is `wsc`; the crate is `wsc-cli`, and the version string came from
+  `CARGO_PKG_NAME`. Cosmetic until something parses it — and the PulseEngine
+  toolchain now requires evidence to name the producing tool, so a check of
+  "does the reported name match the binary I invoked" failed for `wsc` while
+  passing for seven of the nine tools in the varve layer. This is the reason
+  the release is cut now: the fix has been on main since 2026-09-30, but varve's
+  `2026.10.30` layer can only carry it from a tag.
+  *Falsification:* built and run from the release tree — `wsc --version` and
+  `wsc -V` print `wsc <semver>` and exit 0; the second binary target `sigil`
+  prints `sigil <semver>` (the name is the *installed binary's*, which is the
+  baseline rule); an unknown flag exits 2. #255's other note — no native
+  darwin-arm64 asset — was already resolved in 0.11.0, which publishes
+  `wsc-macos-aarch64`. **Known gap, not fixed here:** the unknown-flag error
+  prints only `error: unexpected argument found`, naming neither the argument
+  nor the usage the CLI baseline asks for on stderr (clap is built with
+  `default-features = false`). Filed separately.
+
+- **Main did not compile: ureq 3.5's clock argument (#327, #333).** ureq 3.4 ->
+  3.5 added a required second argument to `TransportAdapter::new`, in
+  `ureq::unversioned`, which ureq explicitly excludes from semver. Both of
+  sigil's custom TLS connectors broke, so every `Build CLI` job failed and no
+  release could be built. The clock drives the adapter's TIMEOUTS, so the fix
+  passes `details.current_time.clone()` — the agent's own clock, exactly what
+  every built-in ureq connector passes. A stand-in clock would compile and
+  silently stop timeouts from ever firing, letting a hung Fulcio or Rekor
+  connection block instead of fail; one of the two sites is the
+  certificate-pinned transport. **Oracle gap, stated:** no test exercises a
+  timeout through sigil's own transport, so the suite would not catch a wrong
+  clock; the fix is evidenced by matching ureq's connectors line for line.
+
+- **Rekor checkpoint verification had no test at all.** Found by mutation during
+  the RustCrypto migration below: feeding the wrong bytes to
+  `verify_checkpoint`'s digest left every test green, because its only caller is
+  production code. Three tests now build a real key and sign `note.marshal()`
+  exactly as Rekor does. Under the same mutation the positive control fails —
+  and the two rejection tests stay GREEN, because a verifier fed the wrong bytes
+  rejects everything. Written alone they would have been vacuous for exactly
+  this defect; the positive control is the oracle.
+
 - **A split-signed module truncated at any delimiter verified — WRONG-ACCEPT
   (#305, `verify-core/signature/{simple,multi,matrix}.rs`).** The most severe
   finding of this cycle, and reachable from plain `wsc verify`. `sign_multi`
@@ -276,6 +316,38 @@ project's V-model evidence, missing for two releases — is produced again.
   0.11.0 shipped from a red release run. What #284 cost was the compliance
   *evidence* — the V-model artifact for two releases.
 
+- **RustCrypto 0.14 — clears RUSTSEC-2026-0387 (#333).** `crypto-bigint 0.5.5`:
+  *timing variability in operations intended to be constant-time*, published
+  2026-10-23, on sigil's **default** path (`p256 <- ecdsa <- wsc`), so in the
+  shipped binary. Exploitability for sigil is low — P-256 signing only uses an
+  ephemeral key that signs once, and practical ECDSA timing attacks need many
+  signatures by the same key — and a documented exception was available on that
+  basis. It was declined, as for wasmtime's 9.3. The fix only moves as a set:
+  p256 0.13 -> 0.14, ecdsa 0.16 -> 0.17, sha2 0.10 -> 0.11, spki 0.7 -> 0.8,
+  crypto-bigint -> **0.7.10**; which is also why dependabot's #200 and #179 sat
+  open for months — neither compiles alone. Ephemeral keygen moved to
+  `Generate::try_generate()`, which is **fallible**: the 0.16 call panicked on an
+  RNG failure, and now a failed RNG is a clean refusal to sign. `ZeroizeOnDrop`
+  was re-checked in ecdsa 0.17 rather than carried forward. Every rewritten
+  `verify_digest` closure was mutation-tested to prove a test reaches it.
+  **Not breaking for consumers** — checked: sigil's public API exposes no
+  p256 / ecdsa / sha2 / spki types and re-exports none of those crates.
+
+- **wasmtime's `cache` feature is no longer compiled — clears every zstd
+  advisory (#333).** A dozen `zstd-safe` use-after-free / double-free /
+  heap-overflow advisories, plus `zstd` -0391 and `zstd-sys` -0410, all reached
+  sigil through `wasmtime-internal-cache`. `cache` is a wasmtime default and
+  sigil never uses the compilation cache, so wasmtime is now
+  `default-features = false` plus exactly the four features `crypto_host.rs`
+  needs. **Caveat, measured:** the `runtime` tests never compile or instantiate
+  a component, so one relying on a proposal no longer enabled would fail at load
+  and nothing here would catch it. Bounded: the shipped `wsc` CLI uses default
+  features only and contains no wasmtime at all.
+
+  The advisory database moved a third time between the 2026-10-21 audit
+  (`exit 0`) and the tag: five vulnerabilities reappeared, all cleared above.
+  **This release adds no `cargo audit --ignore` line.**
+
 ### Verification notes
 
 **Mythos pre-release delta pass (minor ⇒ tier-5 + tier-4 changed since
@@ -342,11 +414,24 @@ merely advisory, it is **currently failing**. The oracle that does hold for it
 is the committed real-cosign fixtures and their negative controls, not Kani.
 Unmasking the four is tracked in #145 rather than attempted during a release.
 
-**Every gate named here is advisory in a second sense.** main's
-`required_status_checks.contexts` is empty and the repository has no rulesets,
-so no check — potent or not — blocks a merge today. The merges for this release
-were verified green by hand. An always-run aggregator context is the fix and is
-tracked separately.
+**Until this release, every gate here was advisory in a second sense.** main's
+`required_status_checks.contexts` was empty and the repository had no rulesets,
+so no check — potent or not — could block a merge.
+
+That stopped being theoretical on 2026-10-27, when an automated merger
+(`app/temper-pulseengine`) merged five dependabot PRs in about three minutes
+without regard to CI. **Every one was red.** #321 carried the rivet pin drift
+that `RIVET-ACTION-PIN-AGREES` caught on its first opportunity — the gate fired
+correctly and was simply not enforced; #327 carried the ureq API break with ten
+failing checks and left main unable to compile; #323, #324 and #329 inherited
+the red. The claim gate built in this cycle did its job and nothing listened.
+
+`Documentation claims hold` is now a **required context** with
+`enforce_admins: true`, so the merger cannot land a PR whose claims fail. It
+would have blocked all five. It is an interim floor, not the fix: a compile
+break on an otherwise-clean main passes claim-check, and #327 was only red there
+because #321's drift cascaded onto it. The always-run `Required checks`
+aggregator (#317) replaces it once that context has reported.
 
 **Scope moved.** REQ-28 (`SigstoreBundle::verify` + DER acceptance, #231) and
 REQ-29 (Ed25519 Rekor-v2 SET path + embedded-root refresh, #259) are reassigned
