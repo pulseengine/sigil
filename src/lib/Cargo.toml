@@ -108,7 +108,24 @@ optional = true
 # This dep is OPTIONAL and NOT in `default`, so a default `wsc` build pulls no
 # wasmtime — but the `runtime` feature now requires rustc >= 1.96.
 version = "49.0.4"
-features = ["component-model"]
+# Defaults OFF. wasmtime's default `cache` feature pulls in wasmtime-cache and
+# with it zstd 0.13 / zstd-safe 7.2 / zstd-sys 2.0 — which carried RUSTSEC-2026-
+# 0391, -0410 and a dozen zstd-safe use-after-free / double-free / heap-overflow
+# advisories published 2026-10-16. sigil never uses wasmtime's compilation cache
+# (nothing in src/ configures one), so the cure is to stop compiling it rather
+# than to wait for wasmtime to move to zstd 0.14 or to ignore the advisories.
+#
+# These four are exactly what src/lib/src/runtime/crypto_host.rs uses:
+# `Config::new`, `wasmtime::component::*`, `component::bindgen!`, `HasSelf`.
+#
+# CAVEAT, measured not assumed: the three `runtime` tests construct host state
+# and a runtime but never compile or instantiate a component, so if a component
+# relies on a proposal this list no longer enables (gc, threads, async,
+# component-model-async), NO test here would notice. Exposure is limited to
+# library consumers who opt into `runtime` — the shipped `wsc` CLI depends on
+# wsc with default features only and contains no wasmtime at all.
+default-features = false
+features = ["component-model", "runtime", "cranelift", "std"]
 optional = true
 
 # TPM 2.0 support via TSS2 (optional, Linux only)
