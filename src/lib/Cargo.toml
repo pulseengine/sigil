@@ -48,7 +48,16 @@ chrono = "0.4"
 hex = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
 # ureq is only used on native (cfg-guarded), but must be unconditional for Bazel
-ureq = "3.1.2"
+# The floor is the API the code REQUIRES, not the version that happened to be in
+# the lockfile. sigil plugs its certificate-pinned TLS connector in through
+# `ureq::unversioned::transport`, which ureq explicitly excludes from semver, and
+# 3.5 changed `TransportAdapter::new` to take a clock. A floor of 3.1.2 told
+# cargo that 3.4.x was acceptable, so any lockfile already holding 3.4.x KEPT
+# it — cargo only moves a locked dependency the manifest no longer admits — and
+# wsc then failed to compile. examples/wasmtime-loader reproduced exactly that in
+# CI; a downstream such as varve would have hit it on upgrading. Raise this
+# floor whenever the code adopts a newer `unversioned` API.
+ureq = "3.5"
 # SPKI encoding for public keys
 spki = { version = "0.8", features = ["alloc"] }
 # ECDSA P-256 for keyless signing (required by Sigstore/Rekor hashedrekord)
