@@ -856,9 +856,9 @@ mod tests {
             "logIndex": log_index,
         });
         let canonical = serde_jcs::to_vec(&entry_json).unwrap();
-        let mut hasher = Sha256::new();
-        hasher.update(&canonical);
-        let sig: p256::ecdsa::Signature = rekor_sk.sign_digest(hasher);
+        // Sign the canonical JSON the way Rekor does. Production `verify_set`
+        // must accept this — it is the positive oracle for that closure.
+        let sig: p256::ecdsa::Signature = rekor_sk.sign_digest(|d: &mut Sha256| d.update(&canonical));
         base64::Engine::encode(
             &base64::engine::general_purpose::STANDARD,
             sig.to_der().as_bytes(),

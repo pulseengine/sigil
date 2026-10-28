@@ -867,9 +867,18 @@ impl KeylessSignature {
             WSError::VerificationFailed
         })?;
 
-        let mut hasher = Sha256::new();
-        hasher.update(&unsigned_bytes);
-        verifying_key.verify_digest(hasher, &signature).map_err(|e| {
+        // signature 3.0: `verify_digest` takes a closure that feeds a fresh digest
+        // rather than a pre-filled hasher. One update, no prefix — the same bytes
+        // the 0.16 hasher was fed.
+        verifying_key
+            .verify_digest(
+                |d: &mut Sha256| {
+                    d.update(&unsigned_bytes);
+                    Ok(())
+                },
+                &signature,
+            )
+            .map_err(|e| {
             log::error!(
                 "Keyless artifact binding rejected: ECDSA verify failed: {}",
                 e
@@ -2182,10 +2191,10 @@ mod tests {
             .serialize(&mut module_bytes)
             .expect("module serialize");
 
-        let mut hasher = Sha256::new();
-        hasher.update(&module_bytes);
-        let signature: p256::ecdsa::Signature = signing_key.sign_digest(hasher.clone());
-        let module_hash = hasher.finalize().to_vec();
+        // Sign exactly the bytes that are hashed into `module_hash` below.
+        let signature: p256::ecdsa::Signature =
+            signing_key.sign_digest(|d: &mut Sha256| d.update(&module_bytes));
+        let module_hash = Sha256::digest(&module_bytes).to_vec();
 
         // 4. Build the hashedrekord body matching the bundle so the
         // Rekor body-binding check has a real document to validate.

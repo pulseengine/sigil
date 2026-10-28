@@ -79,7 +79,7 @@ jobs:
         # which is what broke eight releases from 2026-09-08 (#284). Do not
         # drop this input: its default "source" builds rivet-cli from the
         # CALLER's workspace, and sigil has no rivet-cli crate.
-        rivet-version: v0.41.0
+        rivet-version: v0.41.1
 
     - name: Upload archive
       uses: actions/upload-artifact@v7

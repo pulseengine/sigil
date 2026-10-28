@@ -28,6 +28,7 @@ use super::{
 use crate::{Module, WSError, SectionLike, audit};
 use ecdsa::SigningKey;
 use p256::ecdsa::Signature;
+use p256::elliptic_curve::Generate;
 use sha2::{Digest, Sha256};
 
 /// Configuration for keyless signing
@@ -322,12 +323,21 @@ impl KeylessSigner {
         // The zeroization happens automatically even in panic/error scenarios because
         // Rust's drop mechanism is exception-safe.
         log::debug!("Generating ephemeral ECDSA P-256 keypair");
-        let signing_key =
-            SigningKey::<p256::NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        //
+        // `try_generate` draws from the system's ambient CSPRNG (getrandom) and is
+        // FALLIBLE. The ecdsa 0.16 call it replaces, `random(&mut OsRng)`, panicked
+        // if the RNG failed; on a signing path an RNG failure must become a clean
+        // refusal to sign, never an abort and never a weak key. ZeroizeOnDrop still
+        // holds in ecdsa 0.17 (`impl Drop for SigningKey` zeroizes `secret_scalar`),
+        // so the guarantee described above survives the migration.
+        let signing_key = SigningKey::<p256::NistP256>::try_generate().map_err(|e| {
+            log::error!("Refusing to sign: system RNG failed to generate an ephemeral key: {e}");
+            WSError::InternalError(format!("ephemeral key generation failed: {e}"))
+        })?;
         let verifying_key = signing_key.verifying_key();
 
         // Encode public key in uncompressed form (0x04 || x || y)
-        let public_key_bytes = verifying_key.to_encoded_point(false);
+        let public_key_bytes = verifying_key.to_sec1_point(false);
         let public_key = public_key_bytes.as_bytes();
 
         // Step 2: Get OIDC token
@@ -952,11 +962,11 @@ mod tests {
         // Generate a key in a scope
         {
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
             let verifying_key = signing_key.verifying_key();
 
             // Verify we can use the key
-            assert!(!verifying_key.to_encoded_point(false).as_bytes().is_empty());
+            assert!(!verifying_key.to_sec1_point(false).as_bytes().is_empty());
 
             // signing_key goes out of scope here
             // Its internal SecretKey implements ZeroizeOnDrop
@@ -977,7 +987,7 @@ mod tests {
         let signature: Signature = {
             // Generate key in inner scope
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
 
             // Sign the message
             let sig: Signature = signing_key.sign(message);
@@ -999,9 +1009,9 @@ mod tests {
 
         fn operation_with_key() -> Result<Vec<u8>, WSError> {
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
             let verifying_key = signing_key.verifying_key();
-            let public_bytes = verifying_key.to_encoded_point(false);
+            let public_bytes = verifying_key.to_sec1_point(false);
 
             // Simulate an error after using the key
             if !public_bytes.as_bytes().is_empty() {
@@ -1031,7 +1041,7 @@ mod tests {
         for _ in 0..5 {
             let sig: Signature = {
                 let signing_key =
-                    SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                    SigningKey::<NistP256>::try_generate().expect("system RNG");
                 signing_key.sign(message)
                 // key zeroized here
             };
@@ -1052,11 +1062,11 @@ mod tests {
 
         let public_key_bytes = {
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
             let verifying_key = signing_key.verifying_key();
 
             // Extract public key (safe to keep)
-            verifying_key.to_encoded_point(false).as_bytes().to_vec()
+            verifying_key.to_sec1_point(false).as_bytes().to_vec()
 
             // signing_key dropped/zeroized here
         };
@@ -1081,14 +1091,10 @@ mod tests {
 
         let signature: Signature = {
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
 
-            // Create digest
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-
-            // Sign the digest (this is what sign_module does)
-            signing_key.sign_digest(hasher)
+            // Sign SHA-256(data) (this is what sign_module does)
+            signing_key.sign_digest(|d: &mut Sha256| d.update(data))
 
             // signing_key zeroized here
         };
@@ -1106,11 +1112,11 @@ mod tests {
 
         let (verifying_key_bytes, signature_made) = {
             let signing_key =
-                SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+                SigningKey::<NistP256>::try_generate().expect("system RNG");
 
             // Extract verifying key (this is safe to keep)
             let verifying_key = signing_key.verifying_key();
-            let vk_bytes = verifying_key.to_encoded_point(false).as_bytes().to_vec();
+            let vk_bytes = verifying_key.to_sec1_point(false).as_bytes().to_vec();
 
             // Use the signing key
             use ecdsa::signature::Signer;
@@ -1136,12 +1142,12 @@ mod tests {
 
         fn consume_key(key: SigningKey<NistP256>) -> usize {
             let vk = key.verifying_key();
-            vk.to_encoded_point(false).as_bytes().len()
+            vk.to_sec1_point(false).as_bytes().len()
             // key dropped and zeroized here
         }
 
         let signing_key =
-            SigningKey::<NistP256>::random(&mut p256::elliptic_curve::rand_core::OsRng);
+            SigningKey::<NistP256>::try_generate().expect("system RNG");
 
         let len = consume_key(signing_key);
         // signing_key was moved into consume_key and zeroized there
@@ -1161,7 +1167,7 @@ mod tests {
         use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};
         use p256::ecdsa::{Signature, SigningKey};
 
-        let sk = SigningKey::random(&mut p256::elliptic_curve::rand_core::OsRng);
+        let sk = SigningKey::try_generate().expect("system RNG");
         let vk = sk.verifying_key();
 
         // An arbitrary 32-byte digest (sha256("test")): not a WASM module hash.

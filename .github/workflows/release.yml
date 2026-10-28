@@ -65,7 +65,7 @@ jobs:
         # which is what broke eight releases from 2026-09-08 (#284). Do not
         # drop this input: its default "source" builds rivet-cli from the
         # CALLER's workspace, and sigil has no rivet-cli crate.
-        rivet-version: v0.41.0
+        rivet-version: v0.41.1
         # Emit artifacts.yaml (generic-yaml) into the bundle so the website's
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true

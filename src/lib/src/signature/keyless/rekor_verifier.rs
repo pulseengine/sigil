@@ -355,7 +355,7 @@ impl RekorKeyring {
     /// Used in checkpoint signatures to identify which key signed the checkpoint.
     fn compute_key_fingerprint(key: &VerifyingKey) -> Result<[u8; 4], WSError> {
         // Encode the public key in PKIX (SubjectPublicKeyInfo) format
-        let pkix_bytes = key.to_encoded_point(false); // Uncompressed SEC1 encoding
+        let pkix_bytes = key.to_sec1_point(false); // Uncompressed SEC1 encoding
 
         // For ECDSA P-256, we need to construct the PKIX wrapper
         // The PKIX format includes the algorithm identifier OID
@@ -606,13 +606,17 @@ impl RekorKeyring {
             String::from_utf8_lossy(&canonical_json)
         );
 
-        // Hash the canonical JSON
-        let mut hasher = Sha256::new();
-        hasher.update(&canonical_json);
-
-        // Verify the signature using verify_digest (for pre-hashed messages)
+        // Verify ECDSA-P256-SHA256 over the canonical JSON. signature 3.0's
+        // `verify_digest` takes a closure feeding a fresh SHA-256 — exactly the one
+        // update the 0.16 pre-filled hasher received.
         verifying_key
-            .verify_digest(hasher, &signature)
+            .verify_digest(
+                |d: &mut Sha256| {
+                    d.update(&canonical_json);
+                    Ok(())
+                },
+                &signature,
+            )
             .map_err(|e| {
                 WSError::RekorError(format!("SET signature verification failed: {}", e))
             })?;
@@ -677,13 +681,16 @@ impl RekorKeyring {
             }
         })?;
 
-        // Hash the signed bytes
-        let mut hasher = Sha256::new();
-        hasher.update(signed_bytes.as_bytes());
-
-        // Verify the signature using verify_digest (for pre-hashed messages)
+        // Verify ECDSA-P256-SHA256 over the checkpoint's signed bytes — one update,
+        // as before; signature 3.0 just moves it into the closure.
         verifying_key
-            .verify_digest(hasher, &signature)
+            .verify_digest(
+                |d: &mut Sha256| {
+                    d.update(signed_bytes.as_bytes());
+                    Ok(())
+                },
+                &signature,
+            )
             .map_err(|e| {
                 WSError::RekorError(format!("Checkpoint signature verification failed: {}", e))
             })?;
@@ -955,6 +962,88 @@ impl RekorKeyring {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ------------------------------------------------------------------------
+    // verify_checkpoint had NO test at all. Found by mutation during the
+    // RustCrypto 0.14 migration: appending bytes to the digest its
+    // `verify_digest` closure feeds left every test green, because its only
+    // caller is production code. These three close that.
+    //
+    // The positive / content-tamper pair is the one that isolates the closure:
+    // both carry a VALID key fingerprint and a well-formed signature, so the
+    // only thing that can tell them apart is whether the bytes being verified
+    // are the bytes that were signed.
+    // ------------------------------------------------------------------------
+
+    const CP_LOG_ID: &str = "test-log-id";
+
+    /// A keyring holding one known key, a checkpoint note, and that note
+    /// signed by the key exactly the way Rekor signs it: ECDSA-P256-SHA256
+    /// over `note.marshal()`, DER-encoded.
+    fn signed_checkpoint() -> (RekorKeyring, Checkpoint) {
+        use p256::ecdsa::signature::DigestSigner;
+        use p256::elliptic_curve::Generate;
+
+        let sk = p256::ecdsa::SigningKey::try_generate().expect("system RNG");
+        let vk = *sk.verifying_key();
+        let keyring = RekorKeyring { keys: vec![(CP_LOG_ID.to_string(), vk)] };
+
+        let note = CheckpointNote {
+            origin: "rekor.test - 1193050959916656506".to_string(),
+            size: 42,
+            hash: [7u8; 32],
+            other_content: vec![],
+        };
+        let marshalled = note.marshal();
+        let sig: p256::ecdsa::Signature =
+            sk.sign_digest(|d: &mut Sha256| d.update(marshalled.as_bytes()));
+
+        let checkpoint = Checkpoint {
+            note,
+            signature: CheckpointSignature {
+                name: "rekor.test".to_string(),
+                key_fingerprint: RekorKeyring::compute_key_fingerprint(&vk)
+                    .expect("fingerprint"),
+                raw: sig.to_der().as_bytes().to_vec(),
+            },
+        };
+        (keyring, checkpoint)
+    }
+
+    /// Positive control: a checkpoint signed by the keyring's own key verifies.
+    /// Without this, the rejections below could pass by rejecting everything.
+    #[test]
+    fn test_verify_checkpoint_accepts_genuinely_signed_note() {
+        let (keyring, cp) = signed_checkpoint();
+        keyring
+            .verify_checkpoint(&cp, CP_LOG_ID)
+            .expect("a checkpoint signed by the keyring's own key must verify");
+    }
+
+    /// The one that pins the `verify_digest` closure: change the signed CONTENT
+    /// (the tree size — exactly what an attacker rolling back a log would
+    /// alter) while keeping the valid fingerprint and the valid signature.
+    #[test]
+    fn test_verify_checkpoint_rejects_tampered_tree_size() {
+        let (keyring, mut cp) = signed_checkpoint();
+        cp.note.size += 1;
+        assert!(
+            keyring.verify_checkpoint(&cp, CP_LOG_ID).is_err(),
+            "a checkpoint whose tree size changed after signing must be rejected"
+        );
+    }
+
+    /// A different root hash under the same signature must also be rejected —
+    /// the root is the whole point of a checkpoint.
+    #[test]
+    fn test_verify_checkpoint_rejects_tampered_root_hash() {
+        let (keyring, mut cp) = signed_checkpoint();
+        cp.note.hash[0] ^= 0xff;
+        assert!(
+            keyring.verify_checkpoint(&cp, CP_LOG_ID).is_err(),
+            "a checkpoint whose root hash changed after signing must be rejected"
+        );
+    }
 
     #[test]
     fn test_load_rekor_keys() {
