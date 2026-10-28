@@ -411,11 +411,41 @@ on main `@74665d9b`, run `38971394138`:
 | Rocq translation | **yes** | **1** | documented stub |
 | witness MC/DC | no | 0 | clean |
 
-**One Kani module is a gate. Seven failing harnesses sit behind a green
-board.** Also masked: the Bazel `test` step (audit C-7) and the Rekor
-fresh-data tests. `claims.yaml` now carries `KANI-MASK-RATCHET`, so the number
-of masked modules can shrink but not grow (negative-controlled both ways:
-a fifth mask → red; `varint` losing its unmasked entry → red).
+**At the start of this release one Kani module was a gate, and seven failing
+harnesses sat behind a green board.** Also masked: the Bazel `test` step (audit
+C-7) and the Rekor fresh-data tests. `claims.yaml` now carries
+`KANI-MASK-RATCHET`, so the number of masked modules can shrink but not grow.
+
+**It ends with two.** The RustCrypto 0.14 migration (sha2 0.10 -> 0.11) made the
+merkle harnesses reproducibly exhaust the CI runner — killed 1.1 minutes into
+proving, twice, on different runners, where sha2 0.10 finished in 0.7 — while
+every other module reproduced its result exactly. Merkle is the only module that
+model-checks SHA-256. And because all five merkle harnesses ran in one
+invocation, its two **verified** arithmetic proofs lost their evidence with the
+three failing SHA-256 ones. Merkle is now split, in the code
+(`mod proofs_arith` / `mod proofs_sha256`) and in the matrix:
+
+| module | masked | harnesses |
+|---|---|---|
+| `varint` | **no** | 5/5 verified |
+| `merkle-arith` | **no — new gate** | 2/2 verified (`largest_power_of_two`) |
+| `merkle-sha256` | yes, memory-capped | 3, already failing; outside BMC's scope |
+| `dsse`, `format`, `wasm_module` | yes | unchanged |
+
+So the earlier claim that the toolchain bump "changed nothing behind any mask"
+holds for the toolchain, and does not hold for sha2: it changed merkle, and the
+response was to turn the two proofs it endangered into an unmasked gate. The
+ratchet's unmasked floor rose 1 -> 2 to lock that in (re-masking `merkle-arith`
+trips both predicates).
+
+Doing it exposed a hole in the vacuous-oracle gate itself. Supporting a
+per-entry memory cap made the Kani step build an argument array, so the
+`cargo kani` line lost its literal `--harness` — and the gate only expanded
+matrix pairs when it saw one. **Run unchanged against the new workflow, the
+original gate checked zero Kani selectors and reported OK.** It now recognises a
+matrix-driven line by its variable `-p`, and reads a `harness:` value in full
+rather than its first token (a second name in a list was never checked). Both
+holes are negative-controlled.
 
 This matters most for `format.rs`, which carries this release's largest piece
 of new attacker-facing code (REQ-27's bundle parser): its formal gate is not
