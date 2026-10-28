@@ -96,6 +96,15 @@ project's V-model evidence, missing for two releases — is produced again.
   timeout through sigil's own transport, so the suite would not catch a wrong
   clock; the fix is evidenced by matching ureq's connectors line for line.
 
+  **Dependency floor, for consumers: `ureq >= 3.5`** (was `>= 3.1.2`). The first
+  version of this fix kept the old floor, and CI's example build caught the
+  consequence: a lockfile already holding ureq 3.4.x satisfied `^3.1.2`, so cargo
+  kept it and wsc failed to compile against an API it no longer uses. Any
+  downstream with ureq 3.1-3.4 locked would have hit the same. The floor is now
+  the API the code requires, so the resolver pulls such a lock forward instead —
+  shown by the committed example lock moving 3.4.2 -> 3.5.0 under a plain
+  `cargo build`.
+
 - **Rekor checkpoint verification had no test at all.** Found by mutation during
   the RustCrypto migration below: feeding the wrong bytes to
   `verify_checkpoint`'s digest left every test green, because its only caller is
