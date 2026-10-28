@@ -101,13 +101,15 @@ claims:
         pattern: 'tolerate_failure:\s*true'
         glob: ['.github/workflows/formal-verification.yml']
         max: 4
-      # The unmasked module must stay unmasked. count-max would green a zero,
-      # so presence needs its dual: if `varint` ever loses its
-      # `tolerate_failure: false`, no Kani module is a gate at all.
+      # The unmasked modules must stay unmasked. count-max would green a zero,
+      # so presence needs its dual. Raised 1 -> 2 when `merkle-arith` was split
+      # out of merkle and unmasked (its two arithmetic proofs verify on both
+      # sha2 lines); the ratchet locks that gain in, so losing either `varint`
+      # or `merkle-arith` as a real gate now goes red.
       - kind: count-min
         pattern: 'tolerate_failure:\s*false'
         glob: ['.github/workflows/formal-verification.yml']
-        min: 1
+        min: 2
 
   # --- The synth external pin, in both compliance callers -------------------
   - id: SYNTH-PIN-AGREES

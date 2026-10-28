@@ -223,12 +223,19 @@ def _matrix_pairs(lines):
                 entries.append(cur)
                 stripped = stripped[2:].strip()
             if cur is not None:
-                m = re.match(r"(pkg|harness)\s*:\s*(\S+)", stripped)
+                # Capture the WHOLE value, not just its first token. A matrix
+                # `harness:` may list several names separated by whitespace (the
+                # merkle split runs three SHA-256 harnesses in one entry), and
+                # the step passes each as its own `--harness`. Reading only the
+                # first token would check one name and silently skip the rest —
+                # so a typo in the second or third would pass this gate.
+                m = re.match(r"(pkg|harness)\s*:\s*(.+?)\s*$", stripped)
                 if m:
-                    cur[m.group(1)] = m.group(2).strip('"\'')
+                    cur[m.group(1)] = m.group(2).strip('"\'').strip()
     for e in entries:
         if "pkg" in e and "harness" in e:
-            pairs.append((e["pkg"], e["harness"]))
+            for name in e["harness"].split():
+                pairs.append((e["pkg"], name))
     return pairs
 
 
@@ -246,16 +253,20 @@ def parse_workflow(path):
         # cargo kani ... --harness <H>
         if re.search(r"\bcargo\s+kani\b", line):
             hm = re.search(r"--harness\s+(\S+)", line)
-            if hm:
-                harness = hm.group(1).strip('"\'')
-                pkg_m = re.search(r"(?:-p|--package)\s+(\S+)", line)
-                pkg = pkg_m.group(1).strip('"\'') if pkg_m else None
-                if _is_var(harness) or (pkg and _is_var(pkg)):
-                    # Matrix-driven: expand pairs from this file's include block.
-                    for p_pkg, p_harness in matrix_pairs:
-                        selectors.append(Selector("kani-harness", p_harness, path, i, pkg=p_pkg))
-                else:
-                    selectors.append(Selector("kani-harness", harness, path, i, pkg=pkg))
+            pkg_m = re.search(r"(?:-p|--package)\s+(\S+)", line)
+            pkg = pkg_m.group(1).strip('"\'') if pkg_m else None
+            harness = hm.group(1).strip('"\'') if hm else None
+            # Matrix-driven when EITHER the harness or the package is a
+            # variable. Keying this only on a literal `--harness` on the same
+            # line was a trap: the natural way to pass several harnesses builds
+            # an argument array (`"${args[@]}"`), which drops `--harness` from
+            # the `cargo kani` line — and then this gate expanded ZERO matrix
+            # pairs, checked no Kani selector at all, and still reported OK.
+            if (harness and _is_var(harness)) or (pkg and _is_var(pkg)):
+                for p_pkg, p_harness in matrix_pairs:
+                    selectors.append(Selector("kani-harness", p_harness, path, i, pkg=p_pkg))
+            elif harness:
+                selectors.append(Selector("kani-harness", harness, path, i, pkg=pkg))
             continue
 
         # cargo test / llvm-cov / nextest
