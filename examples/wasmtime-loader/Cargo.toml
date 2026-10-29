@@ -13,7 +13,7 @@ wsc = { path = "../../src/lib" }
 # 49.x needs rustc 1.96, which rust-toolchain.toml now pins (REQ-31 / #302 —
 # the bump this comment used to defer to). 49.0.4 carries no open advisory;
 # src/lib/Cargo.toml lists the five retired with it.
-wasmtime = "49.0.4"
+wasmtime = "50.0.0"
 anyhow = "1.0"
 env_logger = "0.11"
 log = "0.4"
