@@ -3002,7 +3002,7 @@ dependencies = [
 
 [[package]]
 name = "wsc"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3046,7 +3046,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-attestation"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3059,7 +3059,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-dsse"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "base64 0.22.1",
  "ed25519-compact",
@@ -3069,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "wsc-verify-core"
-version = "0.11.0"
+version = "0.12.0"
 dependencies = [
  "ct-codecs",
  "ed25519-compact",

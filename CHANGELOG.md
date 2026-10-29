@@ -453,6 +453,37 @@ merely advisory, it is **currently failing**. The oracle that does hold for it
 is the committed real-cosign fixtures and their negative controls, not Kani.
 Unmasking the four is tracked in #145 rather than attempted during a release.
 
+**This release was tagged with the witness MC/DC gate RED — knowingly, and on
+evidence about the instrument rather than the code.** On the release tree the
+gate measured **zero** verify-core decisions, and the empty-scope guard added in
+this same release (REQ-31) refused to call that a pass, as it was built to.
+
+The cause is the version bump itself. Measured, not inferred:
+
+- **Deterministic.** Re-running on the identical commit reproduced it exactly —
+  152 decisions, 0 at full MC/DC, 0 in scope. Not runner flakiness.
+- **The only build-input difference is the version string.** #333, one PR
+  earlier, measured 3 in-scope decisions with 4 gaps against a baseline of 4.
+  Between #333 and the release tree, `src/verify-core/` and
+  `verification/witness-harness/` are **byte-identical**, and the harness
+  resolved the same versions of every dependency; only `wsc-verify-core`
+  0.11.0 -> 0.12.0 differs.
+- **The decisions moved, they did not vanish.** `varint.rs:28`, `varint.rs:29`
+  and `wasm_module/mod.rs:455` left the report and new decisions appeared at the
+  harness's own `lib.rs:68` and `lib.rs:94` — the call sites. `get32` and
+  `init_from_reader` are generic, so they are compiled in the *calling* crate,
+  and where rustc places that code is seeded by crate-identity hashes that
+  include the version. The likely mechanism; the decision does not rest on it.
+- **verify-core never reads its own version** (no `CARGO_PKG_VERSION`), so its
+  behaviour — and therefore its MC/DC truth table — cannot depend on the string.
+
+So #333's measurement is a measurement of exactly the verify-core source this
+release ships, and it is what the MC/DC claim for 0.12.0 rests on. That is an
+evidence transfer, stated as one. The instrument defect it exposes is worse than
+this release: **the gate's scope is seeded by the crate version, so it can flip
+on every release bump** — the one moment the gate most needs to be trustworthy.
+Tracked as the top blocker for v0.12.1 (#318).
+
 **Until this release, every gate here was advisory in a second sense.** main's
 `required_status_checks.contexts` was empty and the repository had no rulesets,
 so no check — potent or not — could block a merge.
