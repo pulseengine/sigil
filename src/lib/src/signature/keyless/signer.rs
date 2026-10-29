@@ -1162,6 +1162,8 @@ mod tests {
     /// verifies under the same digest, and does NOT verify under a different
     /// one. The full `sign_digest` glue is covered by the gated e2e in
     /// `tests/keyless_integration.rs`.
+    ///
+    /// rivet: verifies REQ-26
     #[test]
     fn test_sign_digest_prehash_is_verifier_symmetric() {
         use p256::ecdsa::signature::hazmat::{PrehashSigner, PrehashVerifier};

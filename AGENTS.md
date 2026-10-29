@@ -18,7 +18,17 @@ This project uses **Rivet** for SDLC artifact traceability.
 - Config: `rivet.yaml`
 - Schemas: common, dev, stpa, stpa-sec, cybersecurity
 - Artifacts: 452 across 23 types
-- Validation: `rivet validate` (current status: 9 errors)
+- Validation: `rivet validate` must be **PASS, exit 0**. It is a release gate,
+  because the compliance action propagates its exit code (rivet #953) and the
+  compliance bundle is this project's V-model evidence. It was FAIL/22 until
+  v0.12.0; those 22 were mechanical (off-vocabulary statuses, `satisfies` links
+  with zero targets, an undeclared link type, and one duplicate artifact id that
+  had silently kept a verification artifact out of the trace). Treat any new
+  error as something to fix, never to re-baseline.
+- Warnings are a different thing: ~182 of them are real coverage-rule gaps
+  (`requirement-verification` is **0/38** — see the verified-status rule below).
+  They do not fail validate. Do not close one by demoting an artifact to
+  `draft`, which merely exempts it from the rule.
 
 ## Available Commands
 
@@ -248,6 +258,30 @@ risk-acceptance note.
 3. **Watch the full CI run**: Do not assume CI passes - verify it
 4. **Sign & Verify workflow must succeed**: The `wasm-signing.yml` workflow must demonstrate end-to-end signing and verification works
 5. **Mythos delta pass**: Run per `### Pre-Release Mythos delta pass` above. Zero `confirmed` findings, OR every `confirmed` finding maps to an `approved AS-N` in `artifacts/stpa/attack-scenarios.yaml` with a shipped fix
+6. **`rivet verify`, never `--set-status verified`**: `rivet modify --set-status
+   verified` writes the field and checks **nothing**. `rivet verify <ID>` is the
+   gate — it requires the artifact to be `implemented` and to carry either an
+   incoming `verifies` link from a verified artifact or a literal
+   `// rivet: verifies <ID>` source marker (the `//` is required even in a `.py`
+   file). Check readiness by running `rivet verify --dry-run` over every artifact
+   in `(= release "vX.Y.Z")`, not by reading the status field. Before v0.12.0 the
+   release's three requirements were all `verified` with zero evidence behind
+   them, and the tool refused all three when finally asked.
+7. **Read a masked gate's exit code from the LOG, not the API**: a step under
+   `continue-on-error: true` (or matrix `tolerate_failure: true`) reports
+   `conclusion: success` through the REST API for the step **and** the job. Use
+   `gh run view --job <id> --log`. Measured 2026-10-21: four of five Kani modules
+   masked, **seven harnesses failing**, every job green, and a workflow comment
+   claiming three modules ran unmasked — a false claim that had already
+   propagated into the rivet store and a release CHANGELOG. "Green before, green
+   after" is not a measurement for a masked step.
+8. **Confirm the merge actually waited.** main's `required_status_checks.contexts`
+   was **empty** until v0.12.0, with no rulesets — every check in this repo was
+   advisory and six PRs merged over a board nothing enforced. The one required
+   context is now `Required checks` (`.github/workflows/required.yml`), which
+   always runs and judges what the filtered workflows concluded. Never require a
+   paths-filtered context directly: it will not report on an unrelated PR, and a
+   *skipped* required context satisfies GitHub's merge button.
 
 #### Release Process
 
@@ -273,6 +307,17 @@ risk-acceptance note.
    gh pr merge <PR#> --squash
    ```
 
+   **Never `--squash` a PR whose branch contains another open PR's commits.**
+   The squash collapses them into one commit under the upper PR's message, the
+   lower PR's work is attributed to it, and the lower PR looks unmerged forever.
+   This has happened twice here: REQ-27's 1,721 insertions landed under
+   *"fix(cli): `wsc --version` reports `wsc`, not `wsc-cli` (#273)"*, and #301's
+   entire security fix landed inside #305's squash. Either merge the base PR
+   first and rebase the upper one onto main, or land the stack with
+   `gh pr merge --merge` — a merge commit keeps every commit's own message, and
+   as a bonus leaves the base commit a real ancestor of main so the sibling
+   branch needs no replay at all.
+
 5. **Create release**: Only after merge and main CI passes
    ```bash
    # Pull latest main
@@ -296,6 +341,12 @@ risk-acceptance note.
 - **NEVER** assume CI will pass - always watch it complete
 - **NEVER** skip the signing workflow verification
 - **NEVER** release if any security-related test fails
+- **NEVER** re-pin a baseline to make a gate green (`SRC_BASELINE_GAP`, a golden
+  tuple, a `count-max` ceiling). Read what moved first; a re-pin before the
+  differentials pass is a frozen lie
+- **NEVER** add an `--ignore` line to `cargo audit` to clear a release. Each one
+  is a standing obligation, not a closed item — v0.12.0 retired two rather than
+  renewing them
 
 ### Build Commands
 

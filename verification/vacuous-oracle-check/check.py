@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Vacuous-oracle CI gate (REQ-30 / #258).
 
+The `//` below is not a typo: rivet scans source files for the literal
+`// rivet: verifies <ID>`, which is what closes the right side of the V for
+this requirement. The gate itself is the oracle, so the marker belongs here
+rather than in a test that tests the test.
+
+// rivet: verifies REQ-30
+
 Fails CI when a CI test/proof selector matches *zero* targets, or when the
 coverage run silently omits a lib-bearing workspace crate. Both failures make a
 "passing" job vacuous: a green check that verifies nothing.
