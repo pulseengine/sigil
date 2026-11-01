@@ -475,11 +475,24 @@ mod tests {
         let mut reader = Cursor::new(serialize_module(&tampered));
         let result = kp.pk.verify_multi(&mut reader, None, |_section| true);
 
+        // Assert the ERROR VARIANT, not merely `is_err()`.
+        //
+        // Two independent guards now reject this input, and they return
+        // different variants: the no-delimiter guard yields `VerificationFailed`
+        // while the terminal-hash check (added later, for the truncation
+        // wrong-accept) yields `VerificationFailedForPredicates`. With only
+        // `is_err()` the terminal check SUBSUMES this test — measured: deleting
+        // the no-delimiter guard leaves all 177 verify-core tests green, so
+        // nothing isolated the guard this test was written for. Pinning the
+        // variant restores one oracle per guard, which is the whole point of
+        // keeping both.
         assert!(
-            result.is_err(),
-            "a tampered module with no signature delimiter must be rejected, but \
-             verify_multi returned Ok — nothing was ever compared against a signed hash"
-        );
+            matches!(result, Err(CoreError::VerificationFailed)),
+            "a tampered module with no signature delimiter must be rejected by the \
+             no-delimiter guard specifically (CoreError::VerificationFailed); got {:?} \
+             — if this is VerificationFailedForPredicates the terminal-hash check \
+             rejected it instead and the guard under test may be gone"
+        , result);
     }
 
     /// Control: a properly split-and-signed module still verifies, so the guard
