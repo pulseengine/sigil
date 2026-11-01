@@ -1,0 +1,55 @@
+name: Required
+
+# The ONE status context main's branch protection requires.
+#
+# Audited 2026-10-21: `required_status_checks.contexts` on main was EMPTY and the
+# repository had no rulesets, so every check here was advisory and six PRs merged
+# over a board nothing enforced.
+#
+# Requiring the individual contexts is the obvious fix and a trap. rust.yml,
+# formal-verification.yml and supply-chain.yml all carry `on: pull_request:
+# paths:` filters, so on a PR touching none of their paths those workflows never
+# run and never report — and a required context that never reports blocks the PR
+# forever. In the other direction, a job skipped INSIDE a workflow reports
+# `skipped`, and on GitHub a skipped required context SATISFIES the merge button.
+# A paths filter is therefore a gate-disabler in both directions.
+#
+# So: this workflow has no paths filter, it is the only required context, and it
+# judges what the other workflows actually reported. See
+# verification/required-checks/required-checks.py for the rules and the
+# 14-case decision table (`--self-test`), 6 of 6 source mutations caught.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  checks: read
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  required:
+    name: Required checks
+    # GitHub-hosted on purpose: this job spends most of its life polling, and
+    # holding a self-hosted runner for an hour would starve the pool it waits on.
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Decision table self-test
+      # The gate proves itself before it judges anything. If this fails, the
+      # verdict below is not trustworthy and the job stops here.
+      run: python3 verification/required-checks/required-checks.py --self-test
+
+    - name: Every other check on this commit must be acceptable
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        python3 verification/required-checks/required-checks.py \
+          --repo "${GITHUB_REPOSITORY}" \
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --deadline-secs 3600
