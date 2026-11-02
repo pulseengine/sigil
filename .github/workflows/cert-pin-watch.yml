@@ -27,7 +27,7 @@ jobs:
     permissions:
       issues: write
     steps:
-    - uses: actions/checkout@v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
     - name: Compare live leaf SPKI against the pinned set
       id: compare
@@ -68,7 +68,7 @@ jobs:
 
     - name: Open a tracking issue on drift
       if: failure()
-      uses: actions/github-script@v9
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
       env:
         # Passed via env (not ${{ }} interpolation) so the report text can
         # never break out of the script — workflow-injection-safe pattern.
