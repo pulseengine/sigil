@@ -172,8 +172,13 @@ jobs:
       packages: write
       id-token: write       # Cosign keyless signing + SLSA provenance OIDC
       attestations: write   # actions/attest-build-provenance@v4
-    needs: [build-native-cli]
-    if: always() && needs.build-native-cli.result == 'success'
+    # build-compliance is a release gate (#352). It used to be absent here, so
+    # the compliance-report download below raced an independent job and was
+    # `continue-on-error: true` — a release could ship without its V-model
+    # evidence and stay green. build-compliance has no job-level `if:`, so it
+    # runs under every trigger this job does.
+    needs: [build-native-cli, build-compliance]
+    if: always() && needs.build-native-cli.result == 'success' && needs.build-compliance.result == 'success'
 
     steps:
     - name: Checkout code
@@ -217,7 +222,7 @@ jobs:
 
         # Build CLI WASM binary with wasm32-wasip2 platform
         echo "Building CLI WASM binary..."
-        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2 || echo "CLI WASM build failed, continuing..."
+        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
 
         # Find and copy the component WASM
         # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
@@ -237,12 +242,17 @@ jobs:
         # After building with --platforms flag, it's at bazel-bin/src/cli/wasmsign_cli.wasm
         CLI_WASM="bazel-bin/src/cli/wasmsign_cli.wasm"
 
-        if [ -f "$CLI_WASM" ]; then
-          echo "Found CLI WASM: $CLI_WASM"
-          cp "$CLI_WASM" ./wsc-cli.wasm
-        else
-          echo "Warning: CLI WASM not found, will only release component"
+        # #352: this used to warn "will only release component" and carry on,
+        # and the build above swallowed its own failure — so a broken CLI build
+        # silently shrank the release, and the "HARD requirement" signing of
+        # wsc-cli.wasm further down (guarded by `[ -f wsc-cli.wasm ]`) was
+        # skipped with it. wsc-cli.wasm is a release asset: missing is fatal.
+        if [ ! -f "$CLI_WASM" ]; then
+          echo "::error::CLI WASM not found at $CLI_WASM — the build above must produce it; a release without wsc-cli.wasm is not shipped"
+          exit 1
         fi
+        echo "Found CLI WASM: $CLI_WASM"
+        cp "$CLI_WASM" ./wsc-cli.wasm
 
         # Verify files
         echo "Built WASM files:"
@@ -255,7 +265,7 @@ jobs:
         cargo build --release --bin wsc
 
         # Verify the CLI works
-        ./target/release/wsc --version || echo "CLI version check skipped"
+        ./target/release/wsc --version
 
         echo "✅ Native wsc CLI built"
 
@@ -279,15 +289,14 @@ jobs:
         # is already signed unconditionally above. So this is a HARD
         # requirement: a sign failure fails the release loudly instead of
         # silently dropping the unsigned artifact (no continue-on-error theatre).
-        if [ -f wsc-cli.wasm ]; then
-          echo "Signing wsc-cli.wasm..."
-          ./target/release/wsc sign --keyless \
-            --input-file wsc-cli.wasm \
-            --output-file wsc-cli.signed.wasm \
-            || { echo "::error::wsc-cli.wasm (wasm32-wasip2) failed to sign — component-parser regression (#164)"; exit 1; }
-          mv wsc-cli.signed.wasm wsc-cli.wasm
-          echo "  ✅ wsc-cli.wasm signed"
-        fi
+        test -f wsc-cli.wasm || { echo "::error::wsc-cli.wasm missing — the build step requires it (#352)"; exit 1; }
+        echo "Signing wsc-cli.wasm..."
+        ./target/release/wsc sign --keyless \
+          --input-file wsc-cli.wasm \
+          --output-file wsc-cli.signed.wasm \
+          || { echo "::error::wsc-cli.wasm (wasm32-wasip2) failed to sign — component-parser regression (#164)"; exit 1; }
+        mv wsc-cli.signed.wasm wsc-cli.wasm
+        echo "  ✅ wsc-cli.wasm signed"
 
         echo "✅ WASM files signed with wsc (keyless)"
         echo ""
@@ -344,30 +353,27 @@ jobs:
         # Tag as latest
         oras tag "${IMAGE_TAG}" latest
 
-        # Push CLI WASM as OCI artifact if it exists
-        if [ -f wsc-cli.wasm ]; then
-          CLI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-cli"
-          CLI_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-cli"
+        # Push CLI WASM as OCI artifact (required since #352)
+        test -f wsc-cli.wasm || { echo "::error::wsc-cli.wasm missing — the build step requires it (#352)"; exit 1; }
+        CLI_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-cli"
+        CLI_LATEST="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-cli"
 
-          echo "Publishing wsc CLI..."
-          oras push "${CLI_TAG}" \
-            --artifact-type application/vnd.wasm.component.layer.v1+wasm \
-            wsc-cli.wasm:application/vnd.wasm.component.layer.v1+wasm
+        echo "Publishing wsc CLI..."
+        oras push "${CLI_TAG}" \
+          --artifact-type application/vnd.wasm.component.layer.v1+wasm \
+          wsc-cli.wasm:application/vnd.wasm.component.layer.v1+wasm
 
-          # Tag as latest-cli
-          oras tag "${CLI_TAG}" latest-cli
+        # Tag as latest-cli
+        oras tag "${CLI_TAG}" latest-cli
 
-          echo "CLI_TAG=${CLI_TAG}" >> $GITHUB_ENV
-          echo "CLI_LATEST=${CLI_LATEST}" >> $GITHUB_ENV
-        fi
+        echo "CLI_TAG=${CLI_TAG}" >> $GITHUB_ENV
+        echo "CLI_LATEST=${CLI_LATEST}" >> $GITHUB_ENV
 
         echo "Published OCI artifacts:"
         echo "  Component: ${IMAGE_TAG}"
         echo "  Component (latest): ${IMAGE_LATEST}"
-        if [ -f wsc-cli.wasm ]; then
-          echo "  CLI: ${CLI_TAG}"
-          echo "  CLI (latest): ${CLI_LATEST}"
-        fi
+        echo "  CLI: ${CLI_TAG}"
+        echo "  CLI (latest): ${CLI_LATEST}"
 
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
         echo "IMAGE_LATEST=${IMAGE_LATEST}" >> $GITHUB_ENV
@@ -386,15 +392,14 @@ jobs:
         echo "latest=${LATEST_DIGEST}" >> "$GITHUB_OUTPUT"
         echo "Resolved ${IMAGE_LATEST} to ${LATEST_DIGEST}"
 
-        if [ -n "${CLI_TAG:-}" ]; then
-          CLI_DIGEST=$(crane digest "${CLI_TAG}")
-          echo "cli=${CLI_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${CLI_TAG} to ${CLI_DIGEST}"
+        if [ -z "${CLI_TAG:-}" ]; then echo "::error::CLI_TAG unset — the CLI image is required since #352"; exit 1; fi
+        CLI_DIGEST=$(crane digest "${CLI_TAG}")
+        echo "cli=${CLI_DIGEST}" >> "$GITHUB_OUTPUT"
+        echo "Resolved ${CLI_TAG} to ${CLI_DIGEST}"
 
-          CLI_LATEST_DIGEST=$(crane digest "${CLI_LATEST}")
-          echo "cli_latest=${CLI_LATEST_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${CLI_LATEST} to ${CLI_LATEST_DIGEST}"
-        fi
+        CLI_LATEST_DIGEST=$(crane digest "${CLI_LATEST}")
+        echo "cli_latest=${CLI_LATEST_DIGEST}" >> "$GITHUB_OUTPUT"
+        echo "Resolved ${CLI_LATEST} to ${CLI_LATEST_DIGEST}"
 
     - name: Sign OCI Images with Cosign (digest-bound)
       run: |
@@ -403,11 +408,10 @@ jobs:
         cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}"
         cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.latest }}"
 
-        if [ -n "${CLI_TAG:-}" ]; then
-          echo "Signing wsc CLI..."
-          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
-          cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli_latest }}"
-        fi
+        if [ -z "${CLI_TAG:-}" ]; then echo "::error::CLI_TAG unset — the CLI image is required since #352"; exit 1; fi
+        echo "Signing wsc CLI..."
+        cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
+        cosign sign --yes "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli_latest }}"
 
         echo "OCI images signed with Cosign (keyless, digest-bound)"
 
@@ -453,29 +457,14 @@ jobs:
           --type slsaprovenance \
           "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}"
 
-        # Attest the provenance for CLI if it exists (digest-bound)
-        if [ -n "${CLI_TAG:-}" ]; then
-          cosign attest --yes \
-            --predicate provenance.json \
-            --type slsaprovenance \
-            "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
-        fi
+        # Attest the provenance for CLI (digest-bound; required since #352)
+        if [ -z "${CLI_TAG:-}" ]; then echo "::error::CLI_TAG unset — the CLI image is required since #352"; exit 1; fi
+        cosign attest --yes \
+          --predicate provenance.json \
+          --type slsaprovenance \
+          "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}"
 
         echo "✅ SLSA provenance attestation created"
-
-    - name: Generate Sigstore bundle
-      run: |
-        # Generate Sigstore bundle from cosign signature for interoperability
-        # This produces a portable bundle that can be verified with cosign verify-blob
-        COMPONENT_REF="${REGISTRY}/${IMAGE_NAME}@${{ steps.digest.outputs.component }}"
-
-        # Save cosign signature as Sigstore bundle
-        cosign save "${COMPONENT_REF}" --dir sigstore-bundle/ || true
-
-        if [ -d sigstore-bundle ]; then
-          echo "Sigstore bundle generated:"
-          ls -la sigstore-bundle/
-        fi
 
     - name: Generate build environment attestation
       run: |
@@ -525,12 +514,8 @@ jobs:
         identity_re="^$(printf '%s' "$identity" | sed 's/[^[:alnum:]]/\\&/g')\$"
         echo "Expected signer: ${identity}"
 
-        refs=("$COMPONENT_REF" "$LATEST_REF")
-        if [ -n "${CLI_TAG:-}" ]; then
-          refs+=("$CLI_REF" "$CLI_LATEST_REF")
-        else
-          echo "::notice::No CLI image this run (CLI_TAG unset): its signatures are not verified because none were made — the signing step signs the CLI under the same condition."
-        fi
+        if [ -z "${CLI_TAG:-}" ]; then echo "::error::CLI_TAG unset — the CLI image is required since #352"; exit 1; fi
+        refs=("$COMPONENT_REF" "$LATEST_REF" "$CLI_REF" "$CLI_LATEST_REF")
         bash scripts/verify-oci-signatures.sh "$identity_re" "$ISSUER" "${refs[@]}"
 
         # Negative control. Output is captured, not printed, so the expected
@@ -559,45 +544,52 @@ jobs:
       with:
         name: compliance-report
         path: compliance/
-      continue-on-error: true
 
     - name: List downloaded artifacts
       run: |
         echo "Downloaded native CLI artifacts:"
-        ls -la native-cli/ || echo "No native-cli directory"
+        ls -la native-cli/
         echo "Compliance report:"
-        ls -la compliance/ || echo "No compliance directory"
+        ls -la compliance/
         find . -name "wsc-*" -type f | head -20
 
+    # #352: this step ran `sigil sign --format elf --keyless ... || echo "Warning:
+    # failed to sign"` inside a step that was ALSO `continue-on-error: true`, then
+    # printed "Self-signing complete". On every release, v0.12.0 included, sigil
+    # refused — "Keyless signing is currently supported only for WASM format" —
+    # so no native self-signature has ever existed, and the job said it had
+    # finished. The binaries were never unprotected: they are covered by the
+    # cosign-signed SHA256SUMS.txt. What was false was the claim.
+    #
+    # scripts/sign-native-release-binaries.sh makes exactly one failure
+    # skippable — sigil's own, verbatim ELF-keyless refusal (src/cli/main.rs) —
+    # logged as a ::notice:: with its reason, and re-tested every run by the act
+    # of signing. Any other failure is fatal. All three Linux ELF binaries are
+    # required: each is an unconditional build-native-cli matrix leg, and this
+    # job runs only when every leg succeeded.
     - name: Self-sign release binaries with sigil
       run: |
-        # Use the freshly-built Linux x86_64 binary to sign all ELF binaries
         chmod +x native-cli/wsc-linux-x86_64
-        SIGIL="./native-cli/wsc-linux-x86_64"
+        bash scripts/sign-native-release-binaries.sh ./native-cli/wsc-linux-x86_64 \
+          native-cli/wsc-linux-x86_64 \
+          native-cli/wsc-linux-aarch64 \
+          native-cli/wsc-linux-x86_64-tpm2
 
-        echo "Self-signing release binaries with sigil (dogfooding)..."
-        for binary in native-cli/wsc-linux-x86_64 native-cli/wsc-linux-aarch64; do
-          if [ -f "$binary" ]; then
-            echo "Signing $binary..."
-            "$SIGIL" sign --format elf --keyless \
-              --input-file "$binary" \
-              --output-file "${binary}.signed" \
-              --signature-file "${binary}.sig" 2>&1 || echo "Warning: failed to sign $binary (keyless may not be available)"
-          fi
-        done
-
-        # Also sign the TPM2 variant if present
-        if [ -f "native-cli/wsc-linux-x86_64-tpm2" ]; then
-          echo "Signing native-cli/wsc-linux-x86_64-tpm2..."
-          "$SIGIL" sign --format elf --keyless \
-            --input-file "native-cli/wsc-linux-x86_64-tpm2" \
-            --output-file "native-cli/wsc-linux-x86_64-tpm2.signed" \
-            --signature-file "native-cli/wsc-linux-x86_64-tpm2.sig" 2>&1 || echo "Warning: failed to sign"
+        # Negative control, every run: a signing failure that is NOT the known
+        # refusal must be fatal, or the skip above is matching too broadly. A stub
+        # signer stands in so a real binary is never touched; output is captured,
+        # not printed, so the expected failure is not an error annotation.
+        stub="$(mktemp)"
+        printf '#!/bin/sh\necho "negative control: simulated signer failure" >&2\nexit 3\n' > "$stub"
+        chmod +x "$stub"
+        probe="$(mktemp)"
+        cp native-cli/wsc-linux-x86_64 "$probe"
+        if neg_out=$(bash scripts/sign-native-release-binaries.sh "$stub" "$probe" 2>&1); then
+          echo "::error::an unknown signing failure was NOT fatal — the known-refusal skip matches too broadly"
+          echo "$neg_out"
+          exit 1
         fi
-
-        echo "Self-signing complete. Detached signatures:"
-        ls -la native-cli/*.sig 2>/dev/null || echo "No .sig files generated"
-      continue-on-error: true
+        echo "Negative control passed: an unknown signing failure is fatal; only sigil's exact ELF-keyless refusal is skipped."
 
     # ── Gather every release asset into release-assets/ ───────────────────
     # The synth release pattern: one flat directory of assets, then a
@@ -611,13 +603,12 @@ jobs:
 
         # WASM artifacts produced earlier in this job
         cp wsc-component.wasm release-assets/
-        if [ -f wsc-cli.wasm ]; then
-          cp wsc-cli.wasm release-assets/
-        fi
+        test -f wsc-cli.wasm || { echo "::error::wsc-cli.wasm missing — the build step requires it (#352)"; exit 1; }
+        cp wsc-cli.wasm release-assets/
 
-        # Native CLI binaries + sigil-self-signed detached signatures
-        # (the .sig files are intentionally preserved — they're the
-        # sigil-dogfooded ELF signatures, not the SHA256SUMS cosign sig)
+        # Native CLI binaries, plus any sigil self-signature (.sig) the signing
+        # step produced. As of #352 sigil refuses ELF keyless, so there are none;
+        # the binaries are covered by the cosign-signed SHA256SUMS.txt.
         for f in native-cli/*; do
           [ -f "$f" ] || continue
           case "$f" in
@@ -628,9 +619,9 @@ jobs:
 
         # Compliance report (complementary to SHA256SUMS — separate audit
         # artifact, not redundant with the per-asset checksum manifest)
-        if [ -d compliance ]; then
-          cp -r compliance/* release-assets/ 2>/dev/null || true
-        fi
+        # build-and-release needs build-compliance (#352): the report is required.
+        if [ -z "$(ls -A compliance 2>/dev/null)" ]; then echo "::error::compliance report missing or empty (#352)"; exit 1; fi
+        cp -r compliance/. release-assets/
 
         echo "Gathered release assets:"
         ls -la release-assets/
