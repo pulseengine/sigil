@@ -172,8 +172,13 @@ jobs:
       packages: write
       id-token: write       # Cosign keyless signing + SLSA provenance OIDC
       attestations: write   # actions/attest-build-provenance@v4
-    needs: [build-native-cli]
-    if: always() && needs.build-native-cli.result == 'success'
+    # build-compliance is a release gate (#352). It used to be absent here, so
+    # the compliance-report download below raced an independent job and was
+    # `continue-on-error: true` — a release could ship without its V-model
+    # evidence and stay green. build-compliance has no job-level `if:`, so it
+    # runs under every trigger this job does.
+    needs: [build-native-cli, build-compliance]
+    if: always() && needs.build-native-cli.result == 'success' && needs.build-compliance.result == 'success'
 
     steps:
     - name: Checkout code
@@ -217,7 +222,7 @@ jobs:
 
         # Build CLI WASM binary with wasm32-wasip2 platform
         echo "Building CLI WASM binary..."
-        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2 || echo "CLI WASM build failed, continuing..."
+        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
 
         # Find and copy the component WASM
         # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
@@ -237,12 +242,17 @@ jobs:
         # After building with --platforms flag, it's at bazel-bin/src/cli/wasmsign_cli.wasm
         CLI_WASM="bazel-bin/src/cli/wasmsign_cli.wasm"
 
-        if [ -f "$CLI_WASM" ]; then
-          echo "Found CLI WASM: $CLI_WASM"
-          cp "$CLI_WASM" ./wsc-cli.wasm
-        else
-          echo "Warning: CLI WASM not found, will only release component"
+        # #352: this used to warn "will only release component" and carry on,
+        # and the build above swallowed its own failure — so a broken CLI build
+        # silently shrank the release, and the "HARD requirement" signing of
+        # wsc-cli.wasm further down (guarded by `[ -f wsc-cli.wasm ]`) was
+        # skipped with it. wsc-cli.wasm is a release asset: missing is fatal.
+        if [ ! -f "$CLI_WASM" ]; then
+          echo "::error::CLI WASM not found at $CLI_WASM — the build above must produce it; a release without wsc-cli.wasm is not shipped"
+          exit 1
         fi
+        echo "Found CLI WASM: $CLI_WASM"
+        cp "$CLI_WASM" ./wsc-cli.wasm
 
         # Verify files
         echo "Built WASM files:"
@@ -463,20 +473,6 @@ jobs:
 
         echo "✅ SLSA provenance attestation created"
 
-    - name: Generate Sigstore bundle
-      run: |
-        # Generate Sigstore bundle from cosign signature for interoperability
-        # This produces a portable bundle that can be verified with cosign verify-blob
-        COMPONENT_REF="${REGISTRY}/${IMAGE_NAME}@${{ steps.digest.outputs.component }}"
-
-        # Save cosign signature as Sigstore bundle
-        cosign save "${COMPONENT_REF}" --dir sigstore-bundle/ || true
-
-        if [ -d sigstore-bundle ]; then
-          echo "Sigstore bundle generated:"
-          ls -la sigstore-bundle/
-        fi
-
     - name: Generate build environment attestation
       run: |
         # Use wsc's build-env command for structured environment capture
@@ -559,7 +555,6 @@ jobs:
       with:
         name: compliance-report
         path: compliance/
-      continue-on-error: true
 
     - name: List downloaded artifacts
       run: |
@@ -569,35 +564,43 @@ jobs:
         ls -la compliance/ || echo "No compliance directory"
         find . -name "wsc-*" -type f | head -20
 
+    # #352: this step ran `sigil sign --format elf --keyless ... || echo "Warning:
+    # failed to sign"` inside a step that was ALSO `continue-on-error: true`, then
+    # printed "Self-signing complete". On every release, v0.12.0 included, sigil
+    # refused — "Keyless signing is currently supported only for WASM format" —
+    # so no native self-signature has ever existed, and the job said it had
+    # finished. The binaries were never unprotected: they are covered by the
+    # cosign-signed SHA256SUMS.txt. What was false was the claim.
+    #
+    # scripts/sign-native-release-binaries.sh makes exactly one failure
+    # skippable — sigil's own, verbatim ELF-keyless refusal (src/cli/main.rs) —
+    # logged as a ::notice:: with its reason, and re-tested every run by the act
+    # of signing. Any other failure is fatal. All three Linux ELF binaries are
+    # required: each is an unconditional build-native-cli matrix leg, and this
+    # job runs only when every leg succeeded.
     - name: Self-sign release binaries with sigil
       run: |
-        # Use the freshly-built Linux x86_64 binary to sign all ELF binaries
         chmod +x native-cli/wsc-linux-x86_64
-        SIGIL="./native-cli/wsc-linux-x86_64"
+        bash scripts/sign-native-release-binaries.sh ./native-cli/wsc-linux-x86_64 \
+          native-cli/wsc-linux-x86_64 \
+          native-cli/wsc-linux-aarch64 \
+          native-cli/wsc-linux-x86_64-tpm2
 
-        echo "Self-signing release binaries with sigil (dogfooding)..."
-        for binary in native-cli/wsc-linux-x86_64 native-cli/wsc-linux-aarch64; do
-          if [ -f "$binary" ]; then
-            echo "Signing $binary..."
-            "$SIGIL" sign --format elf --keyless \
-              --input-file "$binary" \
-              --output-file "${binary}.signed" \
-              --signature-file "${binary}.sig" 2>&1 || echo "Warning: failed to sign $binary (keyless may not be available)"
-          fi
-        done
-
-        # Also sign the TPM2 variant if present
-        if [ -f "native-cli/wsc-linux-x86_64-tpm2" ]; then
-          echo "Signing native-cli/wsc-linux-x86_64-tpm2..."
-          "$SIGIL" sign --format elf --keyless \
-            --input-file "native-cli/wsc-linux-x86_64-tpm2" \
-            --output-file "native-cli/wsc-linux-x86_64-tpm2.signed" \
-            --signature-file "native-cli/wsc-linux-x86_64-tpm2.sig" 2>&1 || echo "Warning: failed to sign"
+        # Negative control, every run: a signing failure that is NOT the known
+        # refusal must be fatal, or the skip above is matching too broadly. A stub
+        # signer stands in so a real binary is never touched; output is captured,
+        # not printed, so the expected failure is not an error annotation.
+        stub="$(mktemp)"
+        printf '#!/bin/sh\necho "negative control: simulated signer failure" >&2\nexit 3\n' > "$stub"
+        chmod +x "$stub"
+        probe="$(mktemp)"
+        cp native-cli/wsc-linux-x86_64 "$probe"
+        if neg_out=$(bash scripts/sign-native-release-binaries.sh "$stub" "$probe" 2>&1); then
+          echo "::error::an unknown signing failure was NOT fatal — the known-refusal skip matches too broadly"
+          echo "$neg_out"
+          exit 1
         fi
-
-        echo "Self-signing complete. Detached signatures:"
-        ls -la native-cli/*.sig 2>/dev/null || echo "No .sig files generated"
-      continue-on-error: true
+        echo "Negative control passed: an unknown signing failure is fatal; only sigil's exact ELF-keyless refusal is skipped."
 
     # ── Gather every release asset into release-assets/ ───────────────────
     # The synth release pattern: one flat directory of assets, then a
