@@ -489,15 +489,59 @@ jobs:
           echo "{}" > build-env.json
         fi
 
+    # #350: this step used to end in
+    #     cosign verify ... || echo "Note: Signature verification may require specific conditions"
+    # so it could never fail — a release whose image signature did not verify
+    # still passed. It also matched the signer with the UNANCHORED, unescaped
+    # regexp `https://github.com/<repo>`, which accepts any identity that merely
+    # contains that string, and it checked one image of the up to four signed.
+    #
+    # Now: every image the step above signed is verified against an anchored,
+    # escaped identity built from GITHUB_WORKFLOW_REF — which equals the signing
+    # certificate's SAN by construction for every trigger this job runs on (main
+    # pushes, tags, release events, workflow_dispatch). The single real
+    # conditional is the CLI image: it is signed only when CLI_TAG is set, so it
+    # is verified under exactly that condition, and the skip is logged.
+    #
+    # Then a negative control on every run, against this run's own fresh
+    # signatures: the same verifier with a WRONG identity must reject them, or
+    # the step fails — so this gate is shown to be able to go red each time it
+    # passes, not just once in a PR.
     - name: Verify Signatures
+      env:
+        ISSUER: https://token.actions.githubusercontent.com
+        COMPONENT_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}
+        LATEST_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.latest }}
+        CLI_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli }}
+        CLI_LATEST_REF: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.cli_latest }}
       run: |
-        # Verify the signature (digest-bound)
-        cosign verify \
-          --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-          --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-          "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.digest.outputs.component }}" || echo "Note: Signature verification may require specific conditions"
+        identity="https://github.com/${GITHUB_WORKFLOW_REF}"
+        # Escape EVERY non-alphanumeric character. Go's regexp (cosign's) reads a
+        # backslash-escaped non-alphanumeric ASCII character as itself, so this
+        # is exact for any ref. An earlier bracket list, [][.*^...], contained
+        # `[.` -- a POSIX collating-symbol opener -- and BSD sed rejected it,
+        # collapsing the regexp to `^$`: anchored, so it passed the script's
+        # guard, and it would have rejected every real signature.
+        identity_re="^$(printf '%s' "$identity" | sed 's/[^[:alnum:]]/\\&/g')\$"
+        echo "Expected signer: ${identity}"
 
-        echo "Signature verification completed"
+        refs=("$COMPONENT_REF" "$LATEST_REF")
+        if [ -n "${CLI_TAG:-}" ]; then
+          refs+=("$CLI_REF" "$CLI_LATEST_REF")
+        else
+          echo "::notice::No CLI image this run (CLI_TAG unset): its signatures are not verified because none were made — the signing step signs the CLI under the same condition."
+        fi
+        bash scripts/verify-oci-signatures.sh "$identity_re" "$ISSUER" "${refs[@]}"
+
+        # Negative control. Output is captured, not printed, so the expected
+        # rejection does not surface as an error annotation on a healthy run.
+        wrong_re="^https://github\.com/${GITHUB_REPOSITORY_OWNER}/not-${GITHUB_REPOSITORY#*/}/\.github/workflows/release\.yml@.*\$"
+        if neg_out=$(bash scripts/verify-oci-signatures.sh "$wrong_re" "$ISSUER" "$COMPONENT_REF" 2>&1); then
+          echo "::error::cosign ACCEPTED this release's signature under a WRONG identity (${wrong_re}) — signature verification is vacuous"
+          echo "$neg_out"
+          exit 1
+        fi
+        echo "Negative control passed: a wrong signer identity is rejected, so the verification above can fail."
 
     # build-env.txt is captured later, alongside SBOM + SHA256SUMS, so it
     # lands in release-assets/ and its digest is captured by the signed
