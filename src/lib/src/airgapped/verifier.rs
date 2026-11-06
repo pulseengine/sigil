@@ -802,7 +802,8 @@ mod tests {
         params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::CodeSigning];
         params.not_before = odt(nb);
         params.not_after = odt(na);
-        let leaf = params.signed_by(&leaf_key, ca, ca_key).unwrap();
+        let issuer = rcgen::Issuer::from_ca_cert_der(ca.der(), ca_key).unwrap();
+        let leaf = params.signed_by(&leaf_key, &issuer).unwrap();
         (leaf.pem(), signing_key)
     }
 
@@ -823,7 +824,8 @@ mod tests {
         ];
         params.not_before = odt(nb);
         params.not_after = odt(na);
-        let cert = params.signed_by(&key, root, root_key).unwrap();
+        let issuer = rcgen::Issuer::from_ca_cert_der(root.der(), root_key).unwrap();
+        let cert = params.signed_by(&key, &issuer).unwrap();
         (cert, key)
     }
 
