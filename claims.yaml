@@ -74,7 +74,10 @@ claims:
     evidence:
       - kind: captures-agree
         patterns:
-          - 'rivet/\.github/actions/compliance@(v[0-9]+\.[0-9]+\.[0-9]+)'
+          # The action is SHA-pinned (#339); the version it pins is the exact-
+          # version comment dependabot rewrites together with the SHA. Matching
+          # only the SHA form also fails a regression back to a mutable tag pin.
+          - 'rivet/\.github/actions/compliance@[0-9a-f]{40} # (v[0-9]+\.[0-9]+\.[0-9]+)'
           - 'rivet-version:\s*(v[0-9]+\.[0-9]+\.[0-9]+)'
         glob: ['.github/workflows/*.yml']
         # 2 callers x 2 copies. A floor, not an equality: a third caller is fine,
