@@ -1,29 +1,14 @@
 version: 2
 # One PR per logical release across all directories: version-locked families
-# (wasm-tools, wasmtime) and all github-actions pins in / must not split into
-# one PR per directory. (Learned from loom/witness/mcp/relay/rules_wasm_component,
+# (wasm-tools, wasmtime) and all github-actions pins must not split into one
+# PR per directory. (Learned from loom/witness/mcp/relay/rules_wasm_component,
 # where one release arrived as 4-8 PRs.)
-groups:
-  wasm-tools-family:
-    patterns:
-      - "wasmparser"
-      - "wasm-encoder"
-      - "wasmprinter"
-      - "wit-component"
-      - "wit-parser"
-      - "wasm-metadata"
-      - "wat"
-      - "walrus"
-  wasmtime:
-    patterns:
-      - "wasmtime"
-      - "wasmtime-*"
-  github-actions-all:
-    # groups cannot be scoped by package-ecosystem; action names are
-    # owner/name (contain a slash, never start with @), which cargo crates
-    # and unscoped npm packages never match.
-    patterns:
-      - "^[^@]+/"
+#
+# `groups` is a property of an `updates` entry, never top-level: a top-level
+# `groups:` (as #338/#340 had it) is rejected by Dependabot ("additional
+# properties ["groups"]"), which silently disabled the grouping. Cross-
+# directory grouping comes from ONE cargo entry listing every manifest under
+# `directories:`; its groups then span all of them, one PR per group.
 updates:
   - package-ecosystem: github-actions
     directory: /
@@ -31,33 +16,33 @@ updates:
       interval: weekly
     labels:
       - dependencies
+    groups:
+      github-actions-all:
+        patterns:
+          - "*"
   - package-ecosystem: cargo
-    directory: /
+    directories:
+      - /
+      - /fuzz
+      - /examples/wasmtime-loader
+      - /src/attestation
+      - /src/cli
     schedule:
       interval: weekly
     labels:
       - dependencies
-  - package-ecosystem: cargo
-    directory: /fuzz
-    schedule:
-      interval: weekly
-    labels:
-      - dependencies
-  - package-ecosystem: cargo
-    directory: /examples/wasmtime-loader
-    schedule:
-      interval: weekly
-    labels:
-      - dependencies
-  - package-ecosystem: cargo
-    directory: /src/attestation
-    schedule:
-      interval: weekly
-    labels:
-      - dependencies
-  - package-ecosystem: cargo
-    directory: /src/cli
-    schedule:
-      interval: weekly
-    labels:
-      - dependencies
+    groups:
+      wasm-tools-family:
+        patterns:
+          - "wasmparser"
+          - "wasm-encoder"
+          - "wasmprinter"
+          - "wit-component"
+          - "wit-parser"
+          - "wasm-metadata"
+          - "wat"
+          - "walrus"
+      wasmtime:
+        patterns:
+          - "wasmtime"
+          - "wasmtime-*"
