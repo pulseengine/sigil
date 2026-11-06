@@ -34,10 +34,10 @@ jobs:
     # Stays on ubuntu-latest: uses bazel-contrib/setup-bazel; Bazel is not installed on smithy (tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@0.19.1
+      uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
       with:
         bazelisk-cache: true
         disk-cache: ${{ github.workflow }}
@@ -147,7 +147,7 @@ jobs:
             harness: wasm_module::component_proofs
             tolerate_failure: true
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install Rust
       run: |
@@ -195,15 +195,15 @@ jobs:
     # Stays on ubuntu-latest: uses cachix/install-nix-action + bazel-contrib/setup-bazel + Rocq/Coq toolchain; none of Nix, Bazel, or Rocq are installed on smithy (all tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install Nix
-      uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31
+      uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@0.19.1
+      uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
       with:
         bazelisk-cache: true
         disk-cache: ${{ github.workflow }}-rocq
@@ -228,7 +228,7 @@ jobs:
     name: Witness MC/DC gate
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     # Installs the pinned toolchain (1.96.1) from rust-toolchain.toml.
     - name: Install pinned Rust toolchain

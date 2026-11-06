@@ -33,7 +33,7 @@ jobs:
       id-token: write  # Required for trusted publishing
       contents: read
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     
     - name: Install Rust
       run: rustup update stable && rustup default stable
@@ -44,7 +44,7 @@ jobs:
     # Trusted Publishing: exchanges the GitHub OIDC token (id-token: write, above)
     # for a short-lived crates.io token. No CRATES_IO_TOKEN secret needed.
     - name: Authenticate with crates.io
-      uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1
+      uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
       id: auth
 
     - name: Publish crates

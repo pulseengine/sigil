@@ -30,7 +30,7 @@ jobs:
     # Stays on ubuntu-latest: uses pulseengine/rivet/.github/actions/compliance composite action whose internals are not yet validated against smithy's hardened runner.
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     # rivet.yaml declares `synth` as an external at ../synth, and ONE
     # unresolvable external makes rivet abandon cross-ref checking for all of
@@ -56,7 +56,7 @@ jobs:
 
     - name: Generate compliance report
       id: report
-      uses: pulseengine/rivet/.github/actions/compliance@v0.41.1
+      uses: pulseengine/rivet/.github/actions/compliance@29ca43828c8060af135fcd47ecff4c48662d1567 # v0.41.1
       with:
         theme: dark
         # The rivet BINARY the action downloads. Must equal the action tag
@@ -70,7 +70,7 @@ jobs:
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true
 
-    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+    - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: compliance-report
         path: ${{ steps.report.outputs.archive-path }}
@@ -118,7 +118,7 @@ jobs:
             asset_name: wsc-windows-x86_64.exe
 
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install Rust
       run: |
@@ -154,7 +154,7 @@ jobs:
     # SHA256SUMS.txt covering every asset — matches the synth release flow.
 
     - name: Upload artifact
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ matrix.asset_name }}
         path: artifacts/*

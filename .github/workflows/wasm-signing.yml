@@ -45,7 +45,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install wsc
       run: |
@@ -79,7 +79,7 @@ jobs:
           -i "${{ steps.sign.outputs.signed_path }}"
 
     - name: Upload signed WASM
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: signed-wasm-${{ github.sha }}
         path: ${{ steps.sign.outputs.signed_path }}
@@ -93,7 +93,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install wsc
       run: cargo install --git https://github.com/aspect-build/wsc.git wsc-cli
@@ -116,7 +116,7 @@ jobs:
       run: wsc bundle inspect -i trust-bundle-${{ github.ref_name }}.json
 
     - name: Upload trust bundle
-      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: trust-bundle-${{ github.ref_name }}
         path: |
@@ -126,7 +126,7 @@ jobs:
 
     - name: Attach to release
       if: github.event_name == 'release'
-      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+      uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
       with:
         files: |
           trust-bundle-${{ github.ref_name }}.json
