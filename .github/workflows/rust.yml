@@ -86,6 +86,16 @@ jobs:
       if: matrix.build-system == 'cargo'
       run: cargo test --verbose
 
+    # wasmtime is an optional dependency of wsc, enabled only by the `runtime`
+    # feature, and nothing above builds that feature. So a wasmtime bump was
+    # never compiled by CI: dependabot's wasmtime 50 PR (#348) showed 26 green
+    # checks while `cargo check -p wsc --features runtime` fails on the pinned
+    # toolchain (wasmtime 50 requires rustc 1.97). This step makes the
+    # feature, and therefore every wasmtime bump, actually compile and test.
+    - name: Cargo Test (runtime feature — compiles wasmtime)
+      if: matrix.build-system == 'cargo'
+      run: cargo test -p wsc --features runtime --locked runtime
+
     - name: Build Examples
       if: matrix.build-system == 'cargo'
       run: |
