@@ -27,6 +27,7 @@ updates:
       - /examples/wasmtime-loader
       - /src/attestation
       - /src/cli
+      - /verification/witness-harness
     schedule:
       interval: weekly
     labels:
