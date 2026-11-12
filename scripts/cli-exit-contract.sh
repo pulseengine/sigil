@@ -19,6 +19,7 @@ if [ "${1:-}" = "--self-test" ]; then
   stub_dir=$(mktemp -d)
   trap 'rm -rf "$stub_dir"' EXIT
   real_wsc=${2:?usage: --self-test <path-to-real-wsc>}
+  case "$real_wsc" in /*) ;; *) real_wsc="$PWD/$real_wsc" ;; esac
   # The stub defers keygen/sign to the real binary so the fixtures are real,
   # and lies only about verify: the fail-open behaviour #366 describes.
   cat > "$stub_dir/wsc" <<EOF
@@ -36,6 +37,9 @@ EOF
 fi
 
 WSC=${1:?usage: $0 <path-to-wsc> | --self-test <path-to-wsc>}
+# Resolve before cd: a relative path would stop resolving inside $work.
+case "$WSC" in /*) ;; *) WSC="$PWD/$WSC" ;; esac
+[ -x "$WSC" ] || { echo "FAIL  wsc not executable: $WSC"; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -44,9 +48,10 @@ cd "$work"
 # lands in real content rather than the header.
 printf '\x00\x61\x73\x6d\x01\x00\x00\x00\x01\x04\x01\x60\x00\x00\x03\x02\x01\x00\x0a\x04\x01\x02\x00\x0b' > module.wasm
 
-"$WSC" keygen -k sk.key -K pk.key >/dev/null
-"$WSC" keygen -k sk2.key -K pk2.key >/dev/null
-"$WSC" sign -i module.wasm -o signed.wasm -k sk.key >/dev/null
+# Fixture setup must succeed; a failed setup is a FAIL, never a vacuous pass.
+"$WSC" keygen -k sk.key -K pk.key >/dev/null || { echo "FAIL  keygen"; exit 1; }
+"$WSC" keygen -k sk2.key -K pk2.key >/dev/null || { echo "FAIL  keygen"; exit 1; }
+"$WSC" sign -i module.wasm -o signed.wasm -k sk.key >/dev/null || { echo "FAIL  sign"; exit 1; }
 
 # Flip one byte at a given offset (python3 is on every runner image).
 flip() { python3 -c 'import sys
@@ -69,7 +74,8 @@ check() { # name expect(0|nonzero) file key
   if [ "$expect" = 0 ]; then
     [ $rc -eq 0 ] && grep -q "Signature is valid" <<<"$out" || ok=0
   else
-    [ $rc -ne 0 ] && ! grep -q "Signature is valid" <<<"$out" || ok=0
+    # 126/127 mean the binary did not run; that is not a rejection.
+    [ $rc -ne 0 ] && [ $rc -ne 126 ] && [ $rc -ne 127 ] && ! grep -q "Signature is valid" <<<"$out" || ok=0
   fi
   if [ $ok = 1 ]; then echo "ok    $name -> exit $rc"; else echo "FAIL  $name -> exit $rc: $out"; fail=1; fi
 }
