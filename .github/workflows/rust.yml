@@ -246,6 +246,14 @@ jobs:
     - name: Build CLI
       run: cargo build --release
 
+    # #366: a gate may trust `wsc verify`'s exit code. Tampered payload,
+    # tampered signature, wrong key and unsigned module must each exit
+    # non-zero; the self-test proves the check fails a fail-open verify.
+    - name: CLI exit contract (verify fails closed)
+      run: |
+        scripts/cli-exit-contract.sh ./target/release/wsc
+        scripts/cli-exit-contract.sh --self-test ./target/release/wsc
+
     - name: Generate bundle signing keypair
       run: |
         ./target/release/wsc keygen -k /tmp/bundle-sk.key -K /tmp/bundle-pk.key
