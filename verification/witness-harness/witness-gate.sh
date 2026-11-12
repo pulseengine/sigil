@@ -150,7 +150,13 @@ echo "Using $("$WIT" --version)"
 
 # --- build the harness for the instrumentable wasm target ---
 rustup target add wasm32-wasip1 >/dev/null 2>&1 || true
-cargo build --target wasm32-wasip1
+# --locked: the harness is outside the workspace, so without its own committed
+# lockfile every run re-resolved to the newest crates.io releases. On
+# 2026-11-07 ed25519-compact 2.6.0 -> 2.6.1 shifted codegen enough that the one
+# src/ decision lost its attribution and this gate went red on every PR with
+# no change of their own. Dependency moves now arrive as reviewable lockfile
+# diffs (dependabot covers this directory), never silently.
+cargo build --locked --target wasm32-wasip1
 WASM="target/wasm32-wasip1/debug/wsc_witness_harness.wasm"
 
 # --- instrument + run the fixed scenario set + report ---
