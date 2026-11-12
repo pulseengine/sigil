@@ -246,12 +246,10 @@ fn largest_power_of_two_less_than(n: u64) -> u64 {
         return n;
     }
 
-    // Find the highest set bit
-    let mut power = 1u64;
-    while power * 2 < n {
-        power *= 2;
-    }
-    power
+    // Highest set bit of n-1: the largest power of two strictly below n.
+    // Closed form instead of a doubling loop: `power * 2` overflowed for
+    // n > 2^63 (panic with overflow-checks, an endless loop without).
+    1u64 << (63 - (n - 1).leading_zeros())
 }
 
 #[cfg(test)]
@@ -332,6 +330,26 @@ mod tests {
         assert_eq!(largest_power_of_two_less_than(15), 8);
         assert_eq!(largest_power_of_two_less_than(16), 8);
         assert_eq!(largest_power_of_two_less_than(17), 16);
+        // n > 2^63: the old doubling loop overflowed `power * 2` here.
+        assert_eq!(largest_power_of_two_less_than((1 << 63) + 1), 1 << 63);
+        assert_eq!(largest_power_of_two_less_than(u64::MAX), 1 << 63);
+        assert_eq!(largest_power_of_two_less_than(1 << 63), 1 << 62);
+    }
+
+    #[test]
+    fn test_huge_tree_size_returns_error_not_panic() {
+        // tree_size > 2^63 comes from unsigned bundle input; it must yield an
+        // error, not an overflow panic or an endless loop.
+        let r = verify_inclusion_proof(0, (1u64 << 63) + 1, &[0u8; 32], &[[0u8; 32]], &[0u8; 32]);
+        assert!(r.is_err());
+        let r = verify_inclusion_proof(
+            u64::MAX - 1,
+            u64::MAX,
+            &[0u8; 32],
+            &[[0u8; 32]; 64],
+            &[0u8; 32],
+        );
+        assert!(r.is_err());
     }
 
     #[test]
@@ -480,16 +498,24 @@ mod proofs_arith {
     fn proof_largest_power_of_two_properties() {
         let n: u64 = kani::any();
         kani::assume(n > 1);
-        kani::assume(n <= 1024); // Bound for tractability
 
         let result = largest_power_of_two_less_than(n);
 
         // Must be a power of 2
-        assert!(result.is_power_of_two(), "Result {} is not a power of 2", result);
+        assert!(
+            result.is_power_of_two(),
+            "Result {} is not a power of 2",
+            result
+        );
         // Must be less than n
         assert!(result < n, "Result {} is not less than n={}", result, n);
         // Must be the largest such power (next power would be >= n)
-        assert!(result * 2 >= n, "Result {} is not the largest power < n={}", result, n);
+        assert!(
+            result as u128 * 2 >= n as u128,
+            "Result {} is not the largest power < n={}",
+            result,
+            n
+        );
     }
 
     /// Prove: largest_power_of_two_less_than handles edge cases.
@@ -552,8 +578,10 @@ mod proofs_sha256 {
         let node_hash = compute_node_hash(&left, &right);
 
         // Leaf hash and node hash must differ (domain separation)
-        assert_ne!(leaf_hash, node_hash,
-            "Leaf hash and node hash collided — domain separation broken");
+        assert_ne!(
+            leaf_hash, node_hash,
+            "Leaf hash and node hash collided — domain separation broken"
+        );
     }
 
     /// Prove: compute_leaf_hash is deterministic.
