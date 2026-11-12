@@ -73,8 +73,12 @@ use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 
 /// Production Fulcio SPKI pins (SHA256 of SubjectPublicKeyInfo DER)
 ///
-/// SPKI pinning survives certificate renewals — only changes when the
-/// actual public key rotates (rare for Google Trust Services).
+/// SPKI pinning survives a renewal that keeps the key, but Sigstore's leaf
+/// certificates have come with a NEW key at most renewals (Fulcio leaf:
+/// 2026-05, again by 2026-10-20, again by 2026-11-07). The leaf pins are
+/// therefore a freshness layer, refreshed when `cert-pin-watch.yml` reports
+/// drift; continuity comes from the WR3 intermediate pin, which the
+/// chain-match rule in `verify_server_cert` accepts on its own (#185).
 ///
 /// To get the current SPKI pin:
 /// ```bash
@@ -85,19 +89,20 @@ use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 /// Sigstore uses Google Trust Services certificates (GTS Root R1 -> GTS WR3 -> fulcio.sigstore.dev)
 /// We pin the leaf SPKI and the intermediate CA SPKI for defense in depth.
 const FULCIO_PRODUCTION_PINS: &[&str] = &[
-    // fulcio.sigstore.dev leaf SPKI (added 2026-05-19 after Sigstore
-    // rotated the leaf; verified via direct `openssl s_client` fetch
-    // and chain identity check — issuer = Google Trust Services / WR3,
-    // subject CN = fulcio.sigstore.dev. See issue #117 for the
-    // operational discovery story.)
+    // fulcio.sigstore.dev leaf SPKI (added 2026-11-08, #185; fetched
+    // 2026-11-08T12:08Z via `openssl s_client -showcerts`, subject
+    // CN = fulcio.sigstore.dev, SAN DNS:fulcio.sigstore.dev, issuer =
+    // Google Trust Services / WR3, notAfter 2027-01-22; leaf verifies
+    // against the system trust store through the presented WR3 + GTS Root
+    // R1. Same value the cert-pin watchdog reported since 2026-11-0x.)
+    "8c9ee4b115f6c93861eaa47f43987513a8073d6be07306c04edbaf52c3412483",
+    // fulcio.sigstore.dev previous leaf SPKI (added 2026-05-19, #117;
+    // kept for rollback; drop on the next refresh. 6611c54b… from
+    // 2026-04 dropped here.)
     "e30da317897121cb8fba4b1285d4d51207dfbe6272c245bc1c19694317658275",
-    // fulcio.sigstore.dev previous leaf SPKI (kept for transition /
-    // rollback safety; remove on the next rotation if Sigstore does
-    // not roll back to this leaf.)
-    "6611c54b2960f4ed00fef7be46e6ea6541f38e65b039f756b87c0825c0f67df4",
-    // Google Trust Services WR3 intermediate CA SPKI (unchanged
-    // across the 2026-05 rotation; only the Fulcio leaf rotated, not
-    // the issuing intermediate.)
+    // Google Trust Services WR3 intermediate CA SPKI (unchanged across
+    // every leaf rotation so far; re-observed 2026-11-08, notAfter
+    // 2029-02-20.)
     "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
@@ -105,15 +110,18 @@ const FULCIO_PRODUCTION_PINS: &[&str] = &[
 ///
 /// Rekor uses the same Google Trust Services infrastructure as Fulcio.
 const REKOR_PRODUCTION_PINS: &[&str] = &[
-    // rekor.sigstore.dev leaf SPKI (added 2026-06-10 after Sigstore rotated
-    // the leaf again — same class as #117 on the Fulcio side; verified via
-    // direct `openssl s_client` fetch, issuer = Google Trust Services / WR3,
-    // notAfter 2026-09-02. The chain-match fix below makes the WR3
-    // intermediate pin survive future leaf rotations on its own.)
+    // rekor.sigstore.dev leaf SPKI (added 2026-11-08, #185; fetched
+    // 2026-11-08T12:08Z via `openssl s_client -showcerts`, subject
+    // CN = rekor.sigstore.dev, SAN DNS:rekor.sigstore.dev, issuer =
+    // Google Trust Services / WR3, notAfter 2026-12-17; leaf verifies
+    // against the system trust store through the presented chain. The
+    // watchdog has reported this value since 2026-10-20.)
+    "534fe7eee498f83811630f1f9d2f83dedd7f27c6c13c819e57cb9b52ec513af8",
+    // rekor.sigstore.dev previous leaf SPKI (added 2026-06-10; kept for
+    // rollback; drop on the next refresh. 356aacac… dropped here.)
     "710dd397e55ca148baf8e0e69e54ef763fea611a91f11573dc6d3a2a7110187e",
-    // rekor.sigstore.dev previous leaf SPKI (kept for transition/rollback)
-    "356aacac31f1dda36c418426c4fad25071f849fdaccda221cca9a41b9ddb140d",
-    // Google Trust Services WR3 intermediate CA SPKI
+    // Google Trust Services WR3 intermediate CA SPKI (re-observed
+    // 2026-11-08, notAfter 2029-02-20)
     "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
