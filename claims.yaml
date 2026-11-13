@@ -114,6 +114,27 @@ claims:
         glob: ['.github/workflows/formal-verification.yml']
         min: 2
 
+  - id: CI-MASK-RATCHET
+    doc: .github/workflows/rust.yml
+    # Six deciding steps run with a literal `continue-on-error: true`: Verus
+    # (2 steps), Rocq, cargo vet, the Bazel tests and the Rekor tests. Their
+    # jobs report green to "Required checks" whatever the step's exit code.
+    # Each masked job or step carries "(advisory)" in its name so no green tick
+    # reads as a gate. Unmasking is tracked in #372.
+    # The Kani matrix mask (`continue-on-error: ${{ matrix.tolerate_failure }}`)
+    # is KANI-MASK-RATCHET's, not this one's. Lower `max` when a mask goes;
+    # adding one must be a visible edit here.
+    evidence:
+      - kind: count-max
+        # Anchored to the YAML key: release.yml's comments quote the flag.
+        pattern: '(?m)^\s+continue-on-error:\s*true'
+        glob: ['.github/workflows/*.yml']
+        max: 6
+      - kind: count-min
+        pattern: 'name: .*\(advisory\)'
+        glob: ['.github/workflows/*.yml']
+        min: 5
+
   # --- The synth external pin, in both compliance callers -------------------
   - id: SYNTH-PIN-AGREES
     doc: .github/workflows/release.yml

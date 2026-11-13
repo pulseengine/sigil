@@ -145,7 +145,7 @@ jobs:
     # observed in this batch and (b) `bazel test //...` exposes test
     # targets that may be platform-specific. Once the macOS bazel-test
     # baseline is green for one full week, lift this mask.
-    - name: Test (Bazel)
+    - name: Test (Bazel) (advisory)
       if: matrix.build-system == 'bazel'
       run: bazel test --build_tests_only --test_output=errors //src/...
       continue-on-error: true  # WIP — see audit C-7 partial closure
@@ -309,7 +309,8 @@ jobs:
 
   # Rekor verification tests with fresh data
   rekor-verification:
-    name: Rekor Verification Tests (Fresh Data)
+    # "(advisory)": the test step runs with continue-on-error.
+    name: Rekor Verification Tests (Fresh Data) (advisory)
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","rust-cpu"]') }}
     steps:
     - name: Checkout code

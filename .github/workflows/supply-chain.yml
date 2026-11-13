@@ -24,7 +24,8 @@ on:
 
 jobs:
   cargo-vet:
-    name: Cargo Vet
+    # "(advisory)": `cargo vet` runs with continue-on-error.
+    name: Cargo Vet (advisory)
     # Routes fork PRs to GitHub-hosted runners by default. This is NOT a security
     # boundary: a fork PR can edit this file. Isolation is enforced by the org's
     # smithy runner-group policy and fork-PR approval (pulseengine/warte#35).
