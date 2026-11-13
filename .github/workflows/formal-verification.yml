@@ -30,7 +30,8 @@ on:
 
 jobs:
   verus-proofs:
-    name: Verus SMT Verification
+    # "(advisory)": both deciding steps run with continue-on-error (audit C-1).
+    name: Verus SMT Verification (advisory)
     # Stays on ubuntu-latest: uses bazel-contrib/setup-bazel; Bazel is not installed on smithy (tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
@@ -191,7 +192,8 @@ jobs:
       continue-on-error: ${{ matrix.tolerate_failure }}
 
   rocq-proofs:
-    name: Rocq/coq-of-rust Translation
+    # "(advisory)": its only proof step runs with continue-on-error (audit C-3).
+    name: Rocq/coq-of-rust Translation (advisory)
     # Stays on ubuntu-latest: uses cachix/install-nix-action + bazel-contrib/setup-bazel + Rocq/Coq toolchain; none of Nix, Bazel, or Rocq are installed on smithy (all tracked as out-of-scope in migration playbook).
     runs-on: ubuntu-latest
     steps:
