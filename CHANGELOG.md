@@ -3,6 +3,81 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] — 2026-11-13
+
+Security and correctness fixes on top of 0.12.0; no API changes. Upgrade if you
+use keyless verification (the pinned Sigstore leaf keys rotated), device
+provisioning, or the `runtime` feature.
+
+### Fixed
+
+- **Keyless verification works against current Sigstore again (#185, #359).**
+  Fulcio and Rekor rotated their TLS leaf keys, so the SPKI pins in
+  `cert_pinning.rs` no longer matched and pinned connections failed with
+  "Certificate pin mismatch". The pin sets now hold the new leaf, the previous
+  leaf and the intermediate. *Falsification:* a live handshake with the
+  production pins succeeds, and one with only the old leaf pinned fails.
+
+- **Device certificates bind the device's key (#356, #357).**
+  `sign_device_certificate` issued certificates for a random temporary key,
+  because rcgen 0.13 needed a full key pair and re-derived the public key from
+  that temporary secret. Ported to rcgen 0.14.10, which signs over the device's
+  public key directly.
+
+- **wasmtime 49.0.5 for RUSTSEC-2026-0422, -0423 and -0424 (#355).** This affects
+  only the non-default `runtime` feature. CI now compiles and tests that feature;
+  before this, no job built it.
+
+- **Merkle inclusion verifier: tree_size > 2^63 no longer overflows (#368).**
+  `largest_power_of_two_less_than` doubled until `power * 2` overflowed. In this
+  workspace's release profile that aborts the process. In a downstream build
+  without overflow checks it loops forever. The input is the unsigned
+  `tree_size` from the inclusion-proof JSON, and it is reachable through the
+  public library API: `merkle::verify_inclusion_proof`,
+  `RekorKeyring::verify_inclusion_proof` / `verify_entry` and
+  `RekorClient::verify_inclusion`. `wsc verify` is not affected, because neither
+  verify path runs the Merkle check (#137). The impact is denial of service only;
+  it never accepts a bad signature. The Kani harness lost its `n <= 1024` bound
+  and now proves the function for every `n > 1`.
+
+### Verification and CI
+
+- **`wsc verify` exit contract is gated on Linux (#367).**
+  `scripts/cli-exit-contract.sh` runs in CI. A valid signature must exit 0.
+  Each of these must exit non-zero and never print "Signature is valid":
+  - tampered payload
+  - tampered signature bytes
+  - wrong key
+  - unsigned module
+
+  A self-test runs the cases against a stub whose verify always exits 0; that
+  run must fail. This answers #366, which reported a 0.12.0 exit 0 on an invalid
+  signature. That report does not reproduce on macOS or Linux.
+
+- **The Witness gate's harness has a committed lockfile (#361).** An unrelated
+  patch release, ed25519-compact 2.6.1, changed inlining and dropped the gate's
+  in-scope decision count from 1 to 0. The harness now builds `--locked`.
+  Dependabot tracks it. The attribution fragility itself is #362.
+
+- **Release steps fail closed (#351, #353).** OCI signature verification and
+  the native-binary self-signing step used to end in `|| echo`. Each now fails,
+  or skips one named condition with a logged reason. 0.12.1 is the first tag run
+  through this pipeline.
+
+- **The merge gate is real (#317).** `main` previously had no required status
+  checks. It now requires "Required checks" and "Documentation claims hold".
+  Actions are pinned to commit SHAs (#339, #336).
+
+### Falsification
+
+0.12.1 is wrong if any of the following is observed:
+
+- `wsc verify` exits 0 on a module whose signature does not verify;
+- keyless verification against production Sigstore fails with a pin mismatch
+  while the endpoints still serve the leaves pinned here;
+- any `tree_size` input makes `merkle::verify_inclusion_proof` panic or fail to
+  return.
+
 ## [0.12.0] — 2026-10-21
 
 varve-driven interop: wsc can now sign any digest and ingest the ecosystem's
