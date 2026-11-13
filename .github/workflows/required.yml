@@ -17,13 +17,16 @@ name: Required
 # So: this workflow has no paths filter, it is the only required context, and it
 # judges what the other workflows actually reported. See
 # verification/required-checks/required-checks.py for the rules and the
-# 14-case decision table (`--self-test`), 6 of 6 source mutations caught.
+# 18-case decision table (`--self-test`).
 
 on:
   pull_request:
   workflow_dispatch:
 
 permissions:
+  # actions: read lists this commit's workflow runs, so jobs behind `needs:`
+  # (no check-run yet) still count as unfinished.
+  actions: read
   checks: read
   contents: read
 

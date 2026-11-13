@@ -28,8 +28,12 @@ The rules
    from a quiet PR. `claim-check.yml` has no paths filter, so its context must
    be there on every PR; its absence is this gate's canary.
 3. **Everything must be finished.** Poll until no non-self check-run is still
-   in progress. Hitting the deadline FAILS; a gate that gives up and passes is
-   worse than no gate.
+   in progress AND no non-self workflow run for this commit is still in
+   progress. Check-runs alone are not enough: a job behind `needs:` has no
+   check-run until its prerequisites finish, so a board where every EXISTING
+   check-run is complete can still be missing jobs. A workflow run stays
+   in progress until its last job ends. Hitting the deadline FAILS; a gate that
+   gives up and passes is worse than no gate.
 4. **Every error fails closed.** An API error, unparseable JSON, a missing
    token — all exit non-zero. This is the classifier error path the audit calls
    out as the usual place a gate fails open.
@@ -82,8 +86,9 @@ ALWAYS_PRESENT = ("Documentation claims hold",)
 SELF = "Required checks"
 
 
-def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT):
-    """Pure decision function: (runs) -> (verdict, reasons).
+def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT,
+             workflow_runs=(), self_run_id=None):
+    """Pure decision function: (check-runs, workflow runs) -> (verdict, reasons).
 
     verdict is "pass", "fail" or "wait". Kept free of I/O so --self-test can
     drive it over a table instead of over the network.
@@ -94,6 +99,15 @@ def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT):
     pending = [r["name"] for r in others if r.get("status") != "completed"]
     if pending:
         return "wait", [f"{len(pending)} still running: {', '.join(sorted(pending)[:6])}"]
+
+    # Jobs gated by `needs:` have no check-run yet while their workflow run is
+    # still going; without this, the first poll after the existing check-runs
+    # finish could pass before those jobs exist.
+    wf_pending = [w.get("name", "?") for w in workflow_runs
+                  if w.get("id") != self_run_id and w.get("status") != "completed"]
+    if wf_pending:
+        return "wait", [f"{len(wf_pending)} workflow run(s) not finished: "
+                        f"{', '.join(sorted(wf_pending)[:6])}"]
 
     for r in others:
         c = r.get("conclusion")
@@ -130,6 +144,39 @@ def fetch(repo, sha):
         if line:
             runs.append(json.loads(line))
     return runs
+
+
+def fetch_workflow_runs(repo, sha, event):
+    """Workflow runs for a commit (one event type), paginated. Any failure raises."""
+    q = f"repos/{repo}/actions/runs?head_sha={sha}&per_page=100"
+    if event:
+        q += f"&event={event}"
+    out = subprocess.run(
+        ["gh", "api", "--paginate", q, "--jq", ".workflow_runs[] | {id, name, status}"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"gh api failed ({out.returncode}): {out.stderr.strip()[:400]}")
+    return [json.loads(l) for l in out.stdout.splitlines() if l.strip()]
+
+
+GREEN_BOARD = [{"name": "Documentation claims hold", "status": "completed", "conclusion": "success"},
+               {"name": "Kani varint", "status": "completed", "conclusion": "success"}]
+
+# (name, check-runs, workflow runs, self_run_id, expected verdict)
+WORKFLOW_CASES = [
+    ("every existing check-run done, but a workflow run with needs:-gated jobs "
+     "is still in progress -> wait, not pass",
+     GREEN_BOARD, [{"id": 1, "name": "Fuzz Testing", "status": "in_progress"},
+                   {"id": 9, "name": "Required", "status": "in_progress"}], 9, "wait"),
+    ("a queued workflow run is not finished either",
+     GREEN_BOARD, [{"id": 2, "name": "CI", "status": "queued"}], 9, "wait"),
+    ("our own workflow run never blocks us",
+     GREEN_BOARD, [{"id": 9, "name": "Required", "status": "in_progress"}], 9, "pass"),
+    ("all workflow runs completed -> pass",
+     GREEN_BOARD, [{"id": 1, "name": "CI", "status": "completed"},
+                   {"id": 9, "name": "Required", "status": "in_progress"}], 9, "pass"),
+]
 
 
 SELF_TEST_CASES = [
@@ -191,13 +238,14 @@ SELF_TEST_CASES = [
 
 def self_test():
     bad = 0
-    for name, runs, expected in SELF_TEST_CASES:
-        got, reasons = classify(runs)
+    cases = [(n, r, (), None, e) for n, r, e in SELF_TEST_CASES] + WORKFLOW_CASES
+    for name, runs, wruns, self_id, expected in cases:
+        got, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_id)
         ok = got == expected
         bad += not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {name}: expected {expected}, got {got}"
               + (f"  [{'; '.join(reasons)}]" if not ok and reasons else ""))
-    print(f"\n{len(SELF_TEST_CASES) - bad}/{len(SELF_TEST_CASES)} decision cases hold.")
+    print(f"\n{len(cases) - bad}/{len(cases)} decision cases hold.")
     return 1 if bad else 0
 
 
@@ -217,17 +265,20 @@ def main():
               file=sys.stderr)
         return 2
 
+    self_run_id = int(os.environ["GITHUB_RUN_ID"]) if os.environ.get("GITHUB_RUN_ID") else None
+    event = os.environ.get("GITHUB_EVENT_NAME")
     deadline = time.time() + a.deadline_secs
     while True:
         try:
             runs = fetch(a.repo, a.sha)
+            wruns = fetch_workflow_runs(a.repo, a.sha, event)
         except Exception as e:
             # Fail closed. The audit's finding is that a classifier's error path
             # is usually its permissive branch.
             print(f"::error::required-checks could not read the check board: {e}")
             return 1
 
-        verdict, reasons = classify(runs)
+        verdict, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_run_id)
         if verdict == "pass":
             print(f"All {len(runs) - 1} other check-runs are acceptable, and every "
                   f"always-present context reported. Mergeable.")
