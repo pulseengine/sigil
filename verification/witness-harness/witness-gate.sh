@@ -129,10 +129,22 @@ SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-4}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
-# --- resolve a `witness` binary (use PATH, else download the pinned release) ---
+# --- resolve a `witness` binary: the PATH one only if it IS the pinned version ---
+# SRC_BASELINE_GAP and the in-scope decision floor were measured with
+# WITNESS_VERSION; another witness can order rows and count gaps differently
+# (see the header). A varve shim on PATH (or an unpinned ~/.cargo/bin copy)
+# must not swap the instrument silently, so a version mismatch, or a shim that
+# refuses to run, falls through to downloading the pinned release.
+WIT=""
 if command -v witness >/dev/null 2>&1; then
-  WIT="$(command -v witness)"
-else
+  path_ver="$(witness --version 2>/dev/null | awk '{print $2}')"
+  if [ "$path_ver" = "${WITNESS_VERSION#v}" ]; then
+    WIT="$(command -v witness)"
+  else
+    echo "PATH witness is '${path_ver:-unrunnable}', pinned is ${WITNESS_VERSION}: downloading the pinned release"
+  fi
+fi
+if [ -z "$WIT" ]; then
   case "$(uname -s)-$(uname -m)" in
     Linux-x86_64)   ASSET="witness-${WITNESS_VERSION}-x86_64-unknown-linux-gnu.tar.gz" ;;
     Darwin-arm64)   ASSET="witness-${WITNESS_VERSION}-aarch64-apple-darwin.tar.gz" ;;
