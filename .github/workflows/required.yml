@@ -37,11 +37,18 @@ concurrency:
 jobs:
   required:
     name: Required checks
-    # GitHub-hosted on purpose: this job spends most of its life polling, and
-    # holding a self-hosted runner for an hour would starve the pool it waits on.
-    runs-on: ubuntu-latest
+    # Self-hosted `light` (owner decision 2026-11-14: the org's ~5 hosted slots
+    # left this job queued past its deadline). Trade-off: it polls for up to
+    # an hour and holds a light runner while doing so. light has 3 runners and
+    # also serves the jobs this one waits for (claim check, vacuous-oracle
+    # gate, cargo audit, cargo vet), so three PRs polling at once can starve
+    # them until the 3600 s deadline fails the poll. If that shows up, move
+    # this job to its own label rather than back to the hosted queue.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    # The self-hosted light runners ship no gh; required-checks.py needs it.
+    - uses: ./.github/actions/setup-gh
 
     - name: Decision table self-test
       # The gate proves itself before it judges anything. If this fails, the

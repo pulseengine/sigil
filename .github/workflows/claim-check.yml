@@ -16,7 +16,7 @@ permissions:
 jobs:
   claim-check:
     name: Documentation claims hold
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -26,3 +26,7 @@ jobs:
         run: pip install --quiet pyyaml
       - name: Re-derive claims from source
         run: python3 verification/claim-check/claim-check.py claims.yaml
+      - name: No fork PR reaches a self-hosted runner
+        run: |
+          python3 verification/selfhosted-guard/check.py --self-test
+          python3 verification/selfhosted-guard/check.py
