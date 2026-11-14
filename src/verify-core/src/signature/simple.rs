@@ -889,3 +889,6 @@ mod kani_proofs {
         assert!(kp.pk.verify(&mut reader, None).is_err());
     }
 }
+
+// PERF-GATE NEGATIVE CONTROL: comment-only change so the Benchmarks paths
+// filter runs on this PR after the planted allocation was removed.
