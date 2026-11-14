@@ -39,7 +39,7 @@ jobs:
     name: Required checks
     # GitHub-hosted on purpose: this job spends most of its life polling, and
     # holding a self-hosted runner for an hour would starve the pool it waits on.
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","light"]') }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

@@ -43,7 +43,7 @@ jobs:
   cargo-audit:
     name: Cargo Audit
     # Stays on ubuntu-latest: smithy-shipped cargo-audit's bundled rustsec parser rejects RUSTSEC-2026-0037 ("unsupported CVSS version: 4.0"). Move back once smithy bumps cargo-audit to 0.22.1+.
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","light"]') }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install Rust
