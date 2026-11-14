@@ -29,7 +29,7 @@ jobs:
     # Routes fork PRs to GitHub-hosted runners by default. This is NOT a security
     # boundary: a fork PR can edit this file. Isolation is enforced by the org's
     # smithy runner-group policy and fork-PR approval (pulseengine/warte#35).
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","light"]') }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install Rust
@@ -43,7 +43,7 @@ jobs:
   cargo-audit:
     name: Cargo Audit
     # Stays on ubuntu-latest: smithy-shipped cargo-audit's bundled rustsec parser rejects RUSTSEC-2026-0037 ("unsupported CVSS version: 4.0"). Move back once smithy bumps cargo-audit to 0.22.1+.
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - name: Install Rust
@@ -77,7 +77,7 @@ jobs:
 
   cargo-deny:
     name: Cargo Deny
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","rust-cpu"]') }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","rust-cpu"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # stable
@@ -94,7 +94,7 @@ jobs:
 
   mutants:
     name: Mutation Testing
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","lean-mem"]') }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","lean-mem"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly

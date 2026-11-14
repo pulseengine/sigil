@@ -37,7 +37,7 @@ env:
 jobs:
   sign-wasm:
     name: Sign WASM Module
-    runs-on: [self-hosted, linux, x64, rust-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","rust-cpu"]') || 'ubuntu-latest' }}
     permissions:
       id-token: write   # Required for Sigstore OIDC
       contents: read
@@ -88,7 +88,7 @@ jobs:
   # Optional: Generate trust bundle for air-gapped devices
   generate-trust-bundle:
     name: Generate Trust Bundle
-    runs-on: [self-hosted, linux, x64, rust-cpu]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","rust-cpu"]') || 'ubuntu-latest' }}
     if: github.event_name == 'release'
 
     steps:
