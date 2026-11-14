@@ -140,8 +140,7 @@ impl PublicKey {
             match reader.read(&mut buf)? {
                 0 => break,
                 n => {
-                    // PERF-GATE NEGATIVE CONTROL: redundant copy per chunk. Never merge.
-                    hasher.update(&buf[..n].to_vec());
+                    hasher.update(&buf[..n]);
                 }
             }
         }
