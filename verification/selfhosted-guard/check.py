@@ -36,10 +36,11 @@ FORM = re.compile(
 )
 # Triggers only a maintainer or this repository's own branches can cause, plus
 # pull_request, which the expression itself sends to a hosted runner unless the
-# head repository is this one. `release` (sigil addition): only maintainers
-# publish releases.
+# head repository is this one. `release` (sigil addition, for wasm-signing.yml):
+# only maintainers publish releases. workflow_call is NOT trusted: a called
+# workflow inherits its caller's event, which could be a fork-PR context.
 TRUSTED = {"push", "pull_request", "schedule", "workflow_dispatch", "merge_group",
-           "workflow_call", "release"}
+           "release"}
 
 
 def check(root):
@@ -91,6 +92,7 @@ def self_test():
         ("fail-open .fork form fails", "pull_request:", FAIL_OPEN, 1),
         ("good form under pull_request_target fails", "pull_request_target:", GOOD, 1),
         ("good form under workflow_run fails", "workflow_run:\n    workflows: [CI]", GOOD, 1),
+        ("good form under workflow_call fails", "workflow_call:", GOOD, 1),
         ("no self-hosted job fails (compared nothing)", "pull_request:", "ubuntu-latest", 1),
     ]
     bad = 0
