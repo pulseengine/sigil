@@ -44,7 +44,7 @@ jobs:
     # gate, cargo audit, cargo vet), so three PRs polling at once can starve
     # them until the 3600 s deadline fails the poll. If that shows up, move
     # this job to its own label rather than back to the hosted queue.
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","linux","x64","light"]') }}
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
     # The self-hosted light runners ship no gh; required-checks.py needs it.

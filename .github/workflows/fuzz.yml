@@ -21,7 +21,7 @@ on:
 jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}
-    runs-on: [self-hosted, linux, x64, lean-mem]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","lean-mem"]') || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       # Cap concurrency: the lean-mem pool is 4 runners shared with rivet's
@@ -99,7 +99,7 @@ jobs:
   report:
     name: Fuzz Report
     needs: fuzz
-    runs-on: [self-hosted, linux, x64, light]
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
     if: always()
 
     steps:
