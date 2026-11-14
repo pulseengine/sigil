@@ -18,6 +18,10 @@ on:
       - 'src/lib/benches/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'src/verify-core/src/**'
+      - 'src/dsse/src/**'
+      - 'scripts/perf-verdict.py'
+      - 'verification/perf-gate/**'
       - '.github/workflows/benchmarks.yml'
   schedule:
     # Run the full benchmark suite nightly at 4 AM UTC.
@@ -45,6 +49,94 @@ jobs:
     - name: Run benchmarks (reduced sample size)
       run: cargo bench -p wsc --bench verification_benchmarks -- --sample-size 10 --warm-up-time 1
       timeout-minutes: 20
+
+  # PR gate: deterministic cost of the verification paths, PR merge commit vs
+  # the base commit, measured on the same runner in the same job. Wall time on
+  # shared runners varies ~3x between identical runs; Callgrind instruction
+  # counts vary ~0.1% and DHAT heap counts not at all, so these can gate.
+  # Verdict rules and per-benchmark tolerances: verification/perf-gate/limits.json.
+  perf-gate:
+    name: Perf Gate (allocations vs base)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      # The bench profile inherits release (strip = true). Callgrind and DHAT
+      # need symbols to find the benchmark entry point; everything else stays
+      # release-identical on both sides.
+      CARGO_PROFILE_BENCH_STRIP: "false"
+      # One target dir for both trees: dependencies build once.
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Install Rust
+      run: |
+        rustup update stable
+        rustup default stable
+
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        key: perf-gate
+
+    - name: Verdict self-test
+      run: python3 scripts/perf-verdict.py --self-test
+
+    - name: Install valgrind and gungraun-runner
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y valgrind
+        valgrind --version
+        # The runner must equal the gungraun library version in the lockfile.
+        GG=$(awk '/^name = "gungraun"$/{getline; gsub(/version = |"/,""); print}' Cargo.lock)
+        test -n "$GG"
+        echo "GUNGRAUN_VERSION=$GG" >> "$GITHUB_ENV"
+        cargo install gungraun-runner --version "$GG" --locked
+
+    - name: Measure base commit
+      env:
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
+        cd "$RUNNER_TEMP/base"
+        BASE_GG=$(awk '/^name = "gungraun"$/{getline; gsub(/version = |"/,""); print}' Cargo.lock)
+        if ! grep -q 'name = "verification_callgrind"' src/lib/Cargo.toml; then
+          echo "NO_BASE=base $BASE_SHA has no verification_callgrind bench" >> "$GITHUB_ENV"
+        elif [ "$BASE_GG" != "$GUNGRAUN_VERSION" ]; then
+          echo "NO_BASE=gungraun $BASE_GG at base, $GUNGRAUN_VERSION at head" >> "$GITHUB_ENV"
+        else
+          cargo bench -p wsc --bench verification_callgrind -- \
+            --home="$RUNNER_TEMP/gg-base" --save-summary=pretty-json
+        fi
+
+    - name: Measure PR head
+      run: |
+        cargo bench -p wsc --bench verification_callgrind -- \
+          --home="$RUNNER_TEMP/gg-head" --save-summary=pretty-json
+
+    - name: Verdict
+      run: |
+        if [ -n "${NO_BASE:-}" ]; then
+          echo "::notice::perf gate has no comparison: $NO_BASE"
+          python3 scripts/perf-verdict.py --measure-only "$RUNNER_TEMP/gg-head" | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+        fi
+        python3 scripts/perf-verdict.py --limits verification/perf-gate/limits.json \
+          "$RUNNER_TEMP/gg-base" "$RUNNER_TEMP/gg-head" | tee -a "$GITHUB_STEP_SUMMARY"
+        exit "${PIPESTATUS[0]}"
+
+    - name: Upload gungraun summaries
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: perf-gate-summaries
+        path: |
+          ${{ runner.temp }}/gg-base/**/summary.json
+          ${{ runner.temp }}/gg-head/**/summary.json
+        if-no-files-found: warn
+        retention-days: 30
 
   # Nightly job: full criterion run. The criterion output is uploaded as a
   # workflow artifact so the per-path latency baselines are inspectable.
