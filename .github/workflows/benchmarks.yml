@@ -65,8 +65,6 @@ jobs:
       # need symbols to find the benchmark entry point; everything else stays
       # release-identical on both sides.
       CARGO_PROFILE_BENCH_STRIP: "false"
-      # One target dir for both trees: dependencies build once.
-      CARGO_TARGET_DIR: ${{ github.workspace }}/target
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -101,6 +99,12 @@ jobs:
       run: |
         git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
         cd "$RUNNER_TEMP/base"
+        # Separate target dir. A shared one let the head build reuse the base
+        # artifacts: cargo fingerprints workspace members by paths relative to
+        # the workspace root and by mtime, and the head checkout is older than
+        # the base build, so head was never recompiled and both sides measured
+        # the base binary (caught by the negative control, #376).
+        export CARGO_TARGET_DIR="$RUNNER_TEMP/target-base"
         BASE_GG=$(awk '/^name = "gungraun"$/{getline; gsub(/version = |"/,""); print}' Cargo.lock)
         if ! grep -q 'name = "verification_callgrind"' src/lib/Cargo.toml; then
           echo "NO_BASE=base $BASE_SHA has no verification_callgrind bench" >> "$GITHUB_ENV"
@@ -122,6 +126,12 @@ jobs:
           echo "::notice::perf gate has no comparison: $NO_BASE"
           python3 scripts/perf-verdict.py --measure-only "$RUNNER_TEMP/gg-head" | tee -a "$GITHUB_STEP_SUMMARY"
           exit 0
+        fi
+        # Each side must have run its own build (see Measure base commit).
+        if grep -rL target-base "$RUNNER_TEMP/gg-base" --include=summary.json | grep -q . \
+           || grep -rlq target-base "$RUNNER_TEMP/gg-head" --include=summary.json; then
+          echo "::error::perf gate: base and head summaries do not come from separate builds"
+          exit 1
         fi
         python3 scripts/perf-verdict.py --limits verification/perf-gate/limits.json \
           "$RUNNER_TEMP/gg-base" "$RUNNER_TEMP/gg-head" | tee -a "$GITHUB_STEP_SUMMARY"
