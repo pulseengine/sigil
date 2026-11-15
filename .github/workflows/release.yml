@@ -192,12 +192,12 @@ jobs:
     # Nix is required for rules_rocq_rust toolchain registered in MODULE.bazel
     # (Bazel evaluates all toolchains during loading, even for non-Rocq builds)
     - name: Install Nix
-      uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
     - name: Setup Bazel
-      uses: bazel-contrib/setup-bazel@104e3eea9447cdaa4b00d0fb46191a3985d26ab3 # 0.19.1
+      uses: bazel-contrib/setup-bazel@f34d6a05eae3c24acab7fa54587492daeaeffdab # 0.19.2
       with:
         bazelisk-cache: true
         # Use a shared cache key across all builds for better reuse
