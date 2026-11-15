@@ -1,0 +1,6 @@
+{
+  "_doc": "Perf-gate limits for scripts/perf-verdict.py. Keys under benchmarks are <function>.<bench id> from src/lib/benches/verification_callgrind.rs. alloc_pct: FAIL above this heap growth (TotalBlocks, TotalBytes). instr_report_pct: report above this Callgrind Ir growth. retired: benchmarks deliberately removed.",
+  "instr_min_share_pct": 0.5,
+  "benchmarks": {},
+  "retired": []
+}
