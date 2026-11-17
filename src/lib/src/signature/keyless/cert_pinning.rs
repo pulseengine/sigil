@@ -110,18 +110,19 @@ const FULCIO_PRODUCTION_PINS: &[&str] = &[
 ///
 /// Rekor uses the same Google Trust Services infrastructure as Fulcio.
 const REKOR_PRODUCTION_PINS: &[&str] = &[
-    // rekor.sigstore.dev leaf SPKI (added 2026-11-08, #185; fetched
-    // 2026-11-08T12:08Z via `openssl s_client -showcerts`, subject
-    // CN = rekor.sigstore.dev, SAN DNS:rekor.sigstore.dev, issuer =
-    // Google Trust Services / WR3, notAfter 2026-12-17; leaf verifies
+    // rekor.sigstore.dev leaf SPKI (added 2026-11-17, #379; fetched
+    // 2026-11-17 via `openssl s_client -showcerts`, 6 of 6 connections
+    // served this leaf: subject CN = rekor.sigstore.dev, SAN
+    // DNS:rekor.sigstore.dev, issuer = Google Trust Services / WR3,
+    // notBefore 2026-11-14, notAfter 2027-02-12; `openssl verify` OK
     // against the system trust store through the presented chain. The
-    // watchdog has reported this value since 2026-10-20.)
+    // watchdog has reported this value since 2026-11-14.)
+    "b7574852a92a5b2f2c82a2d5b4d1e9607fea03545b190ed9bfcf50a9647a6769",
+    // rekor.sigstore.dev previous leaf SPKI (added 2026-11-08, #185; kept
+    // for rollback; drop on the next refresh. 710dd397… dropped here.)
     "534fe7eee498f83811630f1f9d2f83dedd7f27c6c13c819e57cb9b52ec513af8",
-    // rekor.sigstore.dev previous leaf SPKI (added 2026-06-10; kept for
-    // rollback; drop on the next refresh. 356aacac… dropped here.)
-    "710dd397e55ca148baf8e0e69e54ef763fea611a91f11573dc6d3a2a7110187e",
     // Google Trust Services WR3 intermediate CA SPKI (re-observed
-    // 2026-11-08, notAfter 2029-02-20)
+    // 2026-11-17 in the live chain, notAfter 2029-02-20)
     "39d4a59900fd356261e046dc387071921ca03f0352c00f50f757a8ba77db7281",
 ];
 
