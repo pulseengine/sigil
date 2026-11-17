@@ -730,11 +730,13 @@ mod tests {
     }
 
     /// The certificate issued from a device PUBLIC key must bind THAT key, and
-    /// name the CA that issued it. `create_device_cert` builds an rcgen key pair
-    /// from a temporary secret key plus the device public key; if the device
-    /// key were not the one embedded, every such certificate would vouch for a
-    /// key nobody holds. Guards the rcgen 0.14 issuer port too (issuer DN must
-    /// be the real CA subject, not a re-self-signed copy's).
+    /// name the CA that issued it. Before fa23b77, `create_device_cert` built an
+    /// rcgen key pair from a temporary secret key plus the device public key,
+    /// and rcgen re-derived the SPKI from the secret, so every such certificate
+    /// vouched for a key nobody holds (sigil#288). Guards the rcgen 0.14 issuer
+    /// port too (issuer DN must be the real CA subject, not a re-self-signed
+    /// copy's).
+    // rivet: verifies REQ-34
     #[test]
     fn test_device_certificate_binds_device_public_key_and_ca_issuer() {
         use x509_parser::prelude::*;

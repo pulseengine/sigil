@@ -854,7 +854,7 @@ artifacts:
   - id: REQ-34
     type: requirement
     title: Device certificates must bind the device's public key (HSM provisioning path)
-    status: draft
+    status: implemented
     description: "PrivateCA::create_device_cert (the public-key-only / HSM path via sign_device_certificate) fabricates a signer because rcgen needs one: it builds KeyPair { sk: temp_full_keypair.sk, pk: device_public_key } and passes it to ed25519_to_pem, which is keypair.sk.to_pem() and reads ONLY sk. rcgen re-derives the SPKI from that ephemeral seed, so the pk field is dead code and every certificate on this path carries a throwaway key's SPKI. Measured: device pk 8053c7a6... vs cert SPKI 7d70cad9... Fail-closed rather than forgery (verify_with_certificate checks against the cert's SPKI, so a genuine hardware signature can never validate), but hardware-backed provisioning is non-functional and the certificate attests a binding no party holds, contradicting ProvisioningSession::provision's documented guarantees. Survived because the EKU regression test issues via this same path and passes — webpki never checks subject-key possession. Correct fix: give rcgen the subject SPKI rather than a fabricated keypair; do NOT simply make it error, which would break ProvisioningSession::provision and the shipped examples/iot_provisioning.rs. Predates v0.11.0 (2025-11-14, 7ca8f5a). sigil#288."
     tags: [provisioning, hsm, soundness, tier-5]
     provenance:
