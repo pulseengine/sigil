@@ -138,6 +138,55 @@ impl rcgen::PublicKeyData for DevicePublicKey<'_> {
     }
 }
 
+/// Maximum serialNumber length, RFC 5280 §4.1.2.2.
+const MAX_SERIAL_OCTETS: usize = 20;
+
+/// Generate a fresh certificate serial number: 16 bytes from the OS CSPRNG
+/// (126 bits of entropy), top bit clear so the DER INTEGER stays positive
+/// without a padding byte, second bit set so it is never zero and always
+/// encodes in exactly 16 octets.
+///
+/// rcgen's own fallback, used when no serial is given, is
+/// SHA-256(subject SPKI)[0..20], a pure function of the subject key: every
+/// re-issue for the same (write-once, hardware-locked) device key would get
+/// the same (issuer, serialNumber) identity (sigil#289).
+pub(crate) fn generate_serial_number() -> Result<Vec<u8>, WSError> {
+    let mut serial = vec![0u8; 16];
+    getrandom::fill(&mut serial)
+        .map_err(|e| WSError::InternalError(format!("serial number RNG failed: {}", e)))?;
+    serial[0] = (serial[0] & 0x7f) | 0x40;
+    Ok(serial)
+}
+
+/// The serial to put in a certificate: the operator's, validated, or a fresh
+/// random one. Never `None`, so rcgen's key-derived fallback is never used.
+///
+/// An explicit serial must be a positive integer of at most 20 octets
+/// (RFC 5280 §4.1.2.2): leading zero bytes are ignored, the value must not
+/// be zero, and a 20-octet value must have its top bit clear (otherwise its
+/// DER encoding needs a 21st octet).
+fn certificate_serial(explicit: Option<&[u8]>) -> Result<rcgen::SerialNumber, WSError> {
+    let bytes = match explicit {
+        None => generate_serial_number()?,
+        Some(raw) => {
+            let first = raw.iter().position(|&b| b != 0).ok_or_else(|| {
+                WSError::X509Error("certificate serial number must be positive, got zero".into())
+            })?;
+            let value = &raw[first..];
+            if value.len() > MAX_SERIAL_OCTETS
+                || (value.len() == MAX_SERIAL_OCTETS && value[0] & 0x80 != 0)
+            {
+                return Err(WSError::X509Error(format!(
+                    "certificate serial number exceeds {} octets (RFC 5280 4.1.2.2)",
+                    MAX_SERIAL_OCTETS
+                )));
+            }
+            value.to_vec()
+        }
+    };
+    Ok(rcgen::SerialNumber::from_slice(&bytes))
+}
+
 impl PrivateCA {
     /// Create a new Root CA
     ///
@@ -283,6 +332,10 @@ impl PrivateCA {
         params.not_before = now;
         params.not_after = now + TimeDuration::days(config.validity_days as i64);
 
+        // A fresh random serial; rcgen's fallback is a function of the subject
+        // key and repeats on re-issue (sigil#289).
+        params.serial_number = Some(certificate_serial(None)?);
+
         // CA certificate settings
         params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
 
@@ -335,6 +388,10 @@ impl PrivateCA {
         let now = OffsetDateTime::now_utc();
         params.not_before = now;
         params.not_after = now + TimeDuration::days(config.validity_days as i64);
+
+        // A fresh random serial; rcgen's fallback is a function of the subject
+        // key and repeats on re-issue (sigil#289).
+        params.serial_number = Some(certificate_serial(None)?);
 
         // Intermediate CA certificate settings
         params.is_ca = IsCa::Ca(BasicConstraints::Constrained(0)); // Path length 0
@@ -413,6 +470,10 @@ impl PrivateCA {
         params.not_before = now;
         params.not_after = now + TimeDuration::days(config.validity_days as i64);
 
+        // The operator's serial if given, else a fresh random one; never rcgen's
+        // key-derived fallback, which repeats on re-issue (sigil#289).
+        params.serial_number = Some(certificate_serial(config.serial_number.as_deref())?);
+
         // End-entity certificate (not a CA)
         params.is_ca = IsCa::NoCa;
 
@@ -482,6 +543,10 @@ impl PrivateCA {
         let now = OffsetDateTime::now_utc();
         params.not_before = now;
         params.not_after = now + TimeDuration::days(config.validity_days as i64);
+
+        // The operator's serial if given, else a fresh random one; never rcgen's
+        // key-derived fallback, which repeats on re-issue (sigil#289).
+        params.serial_number = Some(certificate_serial(config.serial_number.as_deref())?);
 
         // End-entity certificate (not a CA)
         params.is_ca = IsCa::NoCa;
@@ -765,6 +830,102 @@ mod tests {
                 "device certificate issuer must be the CA's subject"
             );
         }
+    }
+
+    /// An operator-supplied `CertificateConfig::serial_number` must be the
+    /// certificate's serialNumber on both device paths (sigil#289 B1: it was
+    /// never read, and rcgen used SHA-256(SPKI)[0..20] instead).
+    // rivet: verifies REQ-36
+    #[test]
+    fn test_explicit_serial_number_is_honoured() {
+        use x509_parser::prelude::*;
+
+        let ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+        let device_keypair = KeyPair::generate();
+        let device_id = DeviceIdentity::new("device-serial-1");
+        let mut cert_config = CertificateConfig::new("device-serial-1");
+        cert_config.serial_number = Some(vec![0x0a, 0x0b, 0x0c, 0x0d]);
+
+        for der in [
+            ca.sign_device_certificate(&device_keypair.pk, &device_id, &cert_config)
+                .unwrap(),
+            ca.sign_device_certificate_with_keypair(&device_keypair, &device_id, &cert_config)
+                .unwrap(),
+        ] {
+            let (_, cert) = X509Certificate::from_der(&der).unwrap();
+            assert_eq!(cert.raw_serial(), &[0x0a, 0x0b, 0x0c, 0x0d]);
+        }
+    }
+
+    /// Re-issuing a certificate for the same device key, without an explicit
+    /// serial, must not repeat the (issuer, serialNumber) identity (sigil#289
+    /// B2). Covers both device paths and the CA certificates.
+    // rivet: verifies REQ-36
+    #[test]
+    fn test_reissued_certificates_have_distinct_serials() {
+        use x509_parser::prelude::*;
+
+        let serial = |der: &[u8]| {
+            let (_, cert) = X509Certificate::from_der(der).unwrap();
+            cert.raw_serial().to_vec()
+        };
+
+        let ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+        let device_keypair = KeyPair::generate();
+        let device_id = DeviceIdentity::new("device-reissue");
+        let cert_config = CertificateConfig::new("device-reissue");
+
+        let hsm = |_: ()| {
+            ca.sign_device_certificate(&device_keypair.pk, &device_id, &cert_config)
+                .unwrap()
+        };
+        assert_ne!(serial(&hsm(())), serial(&hsm(())), "HSM path re-issue");
+        let soft = |_: ()| {
+            ca.sign_device_certificate_with_keypair(&device_keypair, &device_id, &cert_config)
+                .unwrap()
+        };
+        assert_ne!(
+            serial(&soft(())),
+            serial(&soft(())),
+            "keypair path re-issue"
+        );
+
+        let ca_key = KeyPair::generate();
+        let root_config = CAConfig::new("Test Corp", "Test Root CA");
+        assert_ne!(
+            serial(&PrivateCA::create_self_signed_cert(&ca_key, &root_config).unwrap()),
+            serial(&PrivateCA::create_self_signed_cert(&ca_key, &root_config).unwrap()),
+            "root CA re-issue"
+        );
+        let int_config = CAConfig::new("Test Corp", "Test Intermediate CA");
+        assert_ne!(
+            serial(&PrivateCA::create_signed_cert(&ca_key, &ca, &int_config).unwrap()),
+            serial(&PrivateCA::create_signed_cert(&ca_key, &ca, &int_config).unwrap()),
+            "intermediate CA re-issue"
+        );
+    }
+
+    /// Serials outside RFC 5280 §4.1.2.2 are rejected, not silently encoded.
+    // rivet: verifies REQ-36
+    #[test]
+    fn test_invalid_explicit_serial_numbers_are_rejected() {
+        assert!(certificate_serial(Some(&[])).is_err(), "empty");
+        assert!(certificate_serial(Some(&[0, 0, 0])).is_err(), "zero");
+        assert!(certificate_serial(Some(&[0x01; 21])).is_err(), "21 octets");
+        let mut top_bit = vec![0x80];
+        top_bit.extend_from_slice(&[0x01; 19]);
+        assert!(
+            certificate_serial(Some(&top_bit)).is_err(),
+            "20 octets, top bit set"
+        );
+
+        let max = [0x7f; 20];
+        assert_eq!(certificate_serial(Some(&max)).unwrap().to_bytes(), max);
+        assert_eq!(
+            certificate_serial(Some(&[0, 0, 0x05])).unwrap().to_bytes(),
+            [0x05],
+            "leading zero octets are not part of the value"
+        );
     }
 
     #[test]

@@ -115,8 +115,17 @@ impl ProvisioningSession {
         log::info!("Extracting public key");
         let public_key = provider.get_public_key(key_handle)?;
 
-        // Step 3: Sign device certificate with CA
+        // Step 3: Fix the serial number, then sign the device certificate with
+        // the CA. The serial goes INTO the certificate config, so the issued
+        // certificate and ProvisioningResult::serial_number are the same value
+        // (sigil#289: they used to differ). An operator-supplied serial wins.
         // Note: We skip CSR generation for now (direct signing)
+        let mut config = config;
+        let serial_number = match config.serial_number.clone() {
+            Some(serial) => serial,
+            None => Self::generate_serial_number()?,
+        };
+        config.serial_number = Some(serial_number.clone());
         log::info!("Signing device certificate");
         let certificate = ca.sign_device_certificate(&public_key, &device_id, &config)?;
 
@@ -128,9 +137,6 @@ impl ProvisioningSession {
         certificate_chain.push(ca.certificate().to_vec());
 
         // TODO: Add intermediate certificates if CA is intermediate
-
-        // Step 5: Generate serial number
-        let serial_number = Self::generate_serial_number()?;
 
         // Step 6: Lock key slot (if requested)
         if lock_key {
@@ -204,15 +210,9 @@ impl ProvisioningSession {
 
     /// Generate a unique serial number for certificate
     fn generate_serial_number() -> Result<Vec<u8>, WSError> {
-        use crate::provisioning::current_timestamp;
-
-        // Use timestamp + random bytes for uniqueness
-        let timestamp = current_timestamp()?;
-
-        // Simple serial: timestamp as 8 bytes
-        let serial = timestamp.to_be_bytes().to_vec();
-
-        Ok(serial)
+        // 16 random bytes; a timestamp serial repeats for two devices
+        // provisioned within the same timestamp tick.
+        crate::provisioning::ca::generate_serial_number()
     }
 
     /// Verify a provisioned device
@@ -313,13 +313,41 @@ mod tests {
     #[test]
     fn test_generate_serial_number() {
         let serial1 = ProvisioningSession::generate_serial_number().unwrap();
-        let _serial2 = ProvisioningSession::generate_serial_number().unwrap();
+        let serial2 = ProvisioningSession::generate_serial_number().unwrap();
 
-        assert_eq!(serial1.len(), 8); // 64-bit timestamp
-        assert!(!serial1.is_empty());
+        assert_eq!(serial1.len(), 16);
+        assert_eq!(serial1[0] & 0xc0, 0x40, "positive, never zero, 16 octets");
+        assert_ne!(serial1, serial2);
+    }
 
-        // Serials should be different (unless generated at exact same timestamp)
-        // This is probabilistic but should pass
+    /// The provisioning record's serial must be the serial the issued
+    /// certificate carries (sigil#289 B3: they used to be unrelated), both
+    /// when the session picks it and when the operator supplies one.
+    // rivet: verifies REQ-36
+    #[test]
+    fn test_provisioning_record_serial_matches_certificate() {
+        use x509_parser::prelude::*;
+
+        let ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test CA")).unwrap();
+        let provider = SoftwareProvider::new();
+
+        for explicit in [None, Some(vec![0x0a, 0x0b, 0x0c, 0x0d])] {
+            let mut config = CertificateConfig::new("device-serial");
+            config.serial_number = explicit.clone();
+            let result = ProvisioningSession::provision(
+                &ca,
+                &provider,
+                DeviceIdentity::new("device-serial"),
+                config,
+                false,
+            )
+            .unwrap();
+            let (_, cert) = X509Certificate::from_der(&result.certificate).unwrap();
+            assert_eq!(cert.raw_serial(), result.serial_number.as_slice());
+            if let Some(explicit) = explicit {
+                assert_eq!(result.serial_number, explicit);
+            }
+        }
     }
 
     #[test]

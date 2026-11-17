@@ -878,7 +878,7 @@ artifacts:
   - id: REQ-36
     type: requirement
     title: Honour CertificateConfig::serial_number; stop colliding serials on re-issuance
-    status: draft
+    status: implemented
     description: "CertificateConfig::serial_number is documented 'auto-generated if None' but is never read by any certificate-creation path, so rcgen derives the serial as SHA-256(subject SPKI)[0..20] — a pure function of the subject key. Because a device key is hardware-locked and write-once, every renewal/re-issue produces an IDENTICAL serial, so any CRL, audit log or transparency consumer that identifies a certificate by (issuer, serialNumber) cannot distinguish a revoked certificate from its replacement. Separately ProvisioningSession generates its OWN serial into ProvisioningResult.serial_number which also never reaches the certificate, so the provisioning audit record claims a serial the issued cert does not carry — arguably the sharper half. Interacts with REQ-34/#288: fixing that makes the collision live on the HSM path too, since today serials differ there only because the subject key is randomized. One fix: honour config.serial_number. sigil#289."
     tags: [provisioning, audit, revocation, tier-5]
     provenance:
