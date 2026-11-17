@@ -56,7 +56,7 @@ jobs:
 
     - name: Generate compliance report
       id: report
-      uses: pulseengine/rivet/.github/actions/compliance@29ca43828c8060af135fcd47ecff4c48662d1567 # v0.41.1
+      uses: pulseengine/rivet/.github/actions/compliance@a712e840b213825922066021e526968bec9a3e72 # v0.42.2
       with:
         theme: dark
         # The rivet BINARY the action downloads. Must equal the action tag
@@ -65,7 +65,7 @@ jobs:
         # which is what broke eight releases from 2026-09-08 (#284). Do not
         # drop this input: its default "source" builds rivet-cli from the
         # CALLER's workspace, and sigil has no rivet-cli crate.
-        rivet-version: v0.41.1
+        rivet-version: v0.42.2
         # Emit artifacts.yaml (generic-yaml) into the bundle so the website's
         # fetch-reports can auto-generate data/sigil/{stats,artifacts}.json.
         include-data-formats: true
