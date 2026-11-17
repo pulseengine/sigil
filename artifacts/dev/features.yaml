@@ -842,7 +842,7 @@ artifacts:
   - id: REQ-33
     type: requirement
     title: Do not retain stale signed_hashes_set entries on re-sign (rollback)
-    status: draft
+    status: implemented
     description: "sign_multi documents that a new signature 'is added to the existing ones', and build_header_section retains previous signed_hashes_set entries; ct_eq_hashes merges only when hash sets are EQUAL, so re-signing modified content appends a second entry while keeping the stale one. PublicKey::verify accepts a stream matching ANY entry, so a composite artifact (v2 header + v1 content) verifies though the publisher never produced it, and a consumer pinning the v2 detached signature accepts v1 content. NOT fixed by the v0.12.0 terminal-hash pinning: v1's hash is terminal within its own entry. Freshness/rollback failure rather than forgery (the key did sign that content once), so severity is below the v0.12.0 truncation wrong-accepts. Oracle kept as an #[ignore]d test with positive and negative controls. Remedy is sign-side: drop entries whose hashes disagree with the content being signed, or make retention opt-in and scoped (legitimate multi-signer co-signing has EQUAL hash sets, which ct_eq_hashes already merges). sigil#304."
     tags: [soundness, freshness, rollback, signing]
     provenance:
