@@ -417,6 +417,125 @@ impl SignableArtifact for ElfArtifact {
 mod tests {
     use super::*;
 
+    /// A well-formed ELF with three section headers (null, `.shstrtab`,
+    /// `.sigil`) in the given class and byte order, so the section walk and
+    /// the `.sigil` lookup run on every layout. The other fixtures have
+    /// `e_shnum = 0` and never reach that code.
+    fn elf_with_sigil_section(is_64bit: bool, le: bool, payload: &[u8]) -> Vec<u8> {
+        fn put(buf: &mut [u8], off: usize, v: u64, width: usize, le: bool) {
+            let bytes = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+            let field = if le {
+                &bytes[..width]
+            } else {
+                &bytes[8 - width..]
+            };
+            buf[off..off + width].copy_from_slice(field);
+        }
+        let (ehsize, shentsize) = if is_64bit { (64, 64) } else { (52, 40) };
+        let strtab: &[u8] = b"\0.shstrtab\0.sigil\0"; // names at 1 and 11
+        let strtab_off = ehsize;
+        let sigil_off = strtab_off + strtab.len();
+        let shoff = (sigil_off + payload.len()).next_multiple_of(8);
+        let mut elf = vec![0u8; shoff + 3 * shentsize];
+
+        elf[0..4].copy_from_slice(&ELF_MAGIC);
+        elf[4] = if is_64bit { 2 } else { 1 };
+        elf[5] = if le { 1 } else { 2 };
+        elf[6] = 1;
+        put(&mut elf, 16, 2, 2, le); // e_type: ET_EXEC
+        put(&mut elf, 20, 1, 4, le); // e_version
+        let (o_shoff, w_off, o_ehsize, o_shentsize, o_shnum, o_shstrndx) = if is_64bit {
+            (40, 8, 52, 58, 60, 62)
+        } else {
+            (32, 4, 40, 46, 48, 50)
+        };
+        put(&mut elf, o_shoff, shoff as u64, w_off, le);
+        put(&mut elf, o_ehsize, ehsize as u64, 2, le);
+        put(&mut elf, o_shentsize, shentsize as u64, 2, le);
+        put(&mut elf, o_shnum, 3, 2, le);
+        put(&mut elf, o_shstrndx, 1, 2, le);
+
+        elf[strtab_off..sigil_off].copy_from_slice(strtab);
+        elf[sigil_off..sigil_off + payload.len()].copy_from_slice(payload);
+
+        // Section headers 1 (.shstrtab, SHT_STRTAB) and 2 (.sigil, SHT_PROGBITS);
+        // header 0 stays all-zero (SHN_UNDEF).
+        let (o_offset, o_size) = if is_64bit { (24, 32) } else { (16, 20) };
+        for (i, name, sh_type, off, size) in [
+            (1, 1, 3, strtab_off, strtab.len()),
+            (2, 11, 1, sigil_off, payload.len()),
+        ] {
+            let sh = shoff + i * shentsize;
+            put(&mut elf, sh, name, 4, le);
+            put(&mut elf, sh + 4, sh_type, 4, le);
+            put(&mut elf, sh + o_offset, off as u64, w_off, le);
+            put(&mut elf, sh + o_size, size as u64, w_off, le);
+        }
+        elf
+    }
+
+    /// The `.sigil` section is found through the section-header walk on all
+    /// four layouts, exercising every bounds-checked read on the 32-bit and
+    /// big-endian paths as well as 64-bit little-endian.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_sigil_section_found_on_every_class_and_byte_order() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                let artifact = ElfArtifact::from_bytes(elf)
+                    .unwrap_or_else(|e| panic!("64bit={is_64bit} le={le}: {e:?}"));
+                assert_eq!(artifact.is_64bit, is_64bit);
+                assert_eq!(artifact.is_little_endian, le);
+                assert_eq!(
+                    artifact.signature.as_deref(),
+                    Some(&b"SIGDATA"[..]),
+                    "64bit={is_64bit} le={le}"
+                );
+            }
+        }
+    }
+
+    /// Every truncation of a well-formed sectioned ELF, on all four layouts,
+    /// is an error or a parse without the `.sigil` payload, never a panic.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_truncated_sectioned_elf_never_panics() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                for len in 0..elf.len() {
+                    if let Ok(a) = ElfArtifact::from_bytes(elf[..len].to_vec()) {
+                        assert_ne!(a.signature.as_deref(), Some(&b"SIGDATA"[..]));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Section headers placed so their reads would run past the end of the
+    /// file are rejected on all four layouts.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_section_header_table_past_end_is_rejected() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let mut elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                let len = elf.len();
+                let o_shoff = if is_64bit { 40 } else { 32 };
+                let w = if is_64bit { 8 } else { 4 };
+                let v = (len - 8) as u64;
+                let bytes = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+                let field = if le { &bytes[..w] } else { &bytes[8 - w..] };
+                elf[o_shoff..o_shoff + w].copy_from_slice(field);
+                assert!(
+                    ElfArtifact::from_bytes(elf).is_err(),
+                    "64bit={is_64bit} le={le}"
+                );
+            }
+        }
+    }
+
     /// Create a minimal valid 64-bit little-endian ELF binary for testing.
     fn minimal_elf64() -> Vec<u8> {
         let mut elf = vec![0u8; 120]; // Minimum size for ELF64 with minimal sections
