@@ -97,9 +97,9 @@ impl ElfArtifact {
 
         // Validate section header count (UCA-17)
         let shnum = if is_64bit {
-            Self::read_u16(&data, 60, is_little_endian) as usize
+            Self::read_u16(&data, 60, is_little_endian)? as usize
         } else {
-            Self::read_u16(&data, 48, is_little_endian) as usize
+            Self::read_u16(&data, 48, is_little_endian)? as usize
         };
         if shnum > MAX_ELF_SECTIONS {
             return Err(WSError::InternalError(format!(
@@ -128,33 +128,44 @@ impl ElfArtifact {
         Self::from_bytes(data)
     }
 
+    /// Bytes `offset..offset + N`, or a parse error when any of them lies
+    /// outside `data` (including when `offset + N` overflows). Every header
+    /// field is attacker-controlled, so no read may index unchecked.
+    fn field<const N: usize>(data: &[u8], offset: usize) -> Result<[u8; N], WSError> {
+        let end = offset.checked_add(N).ok_or(WSError::ParseError)?;
+        data.get(offset..end)
+            .and_then(|b| b.try_into().ok())
+            .ok_or(WSError::ParseError)
+    }
+
     /// Read a u16 from the byte array at the given offset.
-    fn read_u16(data: &[u8], offset: usize, little_endian: bool) -> u16 {
-        if little_endian {
-            u16::from_le_bytes([data[offset], data[offset + 1]])
+    fn read_u16(data: &[u8], offset: usize, little_endian: bool) -> Result<u16, WSError> {
+        let b = Self::field::<2>(data, offset)?;
+        Ok(if little_endian {
+            u16::from_le_bytes(b)
         } else {
-            u16::from_be_bytes([data[offset], data[offset + 1]])
-        }
+            u16::from_be_bytes(b)
+        })
     }
 
     /// Read a u32 from the byte array at the given offset.
-    fn read_u32(data: &[u8], offset: usize, little_endian: bool) -> u32 {
-        let bytes: [u8; 4] = data[offset..offset + 4].try_into().unwrap_or([0; 4]);
-        if little_endian {
-            u32::from_le_bytes(bytes)
+    fn read_u32(data: &[u8], offset: usize, little_endian: bool) -> Result<u32, WSError> {
+        let b = Self::field::<4>(data, offset)?;
+        Ok(if little_endian {
+            u32::from_le_bytes(b)
         } else {
-            u32::from_be_bytes(bytes)
-        }
+            u32::from_be_bytes(b)
+        })
     }
 
     /// Read a u64 from the byte array at the given offset.
-    fn read_u64(data: &[u8], offset: usize, little_endian: bool) -> u64 {
-        let bytes: [u8; 8] = data[offset..offset + 8].try_into().unwrap_or([0; 8]);
-        if little_endian {
-            u64::from_le_bytes(bytes)
+    fn read_u64(data: &[u8], offset: usize, little_endian: bool) -> Result<u64, WSError> {
+        let b = Self::field::<8>(data, offset)?;
+        Ok(if little_endian {
+            u64::from_le_bytes(b)
         } else {
-            u64::from_be_bytes(bytes)
-        }
+            u64::from_be_bytes(b)
+        })
     }
 
     /// Validate section headers for consistency (SC-12).
@@ -172,15 +183,27 @@ impl ElfArtifact {
 
         let (shoff, shentsize) = if is_64bit {
             (
-                Self::read_u64(data, 40, le) as usize,
-                Self::read_u16(data, 58, le) as usize,
+                Self::read_u64(data, 40, le)? as usize,
+                Self::read_u16(data, 58, le)? as usize,
             )
         } else {
             (
-                Self::read_u32(data, 32, le) as usize,
-                Self::read_u16(data, 46, le) as usize,
+                Self::read_u32(data, 32, le)? as usize,
+                Self::read_u16(data, 46, le)? as usize,
             )
         };
+
+        // e_shentsize is attacker-controlled. Every read below goes up to
+        // offset 40 (Elf64_Shdr) or 24 (Elf32_Shdr) inside an entry, so an
+        // entry smaller than the section-header struct would read past the
+        // bound checked here (fuzz crash c78dec99: e_shentsize = 0).
+        let min_shentsize = if is_64bit { 64 } else { 40 };
+        if shentsize < min_shentsize {
+            return Err(WSError::InternalError(format!(
+                "ELF e_shentsize {} is smaller than a section header ({} bytes)",
+                shentsize, min_shentsize,
+            )));
+        }
 
         // Validate section header table is within file bounds
         let sh_table_end = shoff
@@ -202,18 +225,18 @@ impl ElfArtifact {
 
             let (sh_offset, sh_size) = if is_64bit {
                 (
-                    Self::read_u64(data, sh_start + 24, le) as usize,
-                    Self::read_u64(data, sh_start + 32, le) as usize,
+                    Self::read_u64(data, sh_start + 24, le)? as usize,
+                    Self::read_u64(data, sh_start + 32, le)? as usize,
                 )
             } else {
                 (
-                    Self::read_u32(data, sh_start + 16, le) as usize,
-                    Self::read_u32(data, sh_start + 20, le) as usize,
+                    Self::read_u32(data, sh_start + 16, le)? as usize,
+                    Self::read_u32(data, sh_start + 20, le)? as usize,
                 )
             };
 
             // SHT_NOBITS (type 8) sections have no file content
-            let sh_type = Self::read_u32(data, sh_start + 4, le);
+            let sh_type = Self::read_u32(data, sh_start + 4, le)?;
             if sh_type == 8 || sh_size == 0 {
                 continue;
             }
@@ -255,9 +278,9 @@ impl ElfArtifact {
         le: bool,
     ) -> Result<Option<Vec<u8>>, WSError> {
         let shnum = if is_64bit {
-            Self::read_u16(data, 60, le) as usize
+            Self::read_u16(data, 60, le)? as usize
         } else {
-            Self::read_u16(data, 48, le) as usize
+            Self::read_u16(data, 48, le)? as usize
         };
 
         if shnum == 0 {
@@ -266,15 +289,15 @@ impl ElfArtifact {
 
         let (shoff, shentsize, shstrndx) = if is_64bit {
             (
-                Self::read_u64(data, 40, le) as usize,
-                Self::read_u16(data, 58, le) as usize,
-                Self::read_u16(data, 62, le) as usize,
+                Self::read_u64(data, 40, le)? as usize,
+                Self::read_u16(data, 58, le)? as usize,
+                Self::read_u16(data, 62, le)? as usize,
             )
         } else {
             (
-                Self::read_u32(data, 32, le) as usize,
-                Self::read_u16(data, 46, le) as usize,
-                Self::read_u16(data, 50, le) as usize,
+                Self::read_u32(data, 32, le)? as usize,
+                Self::read_u16(data, 46, le)? as usize,
+                Self::read_u16(data, 50, le)? as usize,
             )
         };
 
@@ -285,24 +308,25 @@ impl ElfArtifact {
         let strtab_sh = shoff + shstrndx * shentsize;
         let (strtab_offset, strtab_size) = if is_64bit {
             (
-                Self::read_u64(data, strtab_sh + 24, le) as usize,
-                Self::read_u64(data, strtab_sh + 32, le) as usize,
+                Self::read_u64(data, strtab_sh + 24, le)? as usize,
+                Self::read_u64(data, strtab_sh + 32, le)? as usize,
             )
         } else {
             (
-                Self::read_u32(data, strtab_sh + 16, le) as usize,
-                Self::read_u32(data, strtab_sh + 20, le) as usize,
+                Self::read_u32(data, strtab_sh + 16, le)? as usize,
+                Self::read_u32(data, strtab_sh + 20, le)? as usize,
             )
         };
 
-        if strtab_offset + strtab_size > data.len() {
-            return Ok(None);
+        match strtab_offset.checked_add(strtab_size) {
+            Some(end) if end <= data.len() => {}
+            _ => return Ok(None),
         }
 
         // Search for .sigil section by name
         for i in 0..shnum {
             let sh_start = shoff + i * shentsize;
-            let name_offset = Self::read_u32(data, sh_start, le) as usize;
+            let name_offset = Self::read_u32(data, sh_start, le)? as usize;
 
             if name_offset >= strtab_size {
                 continue;
@@ -320,17 +344,20 @@ impl ElfArtifact {
                 if name == SIGIL_SECTION_NAME {
                     let (offset, size) = if is_64bit {
                         (
-                            Self::read_u64(data, sh_start + 24, le) as usize,
-                            Self::read_u64(data, sh_start + 32, le) as usize,
+                            Self::read_u64(data, sh_start + 24, le)? as usize,
+                            Self::read_u64(data, sh_start + 32, le)? as usize,
                         )
                     } else {
                         (
-                            Self::read_u32(data, sh_start + 16, le) as usize,
-                            Self::read_u32(data, sh_start + 20, le) as usize,
+                            Self::read_u32(data, sh_start + 16, le)? as usize,
+                            Self::read_u32(data, sh_start + 20, le)? as usize,
                         )
                     };
-                    if offset + size <= data.len() {
-                        return Ok(Some(data[offset..offset + size].to_vec()));
+                    if let Some(section) = offset
+                        .checked_add(size)
+                        .and_then(|end| data.get(offset..end))
+                    {
+                        return Ok(Some(section.to_vec()));
                     }
                 }
             }
@@ -389,6 +416,125 @@ impl SignableArtifact for ElfArtifact {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A well-formed ELF with three section headers (null, `.shstrtab`,
+    /// `.sigil`) in the given class and byte order, so the section walk and
+    /// the `.sigil` lookup run on every layout. The other fixtures have
+    /// `e_shnum = 0` and never reach that code.
+    fn elf_with_sigil_section(is_64bit: bool, le: bool, payload: &[u8]) -> Vec<u8> {
+        fn put(buf: &mut [u8], off: usize, v: u64, width: usize, le: bool) {
+            let bytes = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+            let field = if le {
+                &bytes[..width]
+            } else {
+                &bytes[8 - width..]
+            };
+            buf[off..off + width].copy_from_slice(field);
+        }
+        let (ehsize, shentsize) = if is_64bit { (64, 64) } else { (52, 40) };
+        let strtab: &[u8] = b"\0.shstrtab\0.sigil\0"; // names at 1 and 11
+        let strtab_off = ehsize;
+        let sigil_off = strtab_off + strtab.len();
+        let shoff = (sigil_off + payload.len()).next_multiple_of(8);
+        let mut elf = vec![0u8; shoff + 3 * shentsize];
+
+        elf[0..4].copy_from_slice(&ELF_MAGIC);
+        elf[4] = if is_64bit { 2 } else { 1 };
+        elf[5] = if le { 1 } else { 2 };
+        elf[6] = 1;
+        put(&mut elf, 16, 2, 2, le); // e_type: ET_EXEC
+        put(&mut elf, 20, 1, 4, le); // e_version
+        let (o_shoff, w_off, o_ehsize, o_shentsize, o_shnum, o_shstrndx) = if is_64bit {
+            (40, 8, 52, 58, 60, 62)
+        } else {
+            (32, 4, 40, 46, 48, 50)
+        };
+        put(&mut elf, o_shoff, shoff as u64, w_off, le);
+        put(&mut elf, o_ehsize, ehsize as u64, 2, le);
+        put(&mut elf, o_shentsize, shentsize as u64, 2, le);
+        put(&mut elf, o_shnum, 3, 2, le);
+        put(&mut elf, o_shstrndx, 1, 2, le);
+
+        elf[strtab_off..sigil_off].copy_from_slice(strtab);
+        elf[sigil_off..sigil_off + payload.len()].copy_from_slice(payload);
+
+        // Section headers 1 (.shstrtab, SHT_STRTAB) and 2 (.sigil, SHT_PROGBITS);
+        // header 0 stays all-zero (SHN_UNDEF).
+        let (o_offset, o_size) = if is_64bit { (24, 32) } else { (16, 20) };
+        for (i, name, sh_type, off, size) in [
+            (1, 1, 3, strtab_off, strtab.len()),
+            (2, 11, 1, sigil_off, payload.len()),
+        ] {
+            let sh = shoff + i * shentsize;
+            put(&mut elf, sh, name, 4, le);
+            put(&mut elf, sh + 4, sh_type, 4, le);
+            put(&mut elf, sh + o_offset, off as u64, w_off, le);
+            put(&mut elf, sh + o_size, size as u64, w_off, le);
+        }
+        elf
+    }
+
+    /// The `.sigil` section is found through the section-header walk on all
+    /// four layouts, exercising every bounds-checked read on the 32-bit and
+    /// big-endian paths as well as 64-bit little-endian.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_sigil_section_found_on_every_class_and_byte_order() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                let artifact = ElfArtifact::from_bytes(elf)
+                    .unwrap_or_else(|e| panic!("64bit={is_64bit} le={le}: {e:?}"));
+                assert_eq!(artifact.is_64bit, is_64bit);
+                assert_eq!(artifact.is_little_endian, le);
+                assert_eq!(
+                    artifact.signature.as_deref(),
+                    Some(&b"SIGDATA"[..]),
+                    "64bit={is_64bit} le={le}"
+                );
+            }
+        }
+    }
+
+    /// Every truncation of a well-formed sectioned ELF, on all four layouts,
+    /// is an error or a parse without the `.sigil` payload, never a panic.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_truncated_sectioned_elf_never_panics() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                for len in 0..elf.len() {
+                    if let Ok(a) = ElfArtifact::from_bytes(elf[..len].to_vec()) {
+                        assert_ne!(a.signature.as_deref(), Some(&b"SIGDATA"[..]));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Section headers placed so their reads would run past the end of the
+    /// file are rejected on all four layouts.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_section_header_table_past_end_is_rejected() {
+        for is_64bit in [true, false] {
+            for le in [true, false] {
+                let mut elf = elf_with_sigil_section(is_64bit, le, b"SIGDATA");
+                let len = elf.len();
+                let o_shoff = if is_64bit { 40 } else { 32 };
+                let w = if is_64bit { 8 } else { 4 };
+                let v = (len - 8) as u64;
+                let bytes = if le { v.to_le_bytes() } else { v.to_be_bytes() };
+                let field = if le { &bytes[..w] } else { &bytes[8 - w..] };
+                elf[o_shoff..o_shoff + w].copy_from_slice(field);
+                assert!(
+                    ElfArtifact::from_bytes(elf).is_err(),
+                    "64bit={is_64bit} le={le}"
+                );
+            }
+        }
+    }
 
     /// Create a minimal valid 64-bit little-endian ELF binary for testing.
     fn minimal_elf64() -> Vec<u8> {
@@ -471,5 +617,53 @@ mod tests {
         let sig = vec![1, 2, 3, 4];
         artifact.attach_signature(&sig).unwrap();
         assert_eq!(artifact.detach_signature().unwrap(), Some(sig));
+    }
+
+    /// Fuzz crash c78dec99 (nightly fuzz, run 43843404858): ELF32 with
+    /// e_shnum = 1, e_shoff = 37 and e_shentsize = 0. The bounds check
+    /// covered `shoff + shnum * shentsize` (= 37) but the reads went to
+    /// shoff + 24, and `read_u32` sliced past the end of the 60-byte input.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_fuzz_crash_c78dec99_shentsize_zero_is_an_error_not_a_panic() {
+        let input: Vec<u8> = vec![
+            0x7f, 0x45, 0x4c, 0x46, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x08, 0x00, 0x00, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x94, 0x94,
+            0xff, 0xff, 0x00, 0x00,
+        ];
+        assert!(ElfArtifact::from_bytes(input).is_err());
+    }
+
+    /// Every e_shentsize below the section-header size is rejected, on both
+    /// classes, instead of reading past the declared entry.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_short_shentsize_is_rejected() {
+        let mut elf = minimal_elf64();
+        let shnum = u16::from_le_bytes([elf[60], elf[61]]);
+        if shnum == 0 {
+            // Give the fixture one section header so the entry size matters.
+            elf[60..62].copy_from_slice(&1u16.to_le_bytes());
+        }
+        for small in [0u16, 1, 8, 24, 63] {
+            let mut e = elf.clone();
+            e[58..60].copy_from_slice(&small.to_le_bytes());
+            assert!(
+                ElfArtifact::from_bytes(e).is_err(),
+                "shentsize {small} accepted"
+            );
+        }
+    }
+
+    /// Truncating a valid ELF at every length must never panic.
+    /// rivet: verifies SC-12
+    #[test]
+    fn test_every_truncation_is_an_error_or_ok_never_a_panic() {
+        let elf = minimal_elf64();
+        for len in 0..elf.len() {
+            let _ = ElfArtifact::from_bytes(elf[..len].to_vec());
+        }
     }
 }

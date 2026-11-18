@@ -85,6 +85,22 @@ impl McubootArtifact {
             data[8..10].try_into().map_err(|_| WSError::ParseError)?,
         ) as u32;
 
+        // The signed payload is data[..ih_hdr_size + ih_img_size]. A header
+        // size below the 32-byte image header leaves header fields, including
+        // ih_img_size itself, outside the signature; an empty image signs
+        // nothing (fuzz crash b3eb2b4f: both fields 0, payload of 0 bytes).
+        if (hdr_size as usize) < MCUBOOT_HEADER_SIZE {
+            return Err(WSError::InternalError(format!(
+                "MCUboot ih_hdr_size {} is smaller than the {}-byte image header",
+                hdr_size, MCUBOOT_HEADER_SIZE,
+            )));
+        }
+        if header_img_size == 0 {
+            return Err(WSError::InternalError(
+                "MCUboot ih_img_size is 0: no image content to sign".into(),
+            ));
+        }
+
         // The total image content = header + payload
         // ih_img_size is the payload size (after header)
         let declared_total = hdr_size as usize + header_img_size as usize;
@@ -285,5 +301,46 @@ mod tests {
         let artifact = McubootArtifact::from_bytes(img.clone()).unwrap();
         // Payload = header (32 bytes) + image (32 bytes) = 64 bytes
         assert_eq!(artifact.payload().len(), 64);
+    }
+
+    /// Fuzz crash b3eb2b4f (nightly fuzz, run 43843404858): valid magic,
+    /// ih_hdr_size = 0 and ih_img_size = 0. It parsed, and the signed
+    /// payload was empty: a signature over it would bind no content, not
+    /// even the header.
+    /// rivet: verifies SC-13
+    #[test]
+    fn test_fuzz_crash_b3eb2b4f_empty_payload_is_rejected() {
+        let input: Vec<u8> = vec![
+            0x3d, 0xb8, 0xf3, 0x96, 0x3d, 0xb8, 0xf3, 0x96, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x21, 0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x00, 0x21, 0x6a,
+            0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x6a, 0x96, 0x6a, 0x6a, 0x6a, 0xf3, 0xb8, 0x3d,
+            0x6a, 0x6a, 0x6a, 0x6a, 0x6a,
+        ];
+        assert!(McubootArtifact::from_bytes(input).is_err());
+    }
+
+    /// ih_hdr_size below the 32-byte header leaves header fields (including
+    /// ih_img_size itself) outside the signed payload.
+    /// rivet: verifies SC-13
+    #[test]
+    fn test_header_size_below_header_is_rejected() {
+        for hdr in [0u16, 1, 16, 31] {
+            let mut img = minimal_mcuboot();
+            img[8..10].copy_from_slice(&hdr.to_le_bytes());
+            assert!(
+                McubootArtifact::from_bytes(img).is_err(),
+                "ih_hdr_size {hdr} accepted"
+            );
+        }
+    }
+
+    /// An image with no content is not a firmware image.
+    /// rivet: verifies SC-13
+    #[test]
+    fn test_zero_image_size_is_rejected() {
+        let mut img = minimal_mcuboot();
+        img[12..16].copy_from_slice(&0u32.to_le_bytes());
+        img.truncate(32);
+        assert!(McubootArtifact::from_bytes(img).is_err());
     }
 }
