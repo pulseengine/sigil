@@ -682,6 +682,48 @@ mod tests {
         println!("✓ WASM signed and verified with certificates");
     }
 
+    /// The HSM provisioning path: the CA sees only the device PUBLIC key
+    /// (`sign_device_certificate`), the device signs with a key that never
+    /// leaves the provider, and a verifier holding only the CA root must
+    /// accept that signature. Before fa23b77 the certificate carried a
+    /// throwaway key's SPKI, so this verification failed for every genuine
+    /// hardware signature (sigil#288).
+    // rivet: verifies REQ-34
+    #[test]
+    fn test_hsm_path_device_signature_verifies_against_its_own_certificate() {
+        let root_ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+
+        let provider = SoftwareProvider::new();
+        let key_handle = provider.generate_key().unwrap();
+        let device_public_key = provider.get_public_key(key_handle).unwrap();
+
+        let device_id = DeviceIdentity::new("device-hsm");
+        let cert_config = CertificateConfig::new("device-hsm");
+        let device_cert = root_ca
+            .sign_device_certificate(&device_public_key, &device_id, &cert_config)
+            .unwrap();
+
+        let cert_chain = vec![device_cert, root_ca.certificate().to_vec()];
+        let wasm_bytes: Vec<u8> = vec![0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00];
+        let module = Module::deserialize(&mut wasm_bytes.as_slice()).unwrap();
+        let signed_module =
+            sign_with_certificate(&provider, key_handle, module, &cert_chain).unwrap();
+
+        let verifier = OfflineVerifierBuilder::new()
+            .with_root(root_ca.certificate())
+            .unwrap()
+            .build()
+            .unwrap();
+        let mut module_bytes = Vec::new();
+        signed_module.serialize(&mut module_bytes).unwrap();
+        let result = verify_with_certificate(&mut module_bytes.as_slice(), &verifier);
+        assert!(
+            result.is_ok(),
+            "a device signature must verify under the public key in the device's own certificate: {:?}",
+            result.err()
+        );
+    }
+
     #[test]
     fn test_multi_signature_owner_plus_integrator() {
         // Scenario: Component owner signs, then integrator adds their signature

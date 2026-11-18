@@ -854,7 +854,7 @@ artifacts:
   - id: REQ-34
     type: requirement
     title: Device certificates must bind the device's public key (HSM provisioning path)
-    status: draft
+    status: implemented
     description: "PrivateCA::create_device_cert (the public-key-only / HSM path via sign_device_certificate) fabricates a signer because rcgen needs one: it builds KeyPair { sk: temp_full_keypair.sk, pk: device_public_key } and passes it to ed25519_to_pem, which is keypair.sk.to_pem() and reads ONLY sk. rcgen re-derives the SPKI from that ephemeral seed, so the pk field is dead code and every certificate on this path carries a throwaway key's SPKI. Measured: device pk 8053c7a6... vs cert SPKI 7d70cad9... Fail-closed rather than forgery (verify_with_certificate checks against the cert's SPKI, so a genuine hardware signature can never validate), but hardware-backed provisioning is non-functional and the certificate attests a binding no party holds, contradicting ProvisioningSession::provision's documented guarantees. Survived because the EKU regression test issues via this same path and passes — webpki never checks subject-key possession. Correct fix: give rcgen the subject SPKI rather than a fabricated keypair; do NOT simply make it error, which would break ProvisioningSession::provision and the shipped examples/iot_provisioning.rs. Predates v0.11.0 (2025-11-14, 7ca8f5a). sigil#288."
     tags: [provisioning, hsm, soundness, tier-5]
     provenance:
@@ -878,7 +878,7 @@ artifacts:
   - id: REQ-36
     type: requirement
     title: Honour CertificateConfig::serial_number; stop colliding serials on re-issuance
-    status: draft
+    status: implemented
     description: "CertificateConfig::serial_number is documented 'auto-generated if None' but is never read by any certificate-creation path, so rcgen derives the serial as SHA-256(subject SPKI)[0..20] — a pure function of the subject key. Because a device key is hardware-locked and write-once, every renewal/re-issue produces an IDENTICAL serial, so any CRL, audit log or transparency consumer that identifies a certificate by (issuer, serialNumber) cannot distinguish a revoked certificate from its replacement. Separately ProvisioningSession generates its OWN serial into ProvisioningResult.serial_number which also never reaches the certificate, so the provisioning audit record claims a serial the issued cert does not carry — arguably the sharper half. Interacts with REQ-34/#288: fixing that makes the collision live on the HSM path too, since today serials differ there only because the subject key is randomized. One fix: honour config.serial_number. sigil#289."
     tags: [provisioning, audit, revocation, tier-5]
     provenance:
