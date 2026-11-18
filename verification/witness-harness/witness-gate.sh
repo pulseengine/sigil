@@ -30,7 +30,7 @@ WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
 # (the compiler still lays out our own branches differently per target). The
 # whole-wasm total is still printed, for information only.
 #
-# HOST CALIBRATION: baseline set on the CI host (ubuntu-latest / linux x86_64) —
+# HOST CALIBRATION: baseline set on the CI host (ubuntu-24.04 / linux x86_64; ubuntu-latest before 2026-11) —
 # the authoritative gate host. The scoped count was 5 (varint decision 3 +
 # header decision 2). #128 / REQ-25 added two kinds of scenario that close the
 # feasible gaps:

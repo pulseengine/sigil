@@ -27,8 +27,8 @@ jobs:
   # Generate compliance report from rivet artifacts
   build-compliance:
     name: Build compliance report
-    # Stays on ubuntu-latest: uses pulseengine/rivet/.github/actions/compliance composite action whose internals are not yet validated against smithy's hardened runner.
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: uses pulseengine/rivet/.github/actions/compliance composite action whose internals are not yet validated against smithy's hardened runner.
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -78,7 +78,7 @@ jobs:
   # Build native CLI binaries for all platforms
   build-native-cli:
     name: Build CLI (${{ matrix.target }})
-    # Stays on ubuntu-latest / macos / windows: matrix spans macOS + Windows (smithy is Linux-only) and Linux entries use sudo apt-get for cross-compilation toolchains and libtss2-dev.
+    # Stays on ubuntu-24.04 / macos / windows: matrix spans macOS + Windows (smithy is Linux-only) and Linux entries use sudo apt-get for cross-compilation toolchains and libtss2-dev.
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -86,18 +86,18 @@ jobs:
         include:
           # Linux x86_64
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-x86_64
           # Linux x86_64 with TPM2
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-x86_64-tpm2
             features: tpm2
           # Linux aarch64
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-aarch64
             cross: true
@@ -165,8 +165,8 @@ jobs:
 
   build-and-release:
     name: Build & Release WASM Component
-    # Stays on ubuntu-latest: uses sudo apt-get for build-essential, plus cachix/install-nix-action and bazel-contrib/setup-bazel; smithy has no sudo and no Nix or Bazel.
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: uses sudo apt-get for build-essential, plus cachix/install-nix-action and bazel-contrib/setup-bazel; smithy has no sudo and no Nix or Bazel.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       packages: write

@@ -27,8 +27,8 @@ jobs:
     # it current. Re-running with the same version is a no-op — publish() skips any
     # name@version already on crates.io (fail-safe), so this is safe to re-run.
     if: github.repository == 'pulseengine/sigil' && vars.CRATES_PUBLISH_ENABLED == 'true'
-    # Stays on ubuntu-latest: crates.io trusted publishing via OIDC; keep release publication on a vetted, well-known runner image until self-hosted publication path is independently audited.
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: crates.io trusted publishing via OIDC; keep release publication on a vetted, well-known runner image until self-hosted publication path is independently audited.
+    runs-on: ubuntu-24.04
     permissions:
       id-token: write  # Required for trusted publishing
       contents: read

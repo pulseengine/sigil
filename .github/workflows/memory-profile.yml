@@ -13,8 +13,8 @@ on:
 jobs:
   bytehound-profile:
     name: ByteHound Memory Profile
-    # Stays on ubuntu-latest: installs build deps via sudo apt-get (build-essential, gcc, jq); smithy's runner user has no sudo.
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: installs build deps via sudo apt-get (build-essential, gcc, jq); smithy's runner user has no sudo.
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
