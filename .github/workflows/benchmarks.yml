@@ -35,7 +35,7 @@ jobs:
   bench-sanity:
     name: Benchmark Sanity Run
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -58,7 +58,7 @@ jobs:
   perf-gate:
     name: Perf Gate (allocations vs base)
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 75
     env:
       # The bench profile inherits release (strip = true). Callgrind and DHAT
@@ -156,7 +156,7 @@ jobs:
   bench-full:
     name: Full Benchmark Suite
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

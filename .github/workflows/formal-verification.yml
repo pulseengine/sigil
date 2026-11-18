@@ -32,8 +32,8 @@ jobs:
   verus-proofs:
     # "(advisory)": both deciding steps run with continue-on-error (audit C-1).
     name: Verus SMT Verification (advisory)
-    # Stays on ubuntu-latest: uses bazel-contrib/setup-bazel; Bazel is not installed on smithy (tracked as out-of-scope in migration playbook).
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: uses bazel-contrib/setup-bazel; Bazel is not installed on smithy (tracked as out-of-scope in migration playbook).
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -61,8 +61,8 @@ jobs:
 
   kani-proofs:
     name: Kani ${{ matrix.module }}
-    # Stays on ubuntu-latest: kani-verifier bundles CBMC (~100 MB) which is not in smithy's toolchains role (tracked as out-of-scope in migration playbook).
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: kani-verifier bundles CBMC (~100 MB) which is not in smithy's toolchains role (tracked as out-of-scope in migration playbook).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -194,8 +194,8 @@ jobs:
   rocq-proofs:
     # "(advisory)": its only proof step runs with continue-on-error (audit C-3).
     name: Rocq/coq-of-rust Translation (advisory)
-    # Stays on ubuntu-latest: uses cachix/install-nix-action + bazel-contrib/setup-bazel + Rocq/Coq toolchain; none of Nix, Bazel, or Rocq are installed on smithy (all tracked as out-of-scope in migration playbook).
-    runs-on: ubuntu-latest
+    # Stays on ubuntu-24.04: uses cachix/install-nix-action + bazel-contrib/setup-bazel + Rocq/Coq toolchain; none of Nix, Bazel, or Rocq are installed on smithy (all tracked as out-of-scope in migration playbook).
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -228,7 +228,7 @@ jobs:
   # only on an actual coverage regression.
   witness-mcdc:
     name: Witness MC/DC gate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

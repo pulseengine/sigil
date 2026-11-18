@@ -9,8 +9,9 @@ a word. Each job's runs-on must be one of:
 
   - a GitHub-hosted image string: ubuntu-*, macos-*, windows-*;
   - exactly the fail-closed form
-      ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('[...]') || 'ubuntu-latest' }}
-    which picks self-hosted only for a non-PR event or a PR whose head
+      ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('[...]') || 'ubuntu-24.04' }}
+    (the fallback is a hosted Ubuntu image: ubuntu-latest or a pinned
+    ubuntu-NN.NN) which picks self-hosted only for a non-PR event or a PR whose head
     repository is this one (a fork, or a deleted fork with a null head.repo,
     falls to the hosted runner), in a workflow whose triggers are all in
     TRUSTED. The expression trusts every event that is not `pull_request`,
@@ -37,7 +38,7 @@ import yaml
 FORM = re.compile(
     r"^\$\{\{ \(github\.event_name != 'pull_request' \|\| "
     r"github\.event\.pull_request\.head\.repo\.full_name == github\.repository\) && "
-    r"fromJSON\('\[[^\]]*\"self-hosted\"[^\]]*\]'\) \|\| 'ubuntu-latest' \}\}$"
+    r"fromJSON\('\[[^\]]*\"self-hosted\"[^\]]*\]'\) \|\| 'ubuntu-(?:latest|[0-9]+\.[0-9]+)' \}\}$"
 )
 # Triggers only a maintainer or this repository's own branches can cause, plus
 # pull_request, which the expression itself sends to a hosted runner unless the
@@ -119,6 +120,8 @@ def run(root):
 
 GOOD = ("${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name"
         " == github.repository) && fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"light\"]') || 'ubuntu-latest' }}")
+PINNED = GOOD.replace("'ubuntu-latest'", "'ubuntu-24.04'")
+LABEL_FALLBACK = GOOD.replace("'ubuntu-latest'", "'light'")
 FAIL_OPEN = ("${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || "
              "fromJSON('[\"self-hosted\",\"linux\",\"x64\",\"light\"]') }}")
 
@@ -126,6 +129,10 @@ FAIL_OPEN = ("${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' ||
 def self_test():
     cases = [  # name, trigger block, extra job body (runs-on etc.), want exit
         ("fail-closed form on pull_request passes", "pull_request:", f"runs-on: {GOOD}", 0),
+        ("fail-closed form with a pinned hosted fallback passes", "pull_request:",
+         f"runs-on: {PINNED}", 0),
+        ("fail-closed form falling back to a label fails", "pull_request:",
+         f"runs-on: {LABEL_FALLBACK}", 1),
         ("hosted image passes", "pull_request:", "runs-on: ubuntu-24.04", 0),
         ("matrix of hosted images passes", "pull_request:",
          "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest, macos-latest]\n"
