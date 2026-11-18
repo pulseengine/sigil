@@ -32,8 +32,16 @@ The rules
    progress. Check-runs alone are not enough: a job behind `needs:` has no
    check-run until its prerequisites finish, so a board where every EXISTING
    check-run is complete can still be missing jobs. A workflow run stays
-   in progress until its last job ends. Hitting the deadline FAILS; a gate that
-   gives up and passes is worse than no gate.
+   in progress until its last job ends. Two clocks, and hitting either FAILS;
+   a gate that gives up and passes is worse than no gate:
+   - the stall clock (--deadline-secs, per check-run) starts when a check-run
+     is first seen `in_progress`. Time spent `queued` waiting for a runner
+     never counts: a PR must not fail because the runner pool is full
+     (owner decision 2026-11-18; the hosted queue had failed PRs at 3600 s
+     with 17 jobs still queued and none of them running long);
+   - the overall cap (--max-wait-secs, default 5 h) bounds the whole wait, so
+     a job that is never scheduled (or a workflow run that never ends) still
+     fails closed, with a message, before the job's own timeout cancels it.
 4. **Every error fails closed.** An API error, unparseable JSON, a missing
    token — all exit non-zero. This is the classifier error path the audit calls
    out as the usual place a gate fails open.
@@ -48,7 +56,7 @@ keeps that from meaning "nothing ran".
 
 Usage
 -----
-  required-checks.py --sha <head-sha> [--repo owner/name] [--deadline-secs N]
+  required-checks.py --sha <head-sha> [--repo owner/name] [--deadline-secs N] [--max-wait-secs N]
   required-checks.py --self-test        # decision table, no network
 
 Exit: 0 = mergeable · 1 = a check failed, is missing, or never finished · 2 = usage
@@ -127,6 +135,24 @@ def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT,
             )
 
     return ("fail", reasons) if reasons else ("pass", [])
+
+
+def stalled(clock, runs, now, deadline_secs, self_name=SELF):
+    """Per-job stall clock. Pure apart from updating `clock`.
+
+    `clock` maps a check-run name to when it was first seen `in_progress`; a
+    `queued` (or `waiting`, `pending`, `requested`) check-run starts no clock.
+    Returns the names in progress for longer than `deadline_secs`.
+    """
+    out = []
+    for r in runs:
+        name = r.get("name")
+        if name == self_name or r.get("status") != "in_progress":
+            continue
+        started = clock.setdefault(name, now)
+        if now - started >= deadline_secs:
+            out.append(name)
+    return sorted(out)
 
 
 def fetch(repo, sha):
@@ -236,8 +262,34 @@ SELF_TEST_CASES = [
 ]
 
 
+# (name, [(seconds since start, check-runs) per poll], deadline, expected stalled at the last poll)
+_Q = lambda n: {"name": n, "status": "queued", "conclusion": None}
+_R = lambda n: {"name": n, "status": "in_progress", "conclusion": None}
+CLOCK_CASES = [
+    ("queued for longer than the deadline is not a stall",
+     [(0, [_Q("Kani varint")]), (7200, [_Q("Kani varint")])], 3600, []),
+    ("the clock starts at first in_progress, not at the first poll",
+     [(0, [_Q("Kani varint")]), (5000, [_R("Kani varint")]), (8000, [_R("Kani varint")])], 3600, []),
+    ("in progress past the deadline is a stall",
+     [(0, [_Q("Kani varint")]), (100, [_R("Kani varint")]), (3700, [_R("Kani varint")])], 3600,
+     ["Kani varint"]),
+    ("a queued job does not hide a stalled one",
+     [(0, [_R("Kani dsse"), _Q("Kani format")]), (3600, [_R("Kani dsse"), _Q("Kani format")])], 3600,
+     ["Kani dsse"]),
+    ("this gate's own check-run never stalls itself",
+     [(0, [_R(SELF)]), (9999, [_R(SELF)])], 3600, []),
+]
+
+
 def self_test():
     bad = 0
+    for name, polls, deadline, expected in CLOCK_CASES:
+        clock, got = {}, []
+        for t, runs in polls:
+            got = stalled(clock, runs, t, deadline)
+        ok = got == expected
+        bad += not ok
+        print(f"{'ok  ' if ok else 'FAIL'}  {name}: expected stalled {expected}, got {got}")
     cases = [(n, r, (), None, e) for n, r, e in SELF_TEST_CASES] + WORKFLOW_CASES
     for name, runs, wruns, self_id, expected in cases:
         got, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_id)
@@ -245,7 +297,8 @@ def self_test():
         bad += not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {name}: expected {expected}, got {got}"
               + (f"  [{'; '.join(reasons)}]" if not ok and reasons else ""))
-    print(f"\n{len(cases) - bad}/{len(cases)} decision cases hold.")
+    total = len(cases) + len(CLOCK_CASES)
+    print(f"\n{total - bad}/{total} decision cases hold.")
     return 1 if bad else 0
 
 
@@ -253,7 +306,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sha")
     ap.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY"))
-    ap.add_argument("--deadline-secs", type=int, default=3600)
+    ap.add_argument("--deadline-secs", type=int, default=3600,
+                    help="stall clock per check-run, counted from first in_progress")
+    ap.add_argument("--max-wait-secs", type=int, default=5 * 3600,
+                    help="overall cap on the wait, queued time included")
     ap.add_argument("--poll-secs", type=int, default=30)
     ap.add_argument("--self-test", action="store_true")
     a = ap.parse_args()
@@ -267,7 +323,8 @@ def main():
 
     self_run_id = int(os.environ["GITHUB_RUN_ID"]) if os.environ.get("GITHUB_RUN_ID") else None
     event = os.environ.get("GITHUB_EVENT_NAME")
-    deadline = time.time() + a.deadline_secs
+    start = time.time()
+    clock = {}
     while True:
         try:
             runs = fetch(a.repo, a.sha)
@@ -289,10 +346,17 @@ def main():
             print(f"\n{len(reasons)} blocking condition(s).")
             return 1
 
-        if time.time() >= deadline:
-            print(f"::error::required-checks hit its {a.deadline_secs}s deadline with "
-                  f"checks still running — {reasons[0] if reasons else 'unknown'}. "
-                  f"Failing closed: a gate that gives up and passes is worse than none.")
+        now = time.time()
+        stuck = stalled(clock, runs, now, a.deadline_secs)
+        if stuck:
+            print(f"::error::required-checks: {len(stuck)} check-run(s) in progress for "
+                  f"over {a.deadline_secs}s: {', '.join(stuck[:6])}. Failing closed: a gate "
+                  f"that gives up and passes is worse than none.")
+            return 1
+        if now - start >= a.max_wait_secs:
+            print(f"::error::required-checks hit its {a.max_wait_secs}s overall cap with "
+                  f"checks still unfinished (queued time included) — "
+                  f"{reasons[0] if reasons else 'unknown'}. Failing closed.")
             return 1
         print(f"waiting: {reasons[0]}")
         time.sleep(a.poll_secs)
