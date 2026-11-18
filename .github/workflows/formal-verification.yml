@@ -8,24 +8,54 @@ on:
   push:
     branches: [main]
     paths:
-      - 'src/lib/src/**'
-      - 'src/lib/tests/**'
+      # Every input of every job below, so no proof is skipped by its own
+      # trigger: the Cargo closure of the Kani packages (-p wsc, wsc-dsse,
+      # wsc-verify-core; wsc depends on wsc-attestation), src/lib/** rather
+      # than src/lib/src/** so Cargo.toml and build.rs count, the Bazel
+      # targets of Verus (//src/lib/src/verus_proofs) and Rocq
+      # (//verification/rocq) with Bazel's root config, the toolchain pin,
+      # and this file. A src/dsse-only PR skipped the Kani dsse proofs and a
+      # verification/rocq-only PR skipped Rocq until 2026-11-18.
+      - 'src/lib/**'
       - 'src/verify-core/**'
+      - 'src/dsse/**'
+      - 'src/attestation/**'
       - 'verification/witness-harness/**'
+      - 'verification/rocq/**'
       - 'lean/**'
       - 'MODULE.bazel'
+      - 'BUILD.bazel'
+      - '.bazelrc'
+      - '.bazelversion'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/formal-verification.yml'
   pull_request:
     paths:
-      - 'src/lib/src/**'
-      - 'src/lib/tests/**'
+      # Every input of every job below, so no proof is skipped by its own
+      # trigger: the Cargo closure of the Kani packages (-p wsc, wsc-dsse,
+      # wsc-verify-core; wsc depends on wsc-attestation), src/lib/** rather
+      # than src/lib/src/** so Cargo.toml and build.rs count, the Bazel
+      # targets of Verus (//src/lib/src/verus_proofs) and Rocq
+      # (//verification/rocq) with Bazel's root config, the toolchain pin,
+      # and this file. A src/dsse-only PR skipped the Kani dsse proofs and a
+      # verification/rocq-only PR skipped Rocq until 2026-11-18.
+      - 'src/lib/**'
       - 'src/verify-core/**'
+      - 'src/dsse/**'
+      - 'src/attestation/**'
       - 'verification/witness-harness/**'
+      - 'verification/rocq/**'
       - 'lean/**'
       - 'MODULE.bazel'
+      - 'BUILD.bazel'
+      - '.bazelrc'
+      - '.bazelversion'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/formal-verification.yml'
   workflow_dispatch:
 
 jobs:

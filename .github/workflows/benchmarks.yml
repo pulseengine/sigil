@@ -14,12 +14,15 @@ concurrency:
 on:
   pull_request:
     paths:
-      - 'src/lib/src/**'
-      - 'src/lib/benches/**'
+      # The Cargo closure of -p wsc (benches live in src/lib/benches),
+      # manifests and build.rs included, and the toolchain pin.
+      - 'src/lib/**'
+      - 'src/verify-core/**'
+      - 'src/dsse/**'
+      - 'src/attestation/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - 'src/verify-core/src/**'
-      - 'src/dsse/src/**'
+      - 'rust-toolchain.toml'
       - 'scripts/perf-verdict.py'
       - 'verification/perf-gate/**'
       - '.github/workflows/benchmarks.yml'
