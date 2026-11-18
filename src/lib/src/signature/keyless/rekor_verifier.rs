@@ -264,10 +264,35 @@ impl CheckpointSignature {
     }
 }
 
+/// The day `trust_root/trusted_root.json` was vendored from the Sigstore TUF
+/// repository. Update it, and [`EMBEDDED_TRUST_ROOT_SHA256`], whenever the
+/// file is re-vendored; a test pins the file to that hash.
+pub const EMBEDDED_TRUST_ROOT_VENDORED: &str = "2026-11-18";
+
+/// SHA-256 of the embedded `trusted_root.json`. It equals the
+/// `trusted_root.json` target hash in Sigstore TUF `targets.json` version 14,
+/// fetched and TUF-verified with `cosign initialize` (cosign v3.1.2).
+pub const EMBEDDED_TRUST_ROOT_SHA256: &str =
+    "6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66";
+
+/// A log the trusted root lists whose key this verifier cannot use, kept so
+/// that a lookup for it can say so instead of "not found".
+#[derive(Debug, Clone)]
+struct UnsupportedLog {
+    log_id: String,
+    base_url: String,
+    key_type: String,
+}
+
 /// Pool of Rekor public keys for verification
 pub struct RekorKeyring {
     /// ECDSA P-256 verifying keys indexed by log ID
     keys: Vec<(String, VerifyingKey)>,
+    /// Logs present in the trusted root with a key type other than ECDSA
+    /// P-256 (Rekor v2 logs use Ed25519). Their entries cannot be verified.
+    unsupported: Vec<UnsupportedLog>,
+    /// Where the keys came from, named in lookup errors.
+    source: String,
 }
 
 impl RekorKeyring {
@@ -414,20 +439,53 @@ impl RekorKeyring {
             WSError::RekorError(format!("Failed to parse trusted_root.json: {}", e))
         })?;
 
-        Self::from_trusted_root(trusted_root)
+        Self::from_trusted_root(
+            trusted_root,
+            format!(
+                "embedded trusted_root.json, vendored {} from the Sigstore TUF repository",
+                EMBEDDED_TRUST_ROOT_VENDORED
+            ),
+        )
+    }
+
+    /// Load Rekor public keys from a Sigstore `trusted_root.json` the caller
+    /// supplies, e.g. a current one fetched through TUF, when the embedded
+    /// root (see [`EMBEDDED_TRUST_ROOT_VENDORED`]) predates a log the
+    /// entries were written to (sigil#259).
+    pub fn from_trusted_root_json(trusted_root_json: &str) -> Result<Self, WSError> {
+        let trusted_root: TrustedRoot = serde_json::from_str(trusted_root_json).map_err(|e| {
+            WSError::RekorError(format!("Failed to parse trusted_root.json: {}", e))
+        })?;
+        Self::from_trusted_root(
+            trusted_root,
+            "caller-supplied trusted_root.json".to_string(),
+        )
     }
 
     /// Create keyring from TrustedRoot structure
-    fn from_trusted_root(trusted_root: TrustedRoot) -> Result<Self, WSError> {
+    fn from_trusted_root(trusted_root: TrustedRoot, source: String) -> Result<Self, WSError> {
         let mut keys = Vec::new();
+        let mut unsupported = Vec::new();
 
         for tlog in trusted_root.tlogs {
-            // Verify this is an ECDSA P-256 key
+            // Only ECDSA P-256 (Rekor v1) keys can verify SETs and checkpoints
+            // here. Record any other log so a lookup can name it.
             if !tlog.public_key.key_details.contains("ECDSA_P256") {
+                let log_id = BASE64
+                    .decode(&tlog.log_id.key_id)
+                    .map(hex::encode)
+                    .unwrap_or_else(|_| tlog.log_id.key_id.clone());
                 log::warn!(
-                    "Skipping non-ECDSA-P256 key: {}",
+                    "Rekor log {} ({}) uses {}, which this verifier does not support",
+                    tlog.base_url,
+                    log_id,
                     tlog.public_key.key_details
                 );
+                unsupported.push(UnsupportedLog {
+                    log_id,
+                    base_url: tlog.base_url,
+                    key_type: tlog.public_key.key_details,
+                });
                 continue;
             }
 
@@ -466,7 +524,11 @@ impl RekorKeyring {
             ));
         }
 
-        Ok(Self { keys })
+        Ok(Self {
+            keys,
+            unsupported,
+            source,
+        })
     }
 
     /// Build a keyring from air-gapped `TransparencyLog` entries provisioned
@@ -478,8 +540,14 @@ impl RekorKeyring {
     /// to SPKI DER and parsed as an ECDSA P-256 verifying key, indexed by the
     /// log's `log_id` (the same id [`Self::verify_set`] matches against the
     /// entry's `log_id`).
+    ///
+    /// A log whose SPKI is not an EC key (Rekor v2 logs use Ed25519) is
+    /// recorded as unsupported rather than failing the whole keyring: a bundle
+    /// built from the current Sigstore trusted root lists one, and before this
+    /// the Rekor v1 key beside it became unusable too (sigil#259).
     pub fn from_pem_logs(logs: &[crate::airgapped::TransparencyLog]) -> Result<Self, WSError> {
         let mut keys = Vec::new();
+        let mut unsupported = Vec::new();
 
         for log in logs {
             // Strip PEM armor and base64-decode to SPKI DER.
@@ -491,6 +559,29 @@ impl RekorKeyring {
             let key_bytes = BASE64.decode(der.as_bytes()).map_err(|e| {
                 WSError::RekorError(format!("Failed to decode Rekor public key PEM: {}", e))
             })?;
+
+            if let Ok(spki) = spki::SubjectPublicKeyInfoRef::try_from(key_bytes.as_slice()) {
+                let oid = spki.algorithm.oid;
+                if oid != const_oid::db::rfc5753::ID_EC_PUBLIC_KEY {
+                    let key_type = if oid == const_oid::db::rfc8410::ID_ED_25519 {
+                        "Ed25519".to_string()
+                    } else {
+                        format!("SPKI algorithm {}", oid)
+                    };
+                    log::warn!(
+                        "Rekor log {} ({}) uses {}, which this verifier does not support",
+                        log.base_url,
+                        log.log_id,
+                        key_type
+                    );
+                    unsupported.push(UnsupportedLog {
+                        log_id: log.log_id.clone(),
+                        base_url: log.base_url.clone(),
+                        key_type,
+                    });
+                    continue;
+                }
+            }
 
             // Parse as a raw SEC1 point or as SPKI DER (mirrors the parse at
             // `from_trusted_root`).
@@ -515,7 +606,35 @@ impl RekorKeyring {
             ));
         }
 
-        Ok(Self { keys })
+        Ok(Self {
+            keys,
+            unsupported,
+            source: "air-gapped trust bundle".to_string(),
+        })
+    }
+
+    /// The verifying key for `log_id`, or an error that says why there is
+    /// none: the log is in the trusted root with an unsupported key type, or
+    /// it is absent from the trusted root (which then names its source, so a
+    /// stale embedded root reads as one rather than as a bad signature).
+    fn key_for(&self, log_id: &str) -> Result<&VerifyingKey, WSError> {
+        if let Some((_, key)) = self.keys.iter().find(|(key_id, _)| key_id == log_id) {
+            return Ok(key);
+        }
+        if let Some(log) = self.unsupported.iter().find(|log| log.log_id == log_id) {
+            return Err(WSError::RekorError(format!(
+                "Rekor log {} ({}) is in the trusted root ({}) but uses {}; this verifier \
+                 supports ECDSA P-256 (Rekor v1) logs only, so its entries cannot be verified \
+                 yet (sigil#259)",
+                log_id, log.base_url, self.source, log.key_type
+            )));
+        }
+        Err(WSError::RekorError(format!(
+            "No public key found for log ID: {}. The log is not in the trusted root ({}). \
+             If it is a newer Sigstore log, that root is stale: supply a current one with \
+             RekorKeyring::from_trusted_root_json or an air-gapped trust bundle",
+            log_id, self.source
+        )))
     }
 
     /// Verify a Signed Entry Timestamp (SET)
@@ -573,14 +692,7 @@ impl RekorKeyring {
         })?;
 
         // Find the matching public key for this log
-        let verifying_key = self
-            .keys
-            .iter()
-            .find(|(key_id, _)| key_id == &entry.log_id)
-            .map(|(_, key)| key)
-            .ok_or_else(|| {
-                WSError::RekorError(format!("No public key found for log ID: {}", entry.log_id))
-            })?;
+        let verifying_key = self.key_for(&entry.log_id)?;
 
         // Parse integrated_time from RFC3339 to Unix timestamp
         let integrated_time = chrono::DateTime::parse_from_rfc3339(&entry.integrated_time)
@@ -637,14 +749,7 @@ impl RekorKeyring {
     /// `Ok(())` if the checkpoint signature is valid, `Err(WSError)` otherwise
     pub fn verify_checkpoint(&self, checkpoint: &Checkpoint, log_id: &str) -> Result<(), WSError> {
         // Find the matching public key for this log
-        let verifying_key = self
-            .keys
-            .iter()
-            .find(|(key_id, _)| key_id == log_id)
-            .map(|(_, key)| key)
-            .ok_or_else(|| {
-                WSError::RekorError(format!("No public key found for log ID: {}", log_id))
-            })?;
+        let verifying_key = self.key_for(log_id)?;
 
         // SECURITY: Validate key fingerprint matches the public key
         // This ensures we're using the correct key and prevents key confusion attacks
@@ -986,7 +1091,11 @@ mod tests {
 
         let sk = p256::ecdsa::SigningKey::try_generate().expect("system RNG");
         let vk = *sk.verifying_key();
-        let keyring = RekorKeyring { keys: vec![(CP_LOG_ID.to_string(), vk)] };
+        let keyring = RekorKeyring {
+            keys: vec![(CP_LOG_ID.to_string(), vk)],
+            unsupported: vec![],
+            source: "test".to_string(),
+        };
 
         let note = CheckpointNote {
             origin: "rekor.test - 1193050959916656506".to_string(),
@@ -1043,6 +1152,99 @@ mod tests {
             keyring.verify_checkpoint(&cp, CP_LOG_ID).is_err(),
             "a checkpoint whose root hash changed after signing must be rejected"
         );
+    }
+
+    const REKOR_V1_LOG_ID: &str =
+        "c0d23d6ad406973f9559f3ba2d1ca01f84147d8ffc5b8445c224f98b9591801d";
+    const REKOR_V2_LOG2025_1_ID: &str =
+        "cf1199155bddd051268d1f16ac5c0c75c009f6fb5a63f4177f8e18d7051e3fa0";
+
+    /// The embedded root is byte-for-byte the TUF-verified file named in
+    /// EMBEDDED_TRUST_ROOT_SHA256; re-vendoring must update the constant.
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_embedded_trust_root_is_the_tuf_verified_file() {
+        let bytes = include_bytes!("trust_root/trusted_root.json");
+        assert_eq!(
+            hex::encode(Sha256::digest(bytes)),
+            EMBEDDED_TRUST_ROOT_SHA256
+        );
+    }
+
+    /// The refreshed root carries the Rekor v1 key and lists the Rekor v2
+    /// log (log2025-1, added 2025-09-23) as known but unsupported.
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_embedded_trust_root_has_v1_key_and_records_v2_log() {
+        let keyring = RekorKeyring::from_embedded_trust_root().unwrap();
+        assert!(keyring.keys.iter().any(|(id, _)| id == REKOR_V1_LOG_ID));
+        let v2 = keyring
+            .unsupported
+            .iter()
+            .find(|log| log.log_id == REKOR_V2_LOG2025_1_ID)
+            .expect("log2025-1 must be listed in the embedded trusted root");
+        assert_eq!(v2.base_url, "https://log2025-1.rekor.sigstore.dev");
+        assert!(v2.key_type.contains("ED25519"), "{}", v2.key_type);
+    }
+
+    /// A Rekor v2 entry fails with an error that names the cause: the log is
+    /// known, its key type is not supported. Not "no public key found".
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_rekor_v2_log_error_names_unsupported_key_type() {
+        let keyring = RekorKeyring::from_embedded_trust_root().unwrap();
+        let err = keyring
+            .key_for(REKOR_V2_LOG2025_1_ID)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("is in the trusted root"), "{err}");
+        assert!(err.contains("PKIX_ED25519"), "{err}");
+        assert!(!err.contains("No public key found"), "{err}");
+    }
+
+    /// A log absent from the embedded root fails with an error that names the
+    /// root and the day it was vendored, so staleness is visible.
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_unknown_log_error_names_the_trusted_root_and_its_date() {
+        let keyring = RekorKeyring::from_embedded_trust_root().unwrap();
+        let err = keyring.key_for("00ff").err().unwrap().to_string();
+        assert!(err.contains("not in the trusted root"), "{err}");
+        assert!(err.contains(EMBEDDED_TRUST_ROOT_VENDORED), "{err}");
+        assert!(err.contains("from_trusted_root_json"), "{err}");
+    }
+
+    /// An air-gapped bundle built from the current Sigstore trusted root (one
+    /// ECDSA log, one Ed25519 log) must still yield the v1 key. Before, the
+    /// Ed25519 PEM failed the whole keyring.
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_bundle_from_current_trusted_root_keeps_the_v1_key() {
+        let root =
+            crate::airgapped::parse_trusted_root(include_str!("trust_root/trusted_root.json"))
+                .unwrap();
+        let bundle = crate::airgapped::trusted_root_to_bundle(&root, 1, 30).unwrap();
+        let keyring = RekorKeyring::from_pem_logs(&bundle.transparency_logs).unwrap();
+        assert!(keyring.key_for(REKOR_V1_LOG_ID).is_ok());
+        let err = keyring
+            .key_for(REKOR_V2_LOG2025_1_ID)
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(err.contains("Ed25519"), "{err}");
+    }
+
+    /// A caller can supply a current trusted root without the bundle machinery.
+    // rivet: verifies REQ-29
+    #[test]
+    fn test_from_trusted_root_json_is_usable() {
+        let keyring =
+            RekorKeyring::from_trusted_root_json(include_str!("trust_root/trusted_root.json"))
+                .unwrap();
+        assert!(keyring.key_for(REKOR_V1_LOG_ID).is_ok());
+        let err = keyring.key_for("00ff").err().unwrap().to_string();
+        assert!(err.contains("caller-supplied"), "{err}");
     }
 
     #[test]
