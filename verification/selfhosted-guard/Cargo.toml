@@ -1,0 +1,19 @@
+[package]
+name = "selfhosted-guard"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "No fork PR reaches a self-hosted runner: allowlist check over .github/workflows (Rust port of check.py)"
+
+# Standalone: excluded from the sigil workspace (root Cargo.toml `exclude`),
+# like torture-runner. Builds native for its tests and as a WASI component
+# (wasm32-wasip2) for the CI gate.
+[workspace]
+
+[dependencies]
+regex = { version = "1.12", default-features = false, features = ["std", "unicode-perl"] }
+yaml-rust2 = { version = "0.13", default-features = false }
+
+[dev-dependencies]
+tempfile = "3"
