@@ -91,8 +91,12 @@ jobs:
 
   kani-proofs:
     name: Kani ${{ matrix.module }}
-    # Stays on ubuntu-24.04: kani-verifier bundles CBMC (~100 MB) which is not in smithy's toolchains role (tracked as out-of-scope in migration playbook).
-    runs-on: ubuntu-24.04
+    # rust-cpu (owner, 2026-11-18): a proof result does not depend on the
+    # hosted image, and the hosted queue (Free plan, 20 concurrent jobs) left
+    # this 5-way matrix queued past the Required aggregator's deadline.
+    # kani-verifier and its CBMC bundle install into the runner's own
+    # CARGO_HOME and ~/.kani, so later runs reuse them.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","rust-cpu"]') || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -180,10 +184,11 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    - name: Install Rust
-      run: |
-        rustup update stable
-        rustup default stable
+    # rust-toolchain.toml pins the toolchain for every cargo call in this
+    # checkout, so the former `rustup default stable` changed nothing here and,
+    # on a self-hosted runner, would rewrite the runner's default for later jobs.
+    - name: Show toolchain
+      run: rustup show
 
     - name: Install Kani
       run: |
