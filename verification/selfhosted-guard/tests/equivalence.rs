@@ -1,7 +1,7 @@
 //! Equivalence gate for the Rust port: run the old `check.py` and this binary
 //! on the same inputs and require identical stdout and exit code.
 //!
-//! Inputs: every case of the embedded decision table (19), extra shapes the
+//! Inputs: every case of the embedded decision table (21), extra shapes the
 //! table does not cover, the `--self-test` report itself, and the live
 //! `.github/workflows` tree of this repository. Fails closed: if python3 or
 //! PyYAML is missing the test fails, it does not skip.
@@ -67,7 +67,7 @@ fn assert_equivalent(label: &str, files: &[(&str, &str)]) {
 fn every_decision_table_case_is_equivalent() {
     require_python();
     let all = cases::cases();
-    assert_eq!(all.len(), 19, "check.py's self-test has 19 cases");
+    assert_eq!(all.len(), 21, "check.py's self-test has 21 cases");
     for case in &all {
         let text = case.workflow();
         assert_equivalent(case.name, &[("w.yml", &text)]);
