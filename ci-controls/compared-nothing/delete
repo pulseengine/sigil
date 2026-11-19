@@ -1,0 +1,2 @@
+# every workflow goes; the guard must not pass on nothing
+.github/workflows

@@ -254,22 +254,23 @@ fn matrix_values(spec: &yaml_rust2::yaml::Hash, key: &str) -> Result<Option<Vec<
         };
         vals.extend(list.iter().cloned());
     }
-    match get(m, "include") {
-        Some(inc) if truthy(inc) => match inc {
-            Yaml::Array(items) => {
-                for item in items {
-                    if let Yaml::Hash(ih) = item
-                        && let Some(v) = get(ih, key)
-                    {
-                        vals.push(v.clone());
-                    }
-                }
+    // include must be a list of mappings. Anything else (a mapping, or an
+    // expression string that computes it) cannot be read statically, so fail
+    // closed: found by plant's corpus run (s18) on 2026-11-18.
+    if let Some(inc) = get(m, "include").filter(|i| truthy(i)) {
+        let Yaml::Array(items) = inc else {
+            return Ok(None);
+        };
+        if !items.iter().all(|i| matches!(i, Yaml::Hash(_))) {
+            return Ok(None);
+        }
+        for item in items {
+            if let Yaml::Hash(ih) = item
+                && let Some(v) = get(ih, key)
+            {
+                vals.push(v.clone());
             }
-            // Iterating a dict yields keys, a str yields characters: never a dict.
-            Yaml::Hash(_) | Yaml::String(_) => {}
-            other => return crash(format!("'{}' object is not iterable", type_name(other))),
-        },
-        _ => {}
+        }
     }
     if vals.is_empty() || !vals.iter().all(|v| matches!(v, Yaml::String(_))) {
         return Ok(None);

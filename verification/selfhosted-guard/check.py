@@ -63,8 +63,14 @@ def matrix_values(spec, key):
         if not isinstance(m[key], list):
             return None
         vals += m[key]
-    for inc in m.get("include") or []:
-        if isinstance(inc, dict) and key in inc:
+    # include must be a list of mappings. Anything else (a mapping, or an
+    # expression string that computes it) cannot be read statically, so fail
+    # closed: found by plant's corpus run (s18) on 2026-11-18.
+    inc_all = m.get("include") or []
+    if not isinstance(inc_all, list) or not all(isinstance(i, dict) for i in inc_all):
+        return None
+    for inc in inc_all:
+        if key in inc:
             vals.append(inc[key])
     if not vals or not all(isinstance(v, str) for v in vals):
         return None
@@ -147,6 +153,12 @@ def self_test():
         ("matrix include with a label fails", "pull_request:",
          "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n"
          "        include:\n          - os: lean-mem", 1),
+        ("matrix include as a mapping fails", "pull_request:",
+         "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n"
+         "        include: {os: light}", 1),
+        ("matrix include from an expression fails", "pull_request:",
+         "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n"
+         "        include: ${{ fromJSON(needs.a.outputs.inc) }}", 1),
         ("matrix from an expression fails", "pull_request:",
          "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix: ${{ fromJSON(needs.a.outputs.m) }}", 1),
         ("runner from needs output fails", "pull_request:", "runs-on: ${{ needs.a.outputs.runner }}", 1),

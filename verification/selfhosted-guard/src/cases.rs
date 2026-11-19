@@ -120,6 +120,18 @@ pub fn cases() -> Vec<Case> {
             1,
         ),
         c(
+            "matrix include as a mapping fails",
+            "pull_request:",
+            "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n        include: {os: light}",
+            1,
+        ),
+        c(
+            "matrix include from an expression fails",
+            "pull_request:",
+            "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        os: [ubuntu-latest]\n        include: ${{ fromJSON(needs.a.outputs.inc) }}",
+            1,
+        ),
+        c(
             "matrix from an expression fails",
             "pull_request:",
             "runs-on: ${{ matrix.os }}\n    strategy:\n      matrix: ${{ fromJSON(needs.a.outputs.m) }}",

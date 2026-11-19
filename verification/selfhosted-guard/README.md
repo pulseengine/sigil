@@ -19,7 +19,7 @@ wasmtime run --dir . target/wasm32-wasip2/release/selfhosted-guard.wasm .
 
 `check.py` is the original Python checker. It no longer gates CI. It stays
 as the oracle of `tests/equivalence.rs`, which runs both on the same inputs
-and requires identical stdout and exit code: the 19-case decision table, 29
+and requires identical stdout and exit code: the 21-case decision table, 29
 extra inputs (27 single-file shapes, a multi-file tree, an empty tree),
 the `--self-test` report and the live workflow tree. External controls (pulseengine/plant `examples/sigil`) match the rejection text, so
 the text is part of the contract. The test needs `python3` with PyYAML and
