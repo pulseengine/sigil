@@ -12,12 +12,16 @@ on:
       - 'Cargo.toml'
       - 'supply-chain/**'
       - 'deny.toml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/supply-chain.yml'
   pull_request:
     paths:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'supply-chain/**'
       - 'deny.toml'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/supply-chain.yml'
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:

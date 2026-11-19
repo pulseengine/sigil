@@ -20,6 +20,9 @@ on:
       - 'Cargo.lock'
       - 'BUILD.bazel'
       - 'MODULE.bazel'
+      - '.bazelrc'
+      - '.bazelversion'
+      - 'wit/**'
       - '.github/workflows/rust.yml'
       # The `Vacuous-oracle gate` job below RUNS
       # verification/vacuous-oracle-check/check.py, so a change to the gate's
@@ -38,6 +41,9 @@ on:
       - 'Cargo.lock'
       - 'BUILD.bazel'
       - 'MODULE.bazel'
+      - '.bazelrc'
+      - '.bazelversion'
+      - 'wit/**'
       - '.github/workflows/rust.yml'
       # The `Vacuous-oracle gate` job below RUNS
       # verification/vacuous-oracle-check/check.py, so a change to the gate's
