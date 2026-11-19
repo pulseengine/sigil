@@ -5,6 +5,9 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 on:
+  # The merge queue: run on the merge-group commit too, so the queue tests
+  # the merged result. merge_group takes no paths filter: it always runs.
+  merge_group:
   push:
     branches: [main]
     paths:

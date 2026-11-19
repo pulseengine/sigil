@@ -20,6 +20,10 @@ name: Required
 # 18-case decision table (`--self-test`).
 
 on:
+  # The merge queue: GitHub creates a merge-group commit and requires this
+  # context on it, so the aggregator judges the merge_group runs too (its
+  # --sha falls back to github.sha, the merge-group head).
+  merge_group:
   pull_request:
   workflow_dispatch:
 
