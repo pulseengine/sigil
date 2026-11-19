@@ -701,12 +701,12 @@ mod tests {
     /// same key, and `PublicKey::verify` accepts a byte stream matching ANY
     /// of them. An attacker can therefore ship the OLD content with the NEW
     /// signature header / detached signature.
+    /// #304: re-signing changed content with the same key must not keep the
+    /// key's older signature. Before the fix the v2 header carried two
+    /// entries and v1 content verified under it (rollback).
+    ///
+    /// rivet: verifies REQ-33
     #[test]
-    #[ignore = "DEFERRED (#304): re-signing retains stale signed_hashes_set \
-                entries, so v1 content verifies under a v2 header. NOT fixed by \
-                terminal-hash pinning (v1's hash is terminal within its own \
-                entry); the remedy is sign-side. Oracle kept so the gap stays \
-                visible."]
     fn poc_verify_accepts_rolled_back_content_with_newer_signature() {
         let kp = KeyPair::generate();
 
@@ -737,7 +737,10 @@ mod tests {
             Section::Custom(cs) => cs.signature_data().unwrap().signed_hashes_set.len(),
             _ => panic!("no signature header"),
         };
-        assert_eq!(entries, 2, "fixture must accumulate two signed hash sets");
+        assert_eq!(
+            entries, 1,
+            "re-signing with the same key must supersede the older entry"
+        );
 
         // POSITIVE CONTROL: v2 verifies under its own header.
         let mut reader = Cursor::new(serialize_module(&signed_v2));
@@ -771,6 +774,67 @@ mod tests {
             result.is_err(),
             "WRONG-ACCEPT: PublicKey::verify returned Ok for rolled-back content \
              carrying the newer signature header"
+        );
+    }
+
+    /// #304 must not break layered signing: an author signs v1, a
+    /// distributor appends a section and signs v2 with a DIFFERENT key. The
+    /// author's entry stays, so v1 still verifies under the author's key,
+    /// and the distributor's key accepts only v2.
+    ///
+    /// rivet: verifies REQ-33
+    #[test]
+    fn resign_with_another_key_keeps_the_other_signers_entry() {
+        let author = KeyPair::generate();
+        let distributor = KeyPair::generate();
+        let v1 = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        };
+        let (signed_v1, _) = author.sk.sign_multi(v1, None, false, false).unwrap();
+        let mut v2_sections = signed_v1.sections.clone();
+        v2_sections.push(Section::Custom(CustomSection::new(
+            "meta".to_string(),
+            vec![0xaa, 0xbb],
+        )));
+        let v2 = Module {
+            header: signed_v1.header,
+            sections: v2_sections,
+        };
+        let (signed_v2, _) = distributor.sk.sign_multi(v2, None, false, false).unwrap();
+        let entries = match &signed_v2.sections[0] {
+            Section::Custom(cs) => cs.signature_data().unwrap().signed_hashes_set.len(),
+            _ => panic!("no signature header"),
+        };
+        assert_eq!(
+            entries, 2,
+            "the author's entry must survive another key's re-sign"
+        );
+
+        let v2_bytes = serialize_module(&signed_v2);
+        assert!(distributor
+            .pk
+            .verify(&mut Cursor::new(&v2_bytes), None)
+            .is_ok());
+
+        let rolled_back = Module {
+            header: signed_v2.header,
+            sections: signed_v2.sections[..3].to_vec(),
+        };
+        let v1_bytes = serialize_module(&rolled_back);
+        assert!(
+            author.pk.verify(&mut Cursor::new(&v1_bytes), None).is_ok(),
+            "the author signed v1; it must still verify under the author's key"
+        );
+        assert!(
+            distributor
+                .pk
+                .verify(&mut Cursor::new(&v1_bytes), None)
+                .is_err(),
+            "the distributor never signed v1"
         );
     }
 

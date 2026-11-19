@@ -108,13 +108,9 @@ impl SecretKey {
         }
     }
 
-    fn build_header_section(
-        previous_signature_data: Option<SignatureData>,
-        sk: &SecretKey,
-        key_id: Option<&Vec<u8>>,
-        hashes: Vec<Vec<u8>>,
-    ) -> Result<Section, CoreError> {
-        // SECURITY: Zeroize message buffer on drop to prevent key material leakage
+    /// The exact message a signature over `hashes` covers (see
+    /// `build_header_section`).
+    fn signed_message(hashes: &[Vec<u8>]) -> Zeroizing<Vec<u8>> {
         let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
         msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
         msg.extend_from_slice(&[
@@ -122,9 +118,20 @@ impl SecretKey {
             SIGNATURE_WASM_MODULE_CONTENT_TYPE,
             SIGNATURE_HASH_FUNCTION,
         ]);
-        for hash in &hashes {
+        for hash in hashes {
             msg.extend_from_slice(hash);
         }
+        msg
+    }
+
+    fn build_header_section(
+        previous_signature_data: Option<SignatureData>,
+        sk: &SecretKey,
+        key_id: Option<&Vec<u8>>,
+        hashes: Vec<Vec<u8>>,
+    ) -> Result<Section, CoreError> {
+        // SECURITY: Zeroize message buffer on drop to prevent key material leakage
+        let msg = Self::signed_message(&hashes);
 
         debug!("* Adding signature:\n");
 
@@ -159,6 +166,34 @@ impl SecretKey {
             }
             _ => return Err(CoreError::IncompatibleSignatureVersion),
         };
+
+        // #304: a signer's new signature supersedes its own earlier ones.
+        // Without this, re-signing changed content appended a second entry
+        // and kept the stale one, and `PublicKey::verify` accepts a stream
+        // matching ANY entry: the old content then verified under the new
+        // header (a rollback to a release the publisher had replaced).
+        // Signatures by OTHER keys are kept, so co-signing and layered
+        // signing (an author's entry over a prefix, a distributor's over the
+        // extended module) still work. Ownership is decided by verifying
+        // each old signature against this key over that entry's own hashes,
+        // not by key_id, which is optional and unauthenticated.
+        let own_pk = sk.sk.public_key();
+        for entry in &mut signed_hashes_set {
+            if ct_eq_hashes(&entry.hashes, &hashes) {
+                continue; // same content: handled below (merge or DuplicateSignature)
+            }
+            let entry_msg = Self::signed_message(&entry.hashes);
+            entry.signatures.retain(|sig| {
+                let mine = ed25519_compact::Signature::from_slice(&sig.signature)
+                    .map(|s| own_pk.verify(&entry_msg[..], &s).is_ok())
+                    .unwrap_or(false);
+                if mine {
+                    debug!("Dropping this key's earlier signature over different content (#304).");
+                }
+                !mine
+            });
+        }
+        signed_hashes_set.retain(|entry| !entry.signatures.is_empty());
 
         let mut new_hashes = true;
         for previous_signed_hashes_set in &mut signed_hashes_set {
