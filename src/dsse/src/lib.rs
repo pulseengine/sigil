@@ -847,3 +847,5 @@ mod proofs {
         );
     }
 }
+
+// control: paths-filter selection test (pulseengine/sigil#389), never merged
