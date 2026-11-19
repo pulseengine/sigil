@@ -5,6 +5,9 @@ name: Claim Check
 # fails the build. See claims.yaml + the `claim-verification` skill.
 
 on:
+  # The merge queue requires "Documentation claims hold" on the merge-group
+  # commit, and the Required aggregator requires it to be present there.
+  merge_group:
   push:
     branches: [main]
   pull_request:
