@@ -282,6 +282,14 @@ risk-acceptance note.
    always runs and judges what the filtered workflows concluded. Never require a
    paths-filtered context directly: it will not report on an unrelated PR, and a
    *skipped* required context satisfies GitHub's merge button.
+9. **main merges through the merge queue** (since 2026-11-19, ruleset
+   "main: merge queue"; squash, all-green). Queue a PR with
+   `gh pr merge <PR#> --auto` once its checks are green; GitHub builds the
+   merge-group commit, re-runs every gate on it (each workflow above triggers on
+   `merge_group`) and merges only if "Documentation claims hold" and
+   "Required checks" pass there. Branches no longer need to be up to date with
+   main (strict is off), so do not rebase just to catch up, and never use
+   `gh pr update-branch`.
 
 #### Release Process
 
@@ -302,21 +310,20 @@ risk-acceptance note.
 
 3. **Verify signing workflow**: Ensure the Sign WASM Module workflow succeeds and produces valid artifacts
 
-4. **Merge PR**: Only after all checks pass
+4. **Merge PR**: Only after all checks pass, through the merge queue
    ```bash
-   gh pr merge <PR#> --squash
+   gh pr merge <PR#> --auto
    ```
 
-   **Never `--squash` a PR whose branch contains another open PR's commits.**
-   The squash collapses them into one commit under the upper PR's message, the
-   lower PR's work is attributed to it, and the lower PR looks unmerged forever.
-   This has happened twice here: REQ-27's 1,721 insertions landed under
-   *"fix(cli): `wsc --version` reports `wsc`, not `wsc-cli` (#273)"*, and #301's
-   entire security fix landed inside #305's squash. Either merge the base PR
-   first and rebase the upper one onto main, or land the stack with
-   `gh pr merge --merge` — a merge commit keeps every commit's own message, and
-   as a bonus leaves the base commit a real ancestor of main so the sibling
-   branch needs no replay at all.
+   The queue squashes every PR, so **never queue a PR whose branch contains
+   another open PR's commits.** The squash collapses them into one commit under
+   the upper PR's message, the lower PR's work is attributed to it, and the
+   lower PR looks unmerged forever. This has happened twice here: REQ-27's
+   1,721 insertions landed under *"fix(cli): `wsc --version` reports `wsc`, not
+   `wsc-cli` (#273)"*, and #301's entire security fix landed inside #305's
+   squash. Merge the base PR first, then rebase the upper one onto main and
+   queue it. (`gh pr merge --merge` for a stack no longer applies: the queue
+   only squashes.)
 
 5. **Create release**: Only after merge and main CI passes
    ```bash
