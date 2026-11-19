@@ -1,0 +1,9 @@
+# planted by plant: a job the fork guard must reject
+name: planted
+on:
+  pull_request:
+jobs:
+  planted:
+    runs-on:
+      group: hetzner-private
+    steps: []

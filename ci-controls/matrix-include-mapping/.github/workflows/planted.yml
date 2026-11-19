@@ -1,0 +1,12 @@
+# planted by plant: a job the fork guard must reject
+name: planted
+on:
+  pull_request:
+jobs:
+  planted:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        include: {os: light}
+    steps: []

@@ -58,3 +58,34 @@ jobs:
           wasmtime run --dir . "$guard" . | tee guard.out
           python3 verification/selfhosted-guard/check.py . > check.out
           diff -u check.out guard.out
+      # plant (owner decision 20261118T070142-7ed73c): each control in
+      # ci-controls.toml plants one bad workflow and requires the guard above
+      # to reject that job by name; compared-nothing deletes the workflows.
+      # plant is the released v0.2.0 binary, verified twice: cosign over
+      # SHA256SUMS.txt with the exact release-workflow identity, and the
+      # tarball's hash pinned here.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        with:
+          cosign-release: 'v3.1.2'
+      - name: Install plant v0.2.0 (verified)
+        env:
+          PLANT_BASE: https://github.com/pulseengine/plant/releases/download/v0.2.0
+          PLANT_TGZ: plant-v0.2.0-x86_64-unknown-linux-musl.tar.gz
+          PLANT_SHA256: cd081585591bcf99d3dfac636332ce7339d2fd294e04bcc0b83004e18cb72bec
+        run: |
+          dir="$RUNNER_TEMP/plant"
+          mkdir -p "$dir" && cd "$dir"
+          for f in SHA256SUMS.txt SHA256SUMS.txt.cosign.bundle "$PLANT_TGZ"; do
+            curl -fsSL --retry 3 -o "$f" "$PLANT_BASE/$f"
+          done
+          cosign verify-blob --bundle SHA256SUMS.txt.cosign.bundle \
+            --certificate-identity 'https://github.com/pulseengine/plant/.github/workflows/release.yml@refs/tags/v0.2.0' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS.txt
+          grep " ./$PLANT_TGZ\$" SHA256SUMS.txt | sha256sum -c -
+          echo "$PLANT_SHA256  $PLANT_TGZ" | sha256sum -c -
+          tar -xzf "$PLANT_TGZ"
+          echo "$dir" >> "$GITHUB_PATH"
+      - name: "plant: the fork guard can fail"
+        run: plant ci-controls.toml

@@ -1,0 +1,9 @@
+# planted by plant: a job the fork guard must reject
+name: planted
+on:
+  workflow_run:
+    workflows: [CI]
+jobs:
+  planted:
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-latest' }}
+    steps: []
