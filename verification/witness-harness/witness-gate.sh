@@ -136,7 +136,6 @@ else
   case "$(uname -s)-$(uname -m)" in
     Linux-x86_64)   ASSET="witness-${WITNESS_VERSION}-x86_64-unknown-linux-gnu.tar.gz" ;;
     Darwin-arm64)   ASSET="witness-${WITNESS_VERSION}-aarch64-apple-darwin.tar.gz" ;;
-    Darwin-x86_64)  ASSET="witness-${WITNESS_VERSION}-x86_64-apple-darwin.tar.gz" ;;
     *) echo "::error:: unsupported host $(uname -s)-$(uname -m) for witness download"; exit 2 ;;
   esac
   TMP="$(mktemp -d)"

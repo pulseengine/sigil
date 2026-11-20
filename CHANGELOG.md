@@ -37,6 +37,15 @@ and inclusion-proof work on main ships separately in 0.13.0.
   the attestation, audit-trail and signature sections, for which 0.12.2's
   `verify-chain` exits 0.
 
+### Removed
+
+- **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
+  Mac users: build from source (`cargo install --locked --git
+  https://github.com/pulseengine/sigil --tag <tag> wsc-cli`).** The release
+  matrix no longer builds `wsc-macos-x86_64`. The witness gate script reports
+  an unsupported host on an Intel Mac. *Falsification:* the v0.12.2 release
+  carries a `wsc-macos-x86_64` asset or a `SHA256SUMS.txt` entry for one.
+
 ## [0.12.1] — 2026-11-13
 
 Security and correctness fixes on top of 0.12.0; no API changes. Upgrade if you

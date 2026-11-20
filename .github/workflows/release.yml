@@ -101,11 +101,9 @@ jobs:
             artifact_name: wsc
             asset_name: wsc-linux-aarch64
             cross: true
-          # macOS x86_64 (Intel) - using macos-15-intel (macos-13 deprecated Dec 2025)
-          - target: x86_64-apple-darwin
-            os: macos-15-intel
-            artifact_name: wsc
-            asset_name: wsc-macos-x86_64
+          # No macOS x86_64 (Intel) build: owner decision 2026-11-20 stopped
+          # Intel macOS builds fleet-wide. Intel Macs build from source
+          # (Rosetta 2 runs x86_64 on Apple Silicon, not the reverse).
           # macOS aarch64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
