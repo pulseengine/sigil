@@ -89,28 +89,33 @@ jobs:
             os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-x86_64
+            archive_prefix: wsc
           # Linux x86_64 with TPM2
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-x86_64-tpm2
+            archive_prefix: wsc-tpm2
             features: tpm2
           # Linux aarch64
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-24.04
             artifact_name: wsc
             asset_name: wsc-linux-aarch64
+            archive_prefix: wsc
             cross: true
           # macOS x86_64 (Intel) - using macos-15-intel (macos-13 deprecated Dec 2025)
           - target: x86_64-apple-darwin
             os: macos-15-intel
             artifact_name: wsc
             asset_name: wsc-macos-x86_64
+            archive_prefix: wsc
           # macOS aarch64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact_name: wsc
             asset_name: wsc-macos-aarch64
+            archive_prefix: wsc
           # Windows x86_64
           - target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -148,6 +153,45 @@ jobs:
       run: |
         mkdir -p artifacts
         cp target/${{ matrix.target }}/release/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
+
+    # Versioned archive, wsc-v<ver>-<target-triple>.tar.gz (tpm2:
+    # wsc-tpm2-v<ver>-<triple>.tar.gz), holding exactly one file named `wsc`.
+    # varve's layer ingests it as `wsc-%R-%T.tar.gz` (pulseengine-layers #68):
+    # the name must carry the tag string exactly. The versionless asset above is
+    # still published for one release so existing consumers keep working.
+    # Only release tags get an archive; a main push has no version to name.
+    - name: Package versioned archive
+      if: matrix.archive_prefix
+      shell: bash
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
+        COPYFILE_DISABLE: "1"
+      run: |
+        set -euo pipefail
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${INPUT_TAG}"
+        elif [ "${{ github.event_name }}" = "release" ]; then
+          VERSION="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          VERSION="${{ github.ref_name }}"
+        else
+          echo "::notice::not a release tag (${{ github.ref_name }}); no versioned archive"
+          exit 0
+        fi
+        if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          echo "::error::tag '$VERSION' is not v<semver>; the archive name would not match varve's %R"
+          exit 1
+        fi
+        NAME="${{ matrix.archive_prefix }}-${VERSION}-${{ matrix.target }}.tar.gz"
+        stage="$(mktemp -d)"
+        cp "target/${{ matrix.target }}/release/${{ matrix.artifact_name }}" "$stage/wsc"
+        tar -C "$stage" -czf "artifacts/$NAME" wsc
+        listing="$(tar -tzf "artifacts/$NAME")"
+        if [ "$listing" != "wsc" ]; then
+          echo "::error::$NAME must hold exactly one file named wsc; it holds: $listing"
+          exit 1
+        fi
+        echo "::notice::packaged $NAME"
 
     # Per-file .sha256 sidecars are intentionally NOT generated here.
     # The release-publish job (build-and-release) emits a single signed
@@ -597,6 +641,8 @@ jobs:
     # below — SBOM, sums, provenance, cosign bundle, build-env — lands
     # in release-assets/ and is uploaded as a unit.
     - name: Gather release assets
+      env:
+        INPUT_TAG: ${{ inputs.tag }}
       run: |
         set -euo pipefail
         mkdir -p release-assets
@@ -622,6 +668,30 @@ jobs:
         # build-and-release needs build-compliance (#352): the report is required.
         if [ -z "$(ls -A compliance 2>/dev/null)" ]; then echo "::error::compliance report missing or empty (#352)"; exit 1; fi
         cp -r compliance/. release-assets/
+
+        # On a release tag, the versioned archives are required: four platform
+        # archives for varve's layer plus the tpm2 one, each holding exactly one
+        # `wsc` (pulseengine-layers #68). A main push has none.
+        if [ "${{ github.event_name }}" = "release" ]; then
+          TAG="${{ github.event.release.tag_name }}"
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG="${{ github.ref_name }}"
+        elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          TAG="${INPUT_TAG}"
+        else
+          TAG=""
+        fi
+        if [ -n "$TAG" ]; then
+          for a in \
+            "wsc-${TAG}-x86_64-unknown-linux-gnu.tar.gz" \
+            "wsc-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \
+            "wsc-${TAG}-x86_64-apple-darwin.tar.gz" \
+            "wsc-${TAG}-aarch64-apple-darwin.tar.gz" \
+            "wsc-tpm2-${TAG}-x86_64-unknown-linux-gnu.tar.gz"; do
+            test -f "release-assets/$a" || { echo "::error::versioned archive $a missing"; exit 1; }
+            [ "$(tar -tzf "release-assets/$a")" = "wsc" ] || { echo "::error::$a must hold exactly one file named wsc"; exit 1; }
+          done
+        fi
 
         echo "Gathered release assets:"
         ls -la release-assets/
