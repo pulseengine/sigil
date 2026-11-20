@@ -1669,6 +1669,86 @@ pub fn remove_transformation_attestations(mut module: Module) -> Module {
     module
 }
 
+/// Check that a transformation attestation describes the bytes it is embedded in.
+///
+/// `wsc attest` records `output.hash` as the SHA-256 of the output file before
+/// the attestation section was appended. A chain check that does not recompute
+/// it accepts any module carrying a structurally valid attestation, however
+/// the code was changed afterwards (issue #395). This recomputes it.
+///
+/// The attested bytes are the module minus the metadata that is added after
+/// attestation: the transformation attestation / audit-trail sections, and
+/// wsc's own `signature` section (a module may be signed after it is
+/// attested). Every other section, code and data included, is hashed, so a
+/// change to any of them fails. Candidates, all deterministic:
+/// 1. the module without the attestation section instance that was verified;
+/// 2. the module without every attestation and audit-trail section;
+///
+/// each also with `signature` sections removed. A match on any candidate
+/// passes; otherwise the error names the expected and the recomputed hash.
+pub fn verify_attestation_binds_module(
+    module: &Module,
+    attestation: &TransformationAttestation,
+) -> Result<(), WSError> {
+    use sha2::{Digest, Sha256};
+
+    let expected = attestation.output.hash.to_ascii_lowercase();
+    if expected.len() != 64 || !expected.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(WSError::InternalError(format!(
+            "attestation output.hash is not a hex SHA-256: {:?}",
+            attestation.output.hash
+        )));
+    }
+
+    let is_attestation = |s: &Section| matches!(s, Section::Custom(c) if c.name() == TRANSFORMATION_ATTESTATION_SECTION);
+    let is_metadata = |s: &Section| {
+        matches!(s, Section::Custom(c) if c.name() == TRANSFORMATION_ATTESTATION_SECTION
+            || c.name() == TRANSFORMATION_AUDIT_TRAIL_SECTION)
+    };
+    let is_signature = |s: &Section| s.is_signature_header();
+
+    // The attestation that `extract_transformation_attestation` returns is the
+    // first attestation section; candidate 1 removes exactly that instance.
+    let first_attestation = module.sections.iter().position(is_attestation);
+    let without_first: Vec<Section> = module
+        .sections
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != first_attestation)
+        .map(|(_, s)| s.clone())
+        .collect();
+    let without_all: Vec<Section> = module
+        .sections
+        .iter()
+        .filter(|s| !is_metadata(s))
+        .cloned()
+        .collect();
+
+    let mut recomputed = Vec::new();
+    for base in [without_first, without_all] {
+        let unsigned: Vec<Section> = base.iter().filter(|s| !is_signature(s)).cloned().collect();
+        for sections in [base, unsigned] {
+            let candidate = Module {
+                header: module.header,
+                sections,
+            };
+            let mut bytes = Vec::new();
+            candidate.serialize(&mut bytes)?;
+            let hash = hex::encode(Sha256::digest(&bytes));
+            if hash == expected {
+                return Ok(());
+            }
+            recomputed.push(hash);
+        }
+    }
+    Err(WSError::InternalError(format!(
+        "attested output.hash {} does not match the module: the content changed after \
+         attestation (recomputed {})",
+        expected,
+        recomputed.first().map(String::as_str).unwrap_or("nothing")
+    )))
+}
+
 // ============================================================================
 // Chain Verification
 // ============================================================================
@@ -3157,7 +3237,7 @@ pub fn validate_device_attestation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::wasm_module::Module;
+    use crate::wasm_module::{Module, SectionId, StandardSection};
 
     #[test]
     fn test_provenance_builder() {
@@ -3413,6 +3493,118 @@ mod tests {
             attestation.predicate.build_type,
             "https://wsc.dev/composition@v1"
         );
+    }
+
+    // ---- #395: verify-chain must bind the attested content hash ----
+
+    /// A module as `wsc attest` produces it: hash the output bytes, then
+    /// append the attestation section.
+    fn attested_module() -> (Module, TransformationAttestation) {
+        let module = Module {
+            header: [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 0x60, 0, 0])),
+                Section::Standard(StandardSection::new(SectionId::Function, vec![1, 0])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![1, 2, 0, 0x0b])),
+            ],
+        };
+        let mut output_bytes = Vec::new();
+        module.serialize(&mut output_bytes).unwrap();
+        let attestation = TransformationAttestationBuilder::new_optimization("loom", "0.1.0")
+            .add_input_unsigned(b"input-bytes", "in.wasm")
+            .build(&output_bytes, "out.wasm");
+        let embedded = embed_transformation_attestation(module, &attestation).unwrap();
+        (embedded, attestation)
+    }
+
+    /// The module with its code section's payload rewritten by `edit`.
+    fn with_code(module: &Module, edit: impl Fn(&mut Vec<u8>)) -> Module {
+        let mut out = module.clone();
+        for section in &mut out.sections {
+            if let Section::Standard(s) = section
+                && s.id() == SectionId::Code
+            {
+                let mut payload = s.payload().to_vec();
+                edit(&mut payload);
+                *section = Section::Standard(StandardSection::new(SectionId::Code, payload));
+                return out;
+            }
+        }
+        panic!("no code section");
+    }
+
+    // rivet: verifies REQ-39
+    #[test]
+    fn test_attestation_binds_unmodified_module() {
+        let (module, attestation) = attested_module();
+        let extracted = extract_transformation_attestation(&module)
+            .unwrap()
+            .unwrap();
+        assert_eq!(extracted.output.hash, attestation.output.hash);
+        verify_attestation_binds_module(&module, &extracted).unwrap();
+    }
+
+    // rivet: verifies REQ-39
+    #[test]
+    fn test_attestation_still_binds_after_signing() {
+        // A module may be signed with `wsc sign` after it is attested; the
+        // signature section is metadata, not attested content.
+        let (mut module, attestation) = attested_module();
+        let sig = CustomSection::new("signature".to_string(), vec![0x01, 0x00]);
+        module.sections.insert(0, Section::Custom(sig));
+        verify_attestation_binds_module(&module, &attestation).unwrap();
+    }
+
+    // rivet: verifies REQ-39
+    #[test]
+    fn test_attestation_rejects_content_changed_after_attestation() {
+        let (base, attestation) = attested_module();
+
+        let flipped = with_code(&base, |p| p[2] ^= 0x01); // one bit in the code body
+        let truncated = with_code(&base, |p| {
+            p.pop();
+        });
+        let appended_byte = with_code(&base, |p| p.push(0x00));
+        let mut appended_section = base.clone();
+        appended_section
+            .sections
+            .push(Section::Standard(StandardSection::new(
+                SectionId::Data,
+                vec![0],
+            )));
+        let mut appended_custom = base.clone();
+        appended_custom
+            .sections
+            .push(Section::Custom(CustomSection::new(
+                "name".to_string(),
+                vec![0],
+            )));
+        let mut swapped = base.clone();
+        swapped.sections.swap(0, 1);
+
+        for (label, module) in [
+            ("one-bit flip", flipped),
+            ("truncation", truncated),
+            ("appended byte", appended_byte),
+            ("appended section", appended_section),
+            ("appended custom section", appended_custom),
+            ("swapped sections", swapped),
+        ] {
+            let err = verify_attestation_binds_module(&module, &attestation).expect_err(label);
+            assert!(
+                err.to_string()
+                    .contains("content changed after attestation"),
+                "{label}: {err}"
+            );
+        }
+    }
+
+    // rivet: verifies REQ-39
+    #[test]
+    fn test_attestation_with_malformed_hash_is_rejected() {
+        let (module, mut attestation) = attested_module();
+        attestation.output.hash = "not-a-hash".to_string();
+        assert!(verify_attestation_binds_module(&module, &attestation).is_err());
     }
 
     // Helper to create a minimal WASM module for testing
