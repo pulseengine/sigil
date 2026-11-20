@@ -37,6 +37,12 @@ and inclusion-proof work on main ships separately in 0.13.0.
   the attestation, audit-trail and signature sections, for which 0.12.2's
   `verify-chain` exits 0.
 
+- **wasmtime 49.0.6 and quinn-udp 0.5.16 (lockfile only).** These fix
+  RUSTSEC-2026-0566 to -0573 (wasmtime) and RUSTSEC-2026-0538 (quinn-udp),
+  published after 0.12.1, and match main's versions. wasmtime is built only
+  with the non-default `runtime` feature. *Falsification:* `cargo audit` with
+  the CI ignore list reports a vulnerability on this release's `Cargo.lock`.
+
 ### Removed
 
 - **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
