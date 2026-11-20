@@ -7,6 +7,7 @@ use wsc::airgapped::{
 use wsc::audit::{self, AuditConfig, LogDestination};
 use wsc::composition::{
     extract_transformation_attestation, extract_all_transformation_attestations,
+    verify_attestation_binds_module,
     extract_transformation_audit_trail, embed_transformation_attestation,
     TransformationAttestation, TransformationAttestationBuilder, TransformationType,
     ChainVerificationPolicy, ChainVerificationMode, TrustedToolInfo, TrustedPublicKey,
@@ -1593,6 +1594,17 @@ fn handle_verify_chain_command(matches: &clap::ArgMatches) -> Result<(), WSError
     // Extract attestation from module
     let attestation = extract_transformation_attestation(&module)?
         .ok_or(WSError::InternalError("No transformation attestation found in module".to_string()))?;
+
+    // The attestation must describe THESE bytes (#395): recompute the attested
+    // output hash before any chain or policy check, in every mode, so a module
+    // changed after attestation fails whatever flags are passed.
+    if let Err(e) = verify_attestation_binds_module(&module, &attestation) {
+        eprintln!("✗ Transformation chain verification failed");
+        eprintln!();
+        eprintln!("Errors:");
+        eprintln!("  - {}", e);
+        return Err(WSError::VerificationFailed);
+    }
 
     // If a policy file is provided, use the new policy engine
     if let Some(policy_path) = policy_file {
