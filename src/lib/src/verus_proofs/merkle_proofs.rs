@@ -69,7 +69,14 @@ pub proof fn lemma_leaf_node_domain_separation()
 /// Ghost model of the proof verification walk.
 ///
 /// Returns the computed root hash from walking the proof path.
-/// Mirrors the actual verify_inclusion_proof algorithm.
+///
+/// STALE: this models the walk merkle.rs used before the sigil#137 fix,
+/// which applied the root-to-leaf split decisions in that order to the
+/// leaf-to-root audit path and so disagreed with RFC 6962 (it rejected
+/// real Rekor proofs). merkle.rs now pairs proof hash j with the decision
+/// j levels above the leaf and fixes the proof length. This spec no
+/// longer mirrors the implementation; theorem_inclusion_proof_soundness
+/// below ensures only `true`, so no proven property depends on it.
 pub open spec fn spec_walk_proof(
     leaf_hash: Seq<u8>,
     leaf_index: int,
