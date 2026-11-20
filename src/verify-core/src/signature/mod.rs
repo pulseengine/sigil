@@ -5,12 +5,14 @@ mod matrix;
 mod multi;
 mod sig_sections;
 mod simple;
+mod version;
 
 pub use info::*;
 pub use keys::*;
 pub use matrix::*;
 
 pub use hash::*;
+pub use version::SignatureVersion;
 
 // Re-export signature data structures for fuzzing and advanced use cases.
 pub use sig_sections::{

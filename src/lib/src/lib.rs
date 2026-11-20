@@ -24,8 +24,8 @@ mod signature;
 pub use wsc_verify_core::secure_file;
 pub use wsc_verify_core::wasm_module;
 pub use wsc_verify_core::{
-    CoreError, SIGNATURE_HASH_FUNCTION, SIGNATURE_VERSION, SIGNATURE_WASM_DOMAIN,
-    SIGNATURE_WASM_MODULE_CONTENT_TYPE,
+    CoreError, SIGNATURE_HASH_FUNCTION, SIGNATURE_VERSION, SIGNATURE_VERSION_V1,
+    SIGNATURE_VERSION_V2, SIGNATURE_WASM_DOMAIN, SIGNATURE_WASM_MODULE_CONTENT_TYPE,
 };
 
 /// Time validation for offline-first verification

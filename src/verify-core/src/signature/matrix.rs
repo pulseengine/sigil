@@ -26,7 +26,9 @@ impl PublicKeySet {
         detached_signature: Option<&[u8]>,
         predicates: &[impl Fn(&Section) -> bool],
     ) -> Result<Vec<HashSet<&PublicKey>>, CoreError> {
-        let mut sections = Module::iterate(Module::init_from_reader(reader)?)?;
+        let stream = Module::init_from_reader(reader)?;
+        let preamble = stream.header();
+        let mut sections = Module::iterate(stream)?;
         let signature_header_section = if let Some(detached_signature) = &detached_signature {
             Section::Custom(CustomSection::new(
                 SIGNATURE_SECTION_HEADER_NAME.to_string(),
@@ -61,6 +63,7 @@ impl PublicKeySet {
             return Err(CoreError::ParseError);
         }
 
+        let version = SignatureVersion::from_u8(signature_data.specification_version)?;
         let signed_hashes_set = signature_data.signed_hashes_set;
         let mut valid_hashes_for_pks = HashMap::new();
         // Terminal (whole-stream) hashes per key, used after the loop to pin
@@ -68,8 +71,8 @@ impl PublicKeySet {
         // prefix, so without this a truncated module verifies.
         let mut terminal_hashes_for_pks: HashMap<PublicKey, _> = HashMap::new();
         for pk in &self.pks {
-            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set, false)?;
-            let terminal = pk.valid_hashes_for_pk(&signed_hashes_set, true)?;
+            let valid_hashes = pk.valid_hashes_for_pk(&signed_hashes_set, version, false)?;
+            let terminal = pk.valid_hashes_for_pk(&signed_hashes_set, version, true)?;
             terminal_hashes_for_pks.insert(pk.clone(), terminal);
             if !valid_hashes.is_empty() {
                 valid_hashes_for_pks.insert(pk.clone(), valid_hashes);
@@ -91,7 +94,7 @@ impl PublicKeySet {
             verify_failures_for_predicates.push(HashSet::new());
         }
 
-        let mut hasher = Hash::new();
+        let mut hasher = version.content_hasher(&preamble);
         // SECURITY: the hash comparison below lives ONLY inside the
         // `is_signature_delimiter()` branch, so a module carrying a signature
         // header but NO delimiter section never has its content compared
