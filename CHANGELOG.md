@@ -18,8 +18,9 @@ All notable changes to sigil are documented here. The project follows
 
 ### Removed
 
-- **No x86_64-apple-darwin (Intel macOS) assets from this release on; use
-  Rosetta 2 with the aarch64 build, or build from source.** The release matrix
+- **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
+  Mac users: build from source (`cargo install --locked --git
+  https://github.com/pulseengine/sigil --tag <tag> wsc-cli`).** The release matrix
   no longer builds `x86_64-apple-darwin`, so neither `wsc-macos-x86_64` nor
   `wsc-v<ver>-x86_64-apple-darwin.tar.gz` is published. The witness gate script
   reports an unsupported host on an Intel Mac instead of downloading a

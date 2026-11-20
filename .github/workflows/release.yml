@@ -105,8 +105,8 @@ jobs:
             archive_prefix: wsc
             cross: true
           # No macOS x86_64 (Intel) build: owner decision 2026-11-20 stopped
-          # Intel macOS builds fleet-wide. Intel Macs use the aarch64 build
-          # under Rosetta 2, or build from source.
+          # Intel macOS builds fleet-wide. Intel Macs build from source
+          # (Rosetta 2 runs x86_64 on Apple Silicon, not the reverse).
           # macOS aarch64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
