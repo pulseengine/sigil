@@ -3,6 +3,19 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Versioned release archives.** Each release now also carries
+  `wsc-v<ver>-<target-triple>.tar.gz` for x86_64/aarch64 Linux (glibc) and
+  x86_64/aarch64 macOS, plus `wsc-tpm2-v<ver>-x86_64-unknown-linux-gnu.tar.gz`.
+  Each archive holds exactly one file, `wsc`. The cosign-signed
+  `SHA256SUMS.txt` covers them. The versionless binaries (`wsc-linux-x86_64`
+  and the others) are still published, for at least this release, so existing
+  consumers keep working. *Falsification:* a tag whose release lacks one of the five
+  archives, or whose archive holds anything but `wsc`, fails the release job.
+
 ## [0.12.1] — 2026-11-13
 
 Security and correctness fixes on top of 0.12.0; no API changes. Upgrade if you
