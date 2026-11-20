@@ -3,6 +3,40 @@
 All notable changes to sigil are documented here. The project follows
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] — 2026-11-20
+
+One security fix on top of 0.12.1, cut from the v0.12.1 tag; no API or
+signature-format changes. Upgrade if you rely on `wsc verify-chain`. The format
+and inclusion-proof work on main ships separately in 0.13.0.
+
+### Security
+
+- **`wsc verify-chain` checks the attested content hash (#395, #398).**
+  `wsc attest` records `output.hash`, the SHA-256 of the output module before
+  the attestation section is appended. `verify-chain` never recomputed it, so a
+  module changed after attestation reported a valid chain, under every flag
+  including `--strict` and `--policy`. Reported on 0.9.2 and 0.12.1 by
+  rules_wasm_component. `verify-chain` now recomputes the hash over the module
+  without its post-attestation metadata: the transformation attestation and
+  audit-trail sections, and wsc's signature section, because a module may be
+  signed after it is attested. It fails on a mismatch before any policy rule
+  runs, `--report-only` included. Library: `wsc::composition::verify_attestation_binds_module`.
+
+  Planted controls, run against the 0.12.2 and 0.12.1 CLIs on one attested
+  module, each with no flag, `--report-only` and `--strict`:
+
+  | input | 0.12.1 | 0.12.2 |
+  |---|---|---|
+  | attested module, unchanged | exit 0 | exit 0 |
+  | one bit flipped in the code section | exit 0 | exit 1, "Transformation chain verification failed" |
+  | custom section appended | exit 0 | exit 1, "Transformation chain verification failed" |
+  | last 7 bytes truncated | exit 1 (parse) | exit 1 (parse) |
+  | signed with `wsc sign` after attestation | exit 0 | exit 0 (and `wsc verify` exits 0) |
+
+  *Falsification:* a module whose bytes differ from the attested output, outside
+  the attestation, audit-trail and signature sections, for which 0.12.2's
+  `verify-chain` exits 0.
+
 ## [0.12.1] — 2026-11-13
 
 Security and correctness fixes on top of 0.12.0; no API changes. Upgrade if you
