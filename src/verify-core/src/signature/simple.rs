@@ -6,7 +6,6 @@ use ct_codecs::verify as ct_eq;
 use log::*;
 use std::collections::{HashMap, HashSet};
 use std::io::Read;
-use zeroize::Zeroizing;
 
 /// Constant-time check if a hash exists in a set of valid hashes.
 /// SECURITY: Uses constant-time comparison to prevent timing attacks.
@@ -29,9 +28,23 @@ impl SecretKey {
     ///
     /// `key_id` is the key identifier of the public key, to be stored with the signature.
     /// This parameter is optional.
-    pub fn sign(&self, mut module: Module, key_id: Option<&Vec<u8>>) -> Result<Module, CoreError> {
+    pub fn sign(&self, module: Module, key_id: Option<&Vec<u8>>) -> Result<Module, CoreError> {
+        self.sign_with_version(module, key_id, SignatureVersion::V1)
+    }
+
+    /// [`SecretKey::sign`] with an explicit signature format version.
+    ///
+    /// `SignatureVersion::V2` binds the module's 8-byte preamble into the
+    /// signed hash (#303); `SignatureVersion::V1` is byte-for-byte what
+    /// [`SecretKey::sign`] emits.
+    pub fn sign_with_version(
+        &self,
+        mut module: Module,
+        key_id: Option<&Vec<u8>>,
+        version: SignatureVersion,
+    ) -> Result<Module, CoreError> {
         let mut out_sections = vec![Section::Custom(CustomSection::default())];
-        let mut hasher = Hash::new();
+        let mut hasher = version.content_hasher(&module.header);
         for section in module.sections.into_iter() {
             if section.is_signature_header() {
                 continue;
@@ -42,14 +55,7 @@ impl SecretKey {
         let h = hasher.finalize().to_vec();
 
         // SECURITY: Zeroize message buffer on drop to prevent key material leakage
-        let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
-        msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
-        msg.extend_from_slice(&[
-            SIGNATURE_VERSION,
-            SIGNATURE_WASM_MODULE_CONTENT_TYPE,
-            SIGNATURE_HASH_FUNCTION,
-        ]);
-        msg.extend_from_slice(&h);
+        let msg = version.signed_message(std::slice::from_ref(&h));
 
         let signature = self.sk.sign(msg.to_vec(), None).to_vec();
 
@@ -64,7 +70,7 @@ impl SecretKey {
             signatures: vec![signature_for_hashes],
         }];
         let signature_data = SignatureData {
-            specification_version: SIGNATURE_VERSION,
+            specification_version: version.as_u8(),
             content_type: SIGNATURE_WASM_MODULE_CONTENT_TYPE,
             hash_function: SIGNATURE_HASH_FUNCTION,
             signed_hashes_set,
@@ -93,6 +99,7 @@ impl PublicKey {
         detached_signature: Option<&[u8]>,
     ) -> Result<(), CoreError> {
         let stream = Module::init_from_reader(reader)?;
+        let preamble = stream.header();
         let mut sections = Module::iterate(stream)?;
 
         // Read the signature header from the module, or reconstruct it from the detached signature.
@@ -124,17 +131,19 @@ impl PublicKey {
             return Err(CoreError::ParseError);
         }
 
+        let version = SignatureVersion::from_u8(signature_data.specification_version)?;
         let signed_hashes_set = signature_data.signed_hashes_set;
         // Whole-module verification: ONLY the terminal (whole-stream) hash is
         // acceptable. See valid_hashes_for_pk's docs — accepting a prefix hash
         // would verify a module truncated at a signature delimiter.
-        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, true)?;
+        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, version, true)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
             return Err(CoreError::VerificationFailed);
         }
 
-        let mut hasher = Hash::new();
+        // v2 binds the preamble: it is absorbed before the section bytes.
+        let mut hasher = version.content_hasher(&preamble);
         let mut buf = vec![0u8; 65536];
         loop {
             match reader.read(&mut buf)? {
@@ -169,7 +178,9 @@ impl PublicKeySet {
         reader: &mut impl Read,
         detached_signature: Option<&[u8]>,
     ) -> Result<HashSet<&PublicKey>, CoreError> {
-        let mut sections = Module::iterate(Module::init_from_reader(reader)?)?;
+        let stream = Module::init_from_reader(reader)?;
+        let preamble = stream.header();
+        let mut sections = Module::iterate(stream)?;
 
         // Read the signature header from the module, or reconstruct it from the detached signature.
         let signature_header: &Section;
@@ -211,21 +222,24 @@ impl PublicKeySet {
             );
             return Err(CoreError::ParseError);
         }
+        let version = SignatureVersion::from_u8(signature_data.specification_version)?;
         let signed_hashes_set = signature_data.signed_hashes_set;
         let valid_hashes_for_pks: HashMap<&PublicKey, HashSet<&Vec<u8>>> = self
             .pks
             .iter()
-            .filter_map(|pk| match pk.valid_hashes_for_pk(&signed_hashes_set, true) {
-                Ok(valid_hashes) if !valid_hashes.is_empty() => Some((pk, valid_hashes)),
-                _ => None,
-            })
+            .filter_map(
+                |pk| match pk.valid_hashes_for_pk(&signed_hashes_set, version, true) {
+                    Ok(valid_hashes) if !valid_hashes.is_empty() => Some((pk, valid_hashes)),
+                    _ => None,
+                },
+            )
             .collect();
         if valid_hashes_for_pks.is_empty() {
             debug!("No valid signatures");
             return Err(CoreError::VerificationFailed);
         }
 
-        let mut hasher = Hash::new();
+        let mut hasher = version.content_hasher(&preamble);
         let mut buf = vec![0u8; 65536];
         loop {
             match reader.read(&mut buf)? {
@@ -838,23 +852,28 @@ mod tests {
         );
     }
 
-    /// PoC 3 — the 8-byte WASM preamble is not covered by the signature.
+    /// PoC 3, v1 — the 8-byte WASM preamble is not covered by a v1 signature.
     ///
-    /// `SecretKey::sign` hashes only `section.serialize(..)` for each
-    /// section; `PublicKey::verify` consumes the preamble via
-    /// `Module::init_from_reader` and hashes only what follows. Since
-    /// `init_from_reader` accepts both `WASM_HEADER` and
-    /// `WASM_COMPONENT_HEADER`, the core-module preamble of a signed
-    /// artifact can be rewritten to the component preamble (changing the
-    /// parse mode every WASM runtime selects) and the signature still
-    /// verifies: two distinct files, one signature.
+    /// `SecretKey::sign` (v1, the default) hashes only `section.serialize(..)`
+    /// for each section; `PublicKey::verify` consumes the preamble via
+    /// `Module::init_from_reader` and, for v1, hashes only what follows.
+    /// Since `init_from_reader` accepts both `WASM_HEADER` and
+    /// `WASM_COMPONENT_HEADER`, the core-module preamble of a v1-signed
+    /// artifact can be rewritten to the component preamble and the
+    /// signature still verifies: two distinct files, one signature.
+    ///
+    /// Signature format v2 closes this (see
+    /// `poc_verify_accepts_rewritten_module_preamble` below, which runs). v1
+    /// is deliberately left unchanged: whether v1 signatures are rejected,
+    /// and whether signing defaults to v2, is an open owner decision (plan
+    /// v0.14.0 B1, "O2 guard"). This oracle stays ignored until then.
     #[test]
-    #[ignore = "DEFERRED (#303): the 8-byte WASM preamble is not covered by the \
-                signature. Fixing it changes what is signed and therefore \
-                invalidates every existing signature, so it needs a \
-                SIGNATURE_VERSION bump + migration, not a patch. The oracle is \
-                kept (not deleted) so the gap stays visible."]
-    fn poc_verify_accepts_rewritten_module_preamble() {
+    #[ignore = "OPEN DECISION (#303): v1 signatures do not bind the 8-byte WASM \
+                preamble, by design of the v1 format. v2 (opt-in, \
+                SignatureVersion::V2) binds it. Whether v1 is rejected or v2 \
+                becomes the default is an owner decision; this oracle fails \
+                until then and is kept so the v1 gap stays visible."]
+    fn poc_v1_verify_accepts_rewritten_module_preamble() {
         let kp = KeyPair::generate();
         let module = create_test_module();
         let signed = kp.sk.sign(module, None).unwrap();
@@ -867,19 +886,6 @@ mod tests {
             "positive control failed: untampered module must verify"
         );
 
-        // NEGATIVE CONTROL: a preamble that is neither magic is rejected,
-        // so the preamble is not simply skipped without inspection.
-        let mut garbage = signed_bytes.clone();
-        garbage[1] = 0xff;
-        let mut reader = Cursor::new(garbage);
-        assert!(
-            matches!(
-                kp.pk.verify(&mut reader, None),
-                Err(CoreError::UnsupportedModuleType)
-            ),
-            "negative control failed: unknown preamble must be rejected"
-        );
-
         // ATTACK: core module -> component preamble, bytes 4..8.
         let mut relabelled = signed_bytes.clone();
         relabelled[4..8].copy_from_slice(&[0x0d, 0x00, 0x01, 0x00]);
@@ -888,9 +894,393 @@ mod tests {
         let result = kp.pk.verify(&mut reader, None);
         assert!(
             result.is_err(),
-            "WRONG-ACCEPT: PublicKey::verify returned Ok for an artifact whose \
+            "WRONG-ACCEPT: PublicKey::verify returned Ok for a v1 artifact whose \
              WASM preamble was rewritten after signing (module -> component)"
         );
+    }
+
+    // ===================================================================
+    // Signature format v2 (#303, REQ-32): the preamble is bound.
+    // ===================================================================
+
+    const CORE_PREAMBLE: Header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    const COMPONENT_PREAMBLE: Header = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
+
+    fn create_test_component() -> Module {
+        let mut m = create_test_module();
+        m.header = COMPONENT_PREAMBLE;
+        m
+    }
+
+    /// Rewrite the version byte of the embedded signature header (section 0)
+    /// without touching the hashes or signatures: a relabelling attack.
+    fn relabel_embedded(module: &Module, version: u8) -> Module {
+        let mut out = module.clone();
+        let payload = match &out.sections[0] {
+            Section::Custom(cs) if cs.is_signature_header() => cs.payload().to_vec(),
+            _ => panic!("section 0 is not the signature header"),
+        };
+        out.sections[0] = Section::Custom(CustomSection::new(
+            SIGNATURE_SECTION_HEADER_NAME.to_string(),
+            relabel_detached(&payload, version),
+        ));
+        out
+    }
+
+    /// Rewrite the version byte of a serialized `SignatureData`. The version
+    /// is the first varint and every supported value fits in one byte.
+    fn relabel_detached(payload: &[u8], version: u8) -> Vec<u8> {
+        assert!(payload[0] < 0x80 && version < 0x80);
+        let mut out = payload.to_vec();
+        out[0] = version;
+        out
+    }
+
+    fn signature_version_of(module: &Module) -> u8 {
+        match &module.sections[0] {
+            Section::Custom(cs) => cs.signature_data().unwrap().specification_version,
+            _ => panic!("no signature header"),
+        }
+    }
+
+    fn signed_hashes_of(module: &Module) -> Vec<Vec<u8>> {
+        match &module.sections[0] {
+            Section::Custom(cs) => cs.signature_data().unwrap().signed_hashes_set[0]
+                .hashes
+                .clone(),
+            _ => panic!("no signature header"),
+        }
+    }
+
+    /// PoC 3, v2 — the varve-reported case (component preamble rewritten to
+    /// a core-module preamble) and its inverse are REJECTED under v2.
+    ///
+    /// This is the B1 acceptance oracle: before v2 existed this test was
+    /// `#[ignore]`d and failed. It now signs with `SignatureVersion::V2`.
+    // rivet: verifies REQ-32
+    #[test]
+    fn poc_verify_accepts_rewritten_module_preamble() {
+        let kp = KeyPair::generate();
+        for (original, rewritten) in [
+            (COMPONENT_PREAMBLE, CORE_PREAMBLE), // varve's case (#303)
+            (CORE_PREAMBLE, COMPONENT_PREAMBLE),
+        ] {
+            let mut module = create_test_module();
+            module.header = original;
+            let signed = kp
+                .sk
+                .sign_with_version(module, None, SignatureVersion::V2)
+                .unwrap();
+            assert_eq!(signature_version_of(&signed), SIGNATURE_VERSION_V2);
+            let signed_bytes = serialize_module(&signed);
+
+            // POSITIVE CONTROL
+            assert!(
+                kp.pk.verify(&mut Cursor::new(&signed_bytes), None).is_ok(),
+                "positive control failed: untampered v2 module must verify"
+            );
+
+            // NEGATIVE CONTROL: a preamble that is neither magic is rejected
+            // by the parser before any hashing.
+            let mut garbage = signed_bytes.clone();
+            garbage[1] = 0xff;
+            assert!(matches!(
+                kp.pk.verify(&mut Cursor::new(&garbage), None),
+                Err(CoreError::UnsupportedModuleType)
+            ));
+
+            // ATTACK: rewrite the version/layer bytes 4..8.
+            let mut relabelled = signed_bytes.clone();
+            relabelled[0..8].copy_from_slice(&rewritten);
+            assert_ne!(relabelled, signed_bytes);
+            let result = kp.pk.verify(&mut Cursor::new(&relabelled), None);
+            assert!(
+                matches!(result, Err(CoreError::VerificationFailed)),
+                "WRONG-ACCEPT: v2 PublicKey::verify returned {:?} for an artifact \
+                 whose preamble was rewritten {:02x?} -> {:02x?}",
+                result,
+                original,
+                rewritten
+            );
+        }
+    }
+
+    /// The same rewrite through `PublicKeySet::verify` and the detached path.
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_rewritten_preamble_is_rejected_by_key_set_and_detached_verify() {
+        let kp = KeyPair::generate();
+        let signed = kp
+            .sk
+            .sign_with_version(create_test_component(), None, SignatureVersion::V2)
+            .unwrap();
+        let (unsigned, detached) = signed.clone().detach_signature().unwrap();
+        let mut set = PublicKeySet::empty();
+        set.insert(kp.pk.clone()).unwrap();
+
+        let embedded = serialize_module(&signed);
+        let bare = serialize_module(&unsigned);
+        assert!(set.verify(&mut Cursor::new(&embedded), None).is_ok());
+        assert!(
+            kp.pk
+                .verify(&mut Cursor::new(&bare), Some(&detached))
+                .is_ok()
+        );
+        assert!(set.verify(&mut Cursor::new(&bare), Some(&detached)).is_ok());
+
+        let mut embedded_rw = embedded.clone();
+        embedded_rw[0..8].copy_from_slice(&CORE_PREAMBLE);
+        let mut bare_rw = bare.clone();
+        bare_rw[0..8].copy_from_slice(&CORE_PREAMBLE);
+        assert!(matches!(
+            set.verify(&mut Cursor::new(&embedded_rw), None),
+            Err(CoreError::VerificationFailed)
+        ));
+        assert!(matches!(
+            kp.pk.verify(&mut Cursor::new(&bare_rw), Some(&detached)),
+            Err(CoreError::VerificationFailed)
+        ));
+        assert!(matches!(
+            set.verify(&mut Cursor::new(&bare_rw), Some(&detached)),
+            Err(CoreError::VerificationFailed)
+        ));
+    }
+
+    /// Every preamble byte is in the v2 signed hash, not just the bytes the
+    /// parser happens to distinguish. A changed version/layer byte other than
+    /// the two accepted preambles is already refused by the parser
+    /// (`UnsupportedModuleType`), so this checks binding at the hash level.
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_signed_hash_changes_with_every_preamble_byte() {
+        let kp = KeyPair::generate();
+        let base = kp
+            .sk
+            .sign_with_version(create_test_component(), None, SignatureVersion::V2)
+            .unwrap();
+        let base_hashes = signed_hashes_of(&base);
+        for i in 0..8 {
+            let mut m = create_test_component();
+            m.header[i] ^= 0x01;
+            let signed = kp
+                .sk
+                .sign_with_version(m, None, SignatureVersion::V2)
+                .unwrap();
+            assert_ne!(
+                signed_hashes_of(&signed),
+                base_hashes,
+                "preamble byte {} is not bound by v2",
+                i
+            );
+        }
+        // v1 control: the preamble does not reach the v1 hash.
+        let mut m = create_test_component();
+        m.header = CORE_PREAMBLE;
+        let v1_core = kp.sk.sign(m, None).unwrap();
+        let v1_comp = kp.sk.sign(create_test_component(), None).unwrap();
+        assert_eq!(signed_hashes_of(&v1_core), signed_hashes_of(&v1_comp));
+    }
+
+    /// v2 sign then verify, single signature, embedded and detached, through
+    /// both `PublicKey::verify` and `PublicKeySet::verify`.
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_sign_then_verify_succeeds() {
+        let kp = KeyPair::generate();
+        for module in [create_test_module(), create_test_component()] {
+            let signed = kp
+                .sk
+                .sign_with_version(module, None, SignatureVersion::V2)
+                .unwrap();
+            let bytes = serialize_module(&signed);
+            assert!(kp.pk.verify(&mut Cursor::new(&bytes), None).is_ok());
+            let mut set = PublicKeySet::empty();
+            set.insert(kp.pk.clone()).unwrap();
+            assert_eq!(set.verify(&mut Cursor::new(&bytes), None).unwrap().len(), 1);
+
+            // Content tamper is still caught under v2.
+            let mut tampered = bytes.clone();
+            let last = tampered.len() - 1;
+            tampered[last] ^= 0xff;
+            assert!(kp.pk.verify(&mut Cursor::new(&tampered), None).is_err());
+        }
+    }
+
+    /// The default signer still emits v1, and `sign_with_version(V1)` is
+    /// byte-for-byte `sign`.
+    // rivet: verifies REQ-32
+    #[test]
+    fn signer_defaults_to_v1() {
+        let kp = KeyPair::generate();
+        let a = kp.sk.sign(create_test_component(), None).unwrap();
+        let b = kp
+            .sk
+            .sign_with_version(create_test_component(), None, SignatureVersion::V1)
+            .unwrap();
+        assert_eq!(signature_version_of(&a), SIGNATURE_VERSION_V1);
+        assert_eq!(serialize_module(&a), serialize_module(&b));
+        let (c, _) = kp
+            .sk
+            .sign_multi(create_test_component(), None, false, false)
+            .unwrap();
+        assert_eq!(signature_version_of(&c), SIGNATURE_VERSION_V1);
+    }
+
+    /// A v1 signature relabelled as v2 fails, and a v2 signature relabelled
+    /// as v1 fails, embedded and detached, single-key and key-set.
+    // rivet: verifies REQ-32
+    #[test]
+    fn cross_version_relabelling_is_rejected() {
+        let kp = KeyPair::generate();
+        let mut set = PublicKeySet::empty();
+        set.insert(kp.pk.clone()).unwrap();
+        for (sign_as, relabel_to) in [
+            (SignatureVersion::V1, SIGNATURE_VERSION_V2),
+            (SignatureVersion::V2, SIGNATURE_VERSION_V1),
+        ] {
+            let signed = kp
+                .sk
+                .sign_with_version(create_test_component(), None, sign_as)
+                .unwrap();
+            // Positive control: unrelabelled verifies.
+            assert!(
+                kp.pk
+                    .verify(&mut Cursor::new(serialize_module(&signed)), None)
+                    .is_ok()
+            );
+
+            let relabelled = relabel_embedded(&signed, relabel_to);
+            assert_eq!(signature_version_of(&relabelled), relabel_to);
+            let bytes = serialize_module(&relabelled);
+            assert!(
+                matches!(
+                    kp.pk.verify(&mut Cursor::new(&bytes), None),
+                    Err(CoreError::VerificationFailed)
+                ),
+                "{:?} signature relabelled as v{} must not verify",
+                sign_as,
+                relabel_to
+            );
+            assert!(set.verify(&mut Cursor::new(&bytes), None).is_err());
+
+            let (unsigned, detached) = signed.detach_signature().unwrap();
+            let bare = serialize_module(&unsigned);
+            assert!(
+                kp.pk
+                    .verify(&mut Cursor::new(&bare), Some(&detached))
+                    .is_ok()
+            );
+            let detached_rl = relabel_detached(&detached, relabel_to);
+            assert!(matches!(
+                kp.pk.verify(&mut Cursor::new(&bare), Some(&detached_rl)),
+                Err(CoreError::VerificationFailed)
+            ));
+        }
+    }
+
+    /// Version 3 (and 0) are still rejected at parse time, embedded and
+    /// detached, even when relabelled from a valid v1 or v2 signature.
+    // rivet: verifies REQ-32
+    #[test]
+    fn unknown_signature_version_is_rejected() {
+        let kp = KeyPair::generate();
+        for sign_as in [SignatureVersion::V1, SignatureVersion::V2] {
+            let signed = kp
+                .sk
+                .sign_with_version(create_test_component(), None, sign_as)
+                .unwrap();
+            for bad in [0u8, 3] {
+                let bytes = serialize_module(&relabel_embedded(&signed, bad));
+                assert!(matches!(
+                    kp.pk.verify(&mut Cursor::new(&bytes), None),
+                    Err(CoreError::ParseError)
+                ));
+                let mut set = PublicKeySet::empty();
+                set.insert(kp.pk.clone()).unwrap();
+                assert!(matches!(
+                    set.verify(&mut Cursor::new(&bytes), None),
+                    Err(CoreError::ParseError)
+                ));
+                let (unsigned, detached) = signed.clone().detach_signature().unwrap();
+                assert!(matches!(
+                    kp.pk.verify(
+                        &mut Cursor::new(serialize_module(&unsigned)),
+                        Some(&relabel_detached(&detached, bad))
+                    ),
+                    Err(CoreError::ParseError)
+                ));
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Frozen v1 fixture: bytes produced by the pre-v2 code (origin/main
+    // 101016a) from an Ed25519 key with seed [7; 32] over a 3-section
+    // component. Ed25519 is deterministic, so the current v1 signer must
+    // reproduce them exactly, and the current verifier must accept them.
+    // ---------------------------------------------------------------
+
+    const FIXTURE_V1_PK: &str = "ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c";
+    const FIXTURE_V1_SIGNED: &str = "0061736d0d0001000076097369676e6174757265010101016701f8ef0f895f2f7009f14567e30523f8631f017142b0fd5d56f7e175150b946526014400014000eca2b0c9a5d4d6bdf07ece944b42a049f6b91d0ffb50ce279bfec1c7c173d12be420a3bcdf86d7f9bfd9a054375686aac70cdd818ba666bebc0d34871e1b0f00010301020303030405060a03070809";
+    const FIXTURE_V1_DETACHED: &str = "010101016701f8ef0f895f2f7009f14567e30523f8631f017142b0fd5d56f7e175150b946526014400014000eca2b0c9a5d4d6bdf07ece944b42a049f6b91d0ffb50ce279bfec1c7c173d12be420a3bcdf86d7f9bfd9a054375686aac70cdd818ba666bebc0d34871e1b0f00";
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    fn fixture_key() -> (SecretKey, PublicKey) {
+        let kp = ed25519_compact::KeyPair::from_seed(ed25519_compact::Seed::new([7u8; 32]));
+        (
+            SecretKey { sk: kp.sk },
+            PublicKey {
+                pk: kp.pk,
+                key_id: None,
+            },
+        )
+    }
+
+    /// v1 signatures made before v2 existed still verify unchanged, and the
+    /// v1 signer still produces the same bytes.
+    // rivet: verifies REQ-32
+    #[test]
+    fn frozen_v1_fixture_still_verifies_and_is_reproduced() {
+        let (sk, pk) = fixture_key();
+        assert_eq!(pk.pk.as_ref(), unhex(FIXTURE_V1_PK).as_slice());
+        let signed = unhex(FIXTURE_V1_SIGNED);
+        let detached = unhex(FIXTURE_V1_DETACHED);
+
+        // Verifies (embedded, single key and key set).
+        assert!(pk.verify(&mut Cursor::new(&signed), None).is_ok());
+        let mut set = PublicKeySet::empty();
+        set.insert(pk.clone()).unwrap();
+        assert!(set.verify(&mut Cursor::new(&signed), None).is_ok());
+
+        // Verifies detached.
+        let module = Module::deserialize(&mut Cursor::new(&signed)).unwrap();
+        let (unsigned, _) = module.detach_signature().unwrap();
+        let bare = serialize_module(&unsigned);
+        assert!(pk.verify(&mut Cursor::new(&bare), Some(&detached)).is_ok());
+
+        // v1 still leaves the preamble unbound (the fixture is a component;
+        // the core-module rewrite verifies). This pins "v1 unchanged".
+        let mut rewritten = signed.clone();
+        rewritten[0..8].copy_from_slice(&CORE_PREAMBLE);
+        assert!(pk.verify(&mut Cursor::new(&rewritten), None).is_ok());
+
+        // The current v1 signers reproduce the frozen bytes exactly.
+        let resigned = sk.sign(create_test_component(), None).unwrap();
+        assert_eq!(serialize_module(&resigned), signed);
+        let (resigned_multi, _) = sk
+            .sign_multi(create_test_component(), None, false, false)
+            .unwrap();
+        assert_eq!(serialize_module(&resigned_multi), signed);
+        let (_, resigned_detached) = sk
+            .sign_multi(create_test_component(), None, true, false)
+            .unwrap();
+        assert_eq!(resigned_detached, detached);
     }
 }
 

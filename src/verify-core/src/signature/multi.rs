@@ -6,7 +6,6 @@ use ct_codecs::{verify as ct_eq, Encoder, Hex};
 use log::*;
 use std::collections::HashSet;
 use std::io::Read;
-use zeroize::Zeroizing;
 
 /// Constant-time comparison of two hash vectors.
 /// Returns true only if both vectors have the same length and all hashes match.
@@ -46,12 +45,36 @@ impl SecretKey {
     /// `allow_extensions` allows new sections to be added to the module later, while retaining the ability for the original module to be verified.
     pub fn sign_multi(
         &self,
-        mut module: Module,
+        module: Module,
         key_id: Option<&Vec<u8>>,
         detached: bool,
         allow_extensions: bool,
     ) -> Result<(Module, Vec<u8>), CoreError> {
-        let mut hasher = Hash::new();
+        self.sign_multi_with_version(
+            module,
+            key_id,
+            detached,
+            allow_extensions,
+            SignatureVersion::V1,
+        )
+    }
+
+    /// [`SecretKey::sign_multi`] with an explicit signature format version.
+    ///
+    /// `SignatureVersion::V2` binds the module's 8-byte preamble into every
+    /// signed hash, including each cumulative prefix hash at a delimiter
+    /// (#303). Adding a signature to a module whose existing signature header
+    /// has a different version fails with `IncompatibleSignatureVersion`: one
+    /// header carries one version.
+    pub fn sign_multi_with_version(
+        &self,
+        mut module: Module,
+        key_id: Option<&Vec<u8>>,
+        detached: bool,
+        allow_extensions: bool,
+        version: SignatureVersion,
+    ) -> Result<(Module, Vec<u8>), CoreError> {
+        let mut hasher = version.content_hasher(&module.header);
         let mut hashes = vec![];
 
         let mut out_sections = vec![];
@@ -97,7 +120,7 @@ impl SecretKey {
             hashes.push(hasher.finalize().to_vec());
         }
         let header_section =
-            Self::build_header_section(previous_signature_data, self, key_id, hashes)?;
+            Self::build_header_section(previous_signature_data, self, key_id, hashes, version)?;
         if detached {
             Ok((module, header_section.payload().to_vec()))
         } else {
@@ -108,37 +131,22 @@ impl SecretKey {
         }
     }
 
-    /// The exact message a signature over `hashes` covers (see
-    /// `build_header_section`).
-    fn signed_message(hashes: &[Vec<u8>]) -> Zeroizing<Vec<u8>> {
-        let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
-        msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
-        msg.extend_from_slice(&[
-            SIGNATURE_VERSION,
-            SIGNATURE_WASM_MODULE_CONTENT_TYPE,
-            SIGNATURE_HASH_FUNCTION,
-        ]);
-        for hash in hashes {
-            msg.extend_from_slice(hash);
-        }
-        msg
-    }
-
     fn build_header_section(
         previous_signature_data: Option<SignatureData>,
         sk: &SecretKey,
         key_id: Option<&Vec<u8>>,
         hashes: Vec<Vec<u8>>,
+        version: SignatureVersion,
     ) -> Result<Section, CoreError> {
         // SECURITY: Zeroize message buffer on drop to prevent key material leakage
-        let msg = Self::signed_message(&hashes);
+        let msg = version.signed_message(&hashes);
 
         debug!("* Adding signature:\n");
 
         debug!(
             "sig = Ed25519(sk, \"{}\" ‖ {:02x} ‖ {:02x} ‖ {:02x} ‖ {})\n",
             SIGNATURE_WASM_DOMAIN,
-            SIGNATURE_VERSION,
+            version.as_u8(),
             SIGNATURE_WASM_MODULE_CONTENT_TYPE,
             SIGNATURE_HASH_FUNCTION,
             Hex::encode_to_string(&msg[SIGNATURE_WASM_DOMAIN.len() + 2..]).unwrap_or_else(|_| "<hex error>".to_string())
@@ -157,7 +165,7 @@ impl SecretKey {
         let mut signed_hashes_set = match &previous_signature_data {
             None => vec![],
             Some(previous_signature_data)
-                if previous_signature_data.specification_version == SIGNATURE_VERSION
+                if previous_signature_data.specification_version == version.as_u8()
                     && previous_signature_data.content_type
                         == SIGNATURE_WASM_MODULE_CONTENT_TYPE
                     && previous_signature_data.hash_function == SIGNATURE_HASH_FUNCTION =>
@@ -182,7 +190,7 @@ impl SecretKey {
             if ct_eq_hashes(&entry.hashes, &hashes) {
                 continue; // same content: handled below (merge or DuplicateSignature)
             }
-            let entry_msg = Self::signed_message(&entry.hashes);
+            let entry_msg = version.signed_message(&entry.hashes);
             entry.signatures.retain(|sig| {
                 let mine = ed25519_compact::Signature::from_slice(&sig.signature)
                     .map(|s| own_pk.verify(&entry_msg[..], &s).is_ok())
@@ -222,7 +230,7 @@ impl SecretKey {
             signed_hashes_set.push(new_signed_section_sequences);
         }
         let signature_data = SignatureData {
-            specification_version: SIGNATURE_VERSION,
+            specification_version: version.as_u8(),
             content_type: SIGNATURE_WASM_MODULE_CONTENT_TYPE,
             hash_function: SIGNATURE_HASH_FUNCTION,
             signed_hashes_set,
@@ -252,7 +260,9 @@ impl PublicKey {
     where
         P: FnMut(&Section) -> bool,
     {
-        let mut sections = Module::iterate(Module::init_from_reader(reader)?)?.enumerate();
+        let stream = Module::init_from_reader(reader)?;
+        let preamble = stream.header();
+        let mut sections = Module::iterate(stream)?.enumerate();
         let signature_header_section = if let Some(detached_signature) = &detached_signature {
             Section::Custom(CustomSection::new(
                 SIGNATURE_SECTION_HEADER_NAME.to_string(),
@@ -280,12 +290,13 @@ impl PublicKey {
             return Err(CoreError::ParseError);
         }
 
+        let version = SignatureVersion::from_u8(signature_data.specification_version)?;
         let signed_hashes_set = signature_data.signed_hashes_set;
-        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, false)?;
+        let valid_hashes = self.valid_hashes_for_pk(&signed_hashes_set, version, false)?;
         // The terminal (whole-stream) hashes, used after the loop to pin the
         // END of the stream: the prefix set alone authorises every delimiter
         // prefix, so without this a module truncated AT a delimiter verifies.
-        let terminal_hashes = self.valid_hashes_for_pk(&signed_hashes_set, true)?;
+        let terminal_hashes = self.valid_hashes_for_pk(&signed_hashes_set, version, true)?;
         if valid_hashes.is_empty() {
             debug!("No valid signatures");
             return Err(CoreError::VerificationFailed);
@@ -294,7 +305,7 @@ impl PublicKey {
         for valid_hash in &valid_hashes {
             debug!("  - [{}]", Hex::encode_to_string(valid_hash).unwrap_or_else(|_| "<hex error>".to_string()));
         }
-        let mut hasher = Hash::new();
+        let mut hasher = version.content_hasher(&preamble);
         let mut matching_section_ranges = vec![];
         let mut last_compared_hash: Option<Vec<u8>> = None;
         debug!("Computed hashes:");
@@ -398,25 +409,21 @@ impl PublicKey {
     ///   (`verify_multi` / `verify_matrix`), which legitimately check
     ///   delimiter-bounded ranges — and which must therefore separately pin the
     ///   terminal hash to reject truncation.
+    ///
+    /// `version` is the version the signature header declares. The message is
+    /// rebuilt with that version byte, so a signature made under one version
+    /// never verifies under the other (#303).
     pub(crate) fn valid_hashes_for_pk<'t>(
         &self,
         signed_hashes_set: &'t [SignedHashes],
+        version: SignatureVersion,
         terminal_only: bool,
     ) -> Result<HashSet<&'t Vec<u8>>, CoreError> {
         let mut valid_hashes = HashSet::new();
         for signed_section_sequence in signed_hashes_set {
-            // SECURITY: Zeroize message buffer on drop to prevent data leakage
-            let mut msg: Zeroizing<Vec<u8>> = Zeroizing::new(vec![]);
-            msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
-            msg.extend_from_slice(&[
-                SIGNATURE_VERSION,
-                SIGNATURE_WASM_MODULE_CONTENT_TYPE,
-                SIGNATURE_HASH_FUNCTION,
-            ]);
             let hashes = &signed_section_sequence.hashes;
-            for hash in hashes {
-                msg.extend_from_slice(hash);
-            }
+            // SECURITY: Zeroize message buffer on drop to prevent data leakage
+            let msg = version.signed_message(hashes);
             for signature in &signed_section_sequence.signatures {
                 match (&signature.key_id, &self.key_id) {
                     (Some(signature_key_id), Some(pk_key_id)) if signature_key_id != pk_key_id => {
@@ -557,5 +564,240 @@ mod tests {
             "a properly split-and-signed module must still verify: {:?}",
             result.err()
         );
+    }
+
+    // ===================================================================
+    // Signature format v2 (#303, REQ-32) through the multi-signature paths.
+    // ===================================================================
+
+    const CORE_PREAMBLE: Header = [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00];
+    const COMPONENT_PREAMBLE: Header = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
+
+    fn component() -> Module {
+        Module {
+            header: COMPONENT_PREAMBLE,
+            sections: vec![
+                Section::Standard(StandardSection::new(SectionId::Type, vec![1, 2, 3])),
+                Section::Standard(StandardSection::new(SectionId::Function, vec![4, 5, 6])),
+                Section::Standard(StandardSection::new(SectionId::Code, vec![7, 8, 9])),
+            ],
+        }
+    }
+
+    fn split_component() -> Module {
+        component()
+            .split(|section| matches!(section.id(), SectionId::Type | SectionId::Code))
+            .unwrap()
+    }
+
+    fn rewrite_preamble(bytes: &[u8]) -> Vec<u8> {
+        let mut out = bytes.to_vec();
+        out[0..8].copy_from_slice(&CORE_PREAMBLE);
+        out
+    }
+
+    /// v2 multi-signature: two keys co-sign a split component; every
+    /// verifier (whole-stream single key, key set, verify_multi,
+    /// verify_matrix) accepts it, embedded and detached.
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_multi_signature_sign_then_verify_succeeds() {
+        let a = KeyPair::generate();
+        let b = KeyPair::generate();
+        let (signed_a, _) = a
+            .sk
+            .sign_multi_with_version(split_component(), None, false, false, SignatureVersion::V2)
+            .unwrap();
+        let (signed_ab, _) =
+            b.sk.sign_multi_with_version(signed_a, None, false, false, SignatureVersion::V2)
+                .unwrap();
+        let bytes = serialize_module(&signed_ab);
+
+        for kp in [&a, &b] {
+            assert!(kp.pk.verify(&mut Cursor::new(&bytes), None).is_ok());
+            assert!(
+                kp.pk
+                    .verify_multi(&mut Cursor::new(&bytes), None, |_| true)
+                    .is_ok()
+            );
+        }
+        let mut set = PublicKeySet::empty();
+        set.insert(a.pk.clone()).unwrap();
+        set.insert(b.pk.clone()).unwrap();
+        assert_eq!(set.verify(&mut Cursor::new(&bytes), None).unwrap().len(), 2);
+        let predicates = [|_: &Section| true];
+        let matrix = set
+            .verify_matrix(&mut Cursor::new(&bytes), None, &predicates)
+            .unwrap();
+        assert_eq!(matrix[0].len(), 2);
+
+        // Detached v2 multi signature.
+        let (unsigned, detached) = a
+            .sk
+            .sign_multi_with_version(split_component(), None, true, false, SignatureVersion::V2)
+            .unwrap();
+        let bare = serialize_module(&unsigned);
+        assert!(
+            a.pk.verify(&mut Cursor::new(&bare), Some(&detached))
+                .is_ok()
+        );
+        assert!(
+            a.pk.verify_multi(&mut Cursor::new(&bare), Some(&detached), |_| true)
+                .is_ok()
+        );
+    }
+
+    /// The preamble rewrite is rejected by every multi-signature verifier
+    /// under v2 (embedded and detached), while the v1 control still accepts
+    /// it (v1 behaviour unchanged, see the open decision in simple.rs).
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_multi_rewritten_preamble_is_rejected() {
+        let kp = KeyPair::generate();
+        let mut set = PublicKeySet::empty();
+        set.insert(kp.pk.clone()).unwrap();
+        let predicates = [|_: &Section| true];
+
+        let (signed, _) = kp
+            .sk
+            .sign_multi_with_version(split_component(), None, false, false, SignatureVersion::V2)
+            .unwrap();
+        let rewritten = rewrite_preamble(&serialize_module(&signed));
+        assert!(matches!(
+            kp.pk.verify(&mut Cursor::new(&rewritten), None),
+            Err(CoreError::VerificationFailed)
+        ));
+        assert!(matches!(
+            kp.pk
+                .verify_multi(&mut Cursor::new(&rewritten), None, |_| true),
+            Err(CoreError::VerificationFailedForPredicates)
+        ));
+        assert!(set.verify(&mut Cursor::new(&rewritten), None).is_err());
+        // verify_matrix reports no key as valid for the predicate (or errors).
+        match set.verify_matrix(&mut Cursor::new(&rewritten), None, &predicates) {
+            Ok(m) => assert!(m[0].is_empty(), "verify_matrix affirmed a key"),
+            Err(_) => {}
+        }
+
+        let (unsigned, detached) = kp
+            .sk
+            .sign_multi_with_version(split_component(), None, true, false, SignatureVersion::V2)
+            .unwrap();
+        let bare_rw = rewrite_preamble(&serialize_module(&unsigned));
+        assert!(
+            kp.pk
+                .verify(&mut Cursor::new(&bare_rw), Some(&detached))
+                .is_err()
+        );
+        assert!(
+            kp.pk
+                .verify_multi(&mut Cursor::new(&bare_rw), Some(&detached), |_| true)
+                .is_err()
+        );
+
+        // v1 control: unchanged, the rewrite is still accepted.
+        let (v1, _) = kp
+            .sk
+            .sign_multi(split_component(), None, false, false)
+            .unwrap();
+        let v1_rw = rewrite_preamble(&serialize_module(&v1));
+        assert!(
+            kp.pk
+                .verify_multi(&mut Cursor::new(&v1_rw), None, |_| true)
+                .is_ok()
+        );
+    }
+
+    /// One header carries one version: adding a v2 signature to a v1 header
+    /// (or the reverse) is refused rather than mixing formats.
+    // rivet: verifies REQ-32
+    #[test]
+    fn mixing_versions_in_one_header_is_refused() {
+        let a = KeyPair::generate();
+        let b = KeyPair::generate();
+        let (v1, _) = a.sk.sign_multi(component(), None, false, false).unwrap();
+        assert!(matches!(
+            b.sk.sign_multi_with_version(v1, None, false, false, SignatureVersion::V2),
+            Err(CoreError::IncompatibleSignatureVersion)
+        ));
+        let (v2, _) =
+            a.sk.sign_multi_with_version(component(), None, false, false, SignatureVersion::V2)
+                .unwrap();
+        assert!(matches!(
+            b.sk.sign_multi(v2, None, false, false),
+            Err(CoreError::IncompatibleSignatureVersion)
+        ));
+    }
+
+    /// #304 (own earlier signature over different content is dropped) still
+    /// holds under v2, where ownership is checked against the v2 message.
+    // rivet: verifies REQ-32
+    #[test]
+    fn v2_resign_supersedes_own_entry() {
+        let kp = KeyPair::generate();
+        let (signed, _) = kp
+            .sk
+            .sign_multi_with_version(component(), None, false, false, SignatureVersion::V2)
+            .unwrap();
+        let mut extended = signed.clone();
+        extended.sections.push(Section::Custom(CustomSection::new(
+            "meta".to_string(),
+            vec![0xaa],
+        )));
+        let (resigned, _) = kp
+            .sk
+            .sign_multi_with_version(extended, None, false, false, SignatureVersion::V2)
+            .unwrap();
+        let entries = match &resigned.sections[0] {
+            Section::Custom(cs) => cs.signature_data().unwrap().signed_hashes_set.len(),
+            _ => panic!("no signature header"),
+        };
+        assert_eq!(entries, 1);
+        assert!(
+            kp.pk
+                .verify(&mut Cursor::new(serialize_module(&resigned)), None)
+                .is_ok()
+        );
+    }
+
+    /// Domain separation at the signature check itself: an Ed25519
+    /// signature made under one version is not accepted over the same
+    /// hashes under the other. (End to end, a relabelled header is ALSO
+    /// rejected because the v1 and v2 content hashes differ; this test pins
+    /// the version byte in the signed message on its own.)
+    // rivet: verifies REQ-32
+    #[test]
+    fn signature_made_under_one_version_does_not_check_under_the_other() {
+        let kp = KeyPair::generate();
+        for (sign_as, check_as) in [
+            (SignatureVersion::V1, SignatureVersion::V2),
+            (SignatureVersion::V2, SignatureVersion::V1),
+        ] {
+            let (signed, _) = kp
+                .sk
+                .sign_multi_with_version(component(), None, false, false, sign_as)
+                .unwrap();
+            let set = match &signed.sections[0] {
+                Section::Custom(cs) => cs.signature_data().unwrap().signed_hashes_set,
+                _ => panic!("no signature header"),
+            };
+            assert_eq!(
+                kp.pk
+                    .valid_hashes_for_pk(&set, sign_as, true)
+                    .unwrap()
+                    .len(),
+                1,
+                "positive control: the signature checks under its own version"
+            );
+            assert!(
+                kp.pk
+                    .valid_hashes_for_pk(&set, check_as, true)
+                    .unwrap()
+                    .is_empty(),
+                "a {:?} signature must not check as {:?}",
+                sign_as,
+                check_as
+            );
+        }
     }
 }

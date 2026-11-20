@@ -88,16 +88,38 @@ use std::io::Read;
 pub fn sign_with_certificate(
     provider: &dyn SecureKeyProvider,
     key_handle: KeyHandle,
+    module: Module,
+    certificate_chain: &[Vec<u8>],
+) -> Result<Module, WSError> {
+    sign_with_certificate_versioned(
+        provider,
+        key_handle,
+        module,
+        certificate_chain,
+        SignatureVersion::V1,
+    )
+}
+
+/// [`sign_with_certificate`] with an explicit signature format version.
+///
+/// `SignatureVersion::V2` binds the module's 8-byte preamble into the signed
+/// hash (#303). Adding a signature to a module whose existing signature
+/// header has a different version fails with `IncompatibleSignatureVersion`.
+pub fn sign_with_certificate_versioned(
+    provider: &dyn SecureKeyProvider,
+    key_handle: KeyHandle,
     mut module: Module,
     certificate_chain: &[Vec<u8>],
+    version: SignatureVersion,
 ) -> Result<Module, WSError> {
     if certificate_chain.is_empty() {
         return Err(WSError::InvalidArgument);
     }
 
-    // Hash the module and preserve previous signatures
+    // Hash the module and preserve previous signatures. v2 absorbs the
+    // preamble first (see `SignatureVersion::content_hasher`).
     let mut out_sections = vec![Section::Custom(CustomSection::default())];
-    let mut hasher = Hash::new();
+    let mut hasher = version.content_hasher(&module.header);
     let mut previous_signature_data = None;
 
     for section in module.sections.into_iter() {
@@ -112,19 +134,17 @@ pub fn sign_with_certificate(
         out_sections.push(section);
     }
     let h = hasher.finalize().to_vec();
+    if let Some(prev) = &previous_signature_data {
+        if prev.specification_version != version.as_u8() {
+            return Err(WSError::IncompatibleSignatureVersion);
+        }
+    }
 
     // Create message to sign
-    let mut msg: Vec<u8> = vec![];
-    msg.extend_from_slice(SIGNATURE_WASM_DOMAIN.as_bytes());
-    msg.extend_from_slice(&[
-        SIGNATURE_VERSION,
-        SIGNATURE_WASM_MODULE_CONTENT_TYPE,
-        SIGNATURE_HASH_FUNCTION,
-    ]);
-    msg.extend_from_slice(&h);
+    let msg = version.signed_message(std::slice::from_ref(&h));
 
     // Sign with hardware key
-    let signature = provider.sign(key_handle, &msg)?;
+    let signature = provider.sign(key_handle, &msg[..])?;
 
     // Create new signature with certificate chain
     let new_signature = SignatureForHashes {
@@ -168,7 +188,7 @@ pub fn sign_with_certificate(
     };
 
     let signature_data = SignatureData {
-        specification_version: SIGNATURE_VERSION,
+        specification_version: version.as_u8(),
         content_type: SIGNATURE_WASM_MODULE_CONTENT_TYPE,
         hash_function: SIGNATURE_HASH_FUNCTION,
         signed_hashes_set,
@@ -217,6 +237,7 @@ pub fn verify_with_certificate(
     verifier: &OfflineVerifier,
 ) -> Result<(), WSError> {
     let stream = Module::init_from_reader(reader)?;
+    let preamble = stream.header();
     let mut sections = Module::iterate(stream)?;
 
     // Read signature header
@@ -236,8 +257,9 @@ pub fn verify_with_certificate(
         return Err(WSError::NoSignatures);
     }
 
-    // Hash the module (excluding signature section)
-    let mut hasher = Hash::new();
+    // Hash the module (excluding signature section). v2 binds the preamble.
+    let version = SignatureVersion::from_u8(signature_data.specification_version)?;
+    let mut hasher = version.content_hasher(&preamble);
     for section in sections {
         let section = section?;
         if section.is_signature_header() || section.is_signature_delimiter() {
@@ -366,6 +388,7 @@ pub fn verify_all_certificates(
     verifiers: &[&OfflineVerifier],
 ) -> Result<Vec<VerificationResult>, WSError> {
     let stream = Module::init_from_reader(reader)?;
+    let preamble = stream.header();
     let mut sections = Module::iterate(stream)?;
 
     // Read signature header
@@ -385,8 +408,9 @@ pub fn verify_all_certificates(
         return Err(WSError::NoSignatures);
     }
 
-    // Hash the module (excluding signature section)
-    let mut hasher = Hash::new();
+    // Hash the module (excluding signature section). v2 binds the preamble.
+    let version = SignatureVersion::from_u8(signature_data.specification_version)?;
+    let mut hasher = version.content_hasher(&preamble);
     for section in sections {
         let section = section?;
         if section.is_signature_header() || section.is_signature_delimiter() {
@@ -722,6 +746,71 @@ mod tests {
             "a device signature must verify under the public key in the device's own certificate: {:?}",
             result.err()
         );
+    }
+
+    /// Signature format v2 through the certificate path: a v2 signature
+    /// verifies with `verify_with_certificate` and `verify_all_certificates`,
+    /// and rewriting the component preamble to a core-module preamble is
+    /// rejected by both, while the v1 default still leaves it unbound (#303).
+    // rivet: verifies REQ-32
+    #[test]
+    fn test_certificate_path_v2_binds_preamble() {
+        let root_ca = PrivateCA::create_root(CAConfig::new("Test Corp", "Test Root CA")).unwrap();
+        let provider = SoftwareProvider::new();
+        let key_handle = provider.generate_key().unwrap();
+        let device_public_key = provider.get_public_key(key_handle).unwrap();
+        let device_cert = root_ca
+            .sign_device_certificate(
+                &device_public_key,
+                &DeviceIdentity::new("device-v2"),
+                &CertificateConfig::new("device-v2"),
+            )
+            .unwrap();
+        let cert_chain = vec![device_cert, root_ca.certificate().to_vec()];
+        let verifier = OfflineVerifierBuilder::new()
+            .with_root(root_ca.certificate())
+            .unwrap()
+            .build()
+            .unwrap();
+        let component: Vec<u8> = vec![
+            0x00, 0x61, 0x73, 0x6D, 0x0d, 0x00, 0x01, 0x00, // component preamble
+            0x01, 0x03, 0x01, 0x02, 0x03, // a type section
+        ];
+        let sign = |version: SignatureVersion| {
+            let module = Module::deserialize(&mut component.as_slice()).unwrap();
+            let signed = sign_with_certificate_versioned(
+                &provider,
+                key_handle,
+                module,
+                &cert_chain,
+                version,
+            )
+            .unwrap();
+            let mut bytes = Vec::new();
+            signed.serialize(&mut bytes).unwrap();
+            bytes
+        };
+        let rewrite = |bytes: &[u8]| {
+            let mut out = bytes.to_vec();
+            out[0..8].copy_from_slice(&[0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00]);
+            out
+        };
+        let all_ok = |bytes: &[u8]| {
+            let results = verify_all_certificates(&mut &bytes[..], &[&verifier]).unwrap();
+            !results.is_empty() && results.iter().all(|r| r.verified)
+        };
+
+        let v2 = sign(SignatureVersion::V2);
+        assert!(verify_with_certificate(&mut v2.as_slice(), &verifier).is_ok());
+        assert!(all_ok(&v2));
+        let v2_rw = rewrite(&v2);
+        assert!(verify_with_certificate(&mut v2_rw.as_slice(), &verifier).is_err());
+        assert!(!all_ok(&v2_rw));
+
+        // v1 default: unchanged behaviour, preamble unbound.
+        let v1 = sign(SignatureVersion::V1);
+        assert!(verify_with_certificate(&mut v1.as_slice(), &verifier).is_ok());
+        assert!(verify_with_certificate(&mut rewrite(&v1).as_slice(), &verifier).is_ok());
     }
 
     #[test]

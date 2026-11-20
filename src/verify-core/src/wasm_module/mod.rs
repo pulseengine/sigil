@@ -479,6 +479,14 @@ pub struct ModuleStreamReader<'t, T: Read> {
     header: Header,
 }
 
+impl<T: Read> ModuleStreamReader<'_, T> {
+    /// The 8-byte preamble (magic + version/layer) read by `init_from_reader`.
+    /// Signature format v2 binds it into the signed hash (#303).
+    pub fn header(&self) -> Header {
+        self.header
+    }
+}
+
 /// An iterator over the sections of a WebAssembly module.
 ///
 /// Yields at most [`MAX_SECTIONS`] sections; the next call after the cap is

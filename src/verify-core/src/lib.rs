@@ -48,6 +48,17 @@ pub use wasm_module::*;
 // outer `wsc` crate and downstream tooling can reference them — they are
 // part of the signed module's on-disk format and must stay stable.
 pub const SIGNATURE_WASM_DOMAIN: &str = "wasmsig";
-pub const SIGNATURE_VERSION: u8 = 0x01;
+/// The signature format version the signer EMITS by default (v1).
+///
+/// Kept at 0x01: whether signing defaults to v2 is an open owner decision
+/// (#303 / REQ-32). The verifier accepts both [`SIGNATURE_VERSION_V1`] and
+/// [`SIGNATURE_VERSION_V2`]; see [`SignatureVersion`].
+pub const SIGNATURE_VERSION: u8 = SIGNATURE_VERSION_V1;
+/// Format v1: the signed hash covers the section stream only. The 8-byte
+/// module preamble (magic + version/layer) is NOT bound (#303).
+pub const SIGNATURE_VERSION_V1: u8 = 0x01;
+/// Format v2 (opt-in): the signed hash covers the 8-byte module preamble,
+/// hashed first, followed by the same section stream as v1.
+pub const SIGNATURE_VERSION_V2: u8 = 0x02;
 pub const SIGNATURE_WASM_MODULE_CONTENT_TYPE: u8 = 0x01;
 pub const SIGNATURE_HASH_FUNCTION: u8 = 0x01;

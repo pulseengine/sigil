@@ -2,9 +2,11 @@ use log::*;
 use std::io::{BufReader, BufWriter, prelude::*};
 
 use crate::ED25519_PK_ID;
+#[cfg(test)]
 use crate::SIGNATURE_VERSION;
 use crate::SIGNATURE_WASM_MODULE_CONTENT_TYPE;
 use crate::error::CoreError;
+use crate::signature::SignatureVersion;
 use crate::wasm_module::*;
 
 pub const SIGNATURE_SECTION_HEADER_NAME: &str = "signature";
@@ -212,7 +214,8 @@ impl SignatureData {
     pub fn deserialize(bin: impl AsRef<[u8]>) -> Result<Self, CoreError> {
         let mut reader = BufReader::new(bin.as_ref());
         let specification_version = varint::get7(&mut reader)?;
-        if specification_version != SIGNATURE_VERSION {
+        // v1 and v2 are both accepted (#303); anything else is rejected.
+        if SignatureVersion::from_u8(specification_version).is_err() {
             debug!(
                 "Unsupported specification version: {:02x}",
                 specification_version
@@ -410,6 +413,30 @@ mod tests {
             result.unwrap_err(),
             CoreError::TooManyCertificates(_)
         ));
+    }
+
+    // rivet: verifies REQ-32
+    #[test]
+    fn test_signature_data_accepts_v1_and_v2_and_rejects_other_versions() {
+        let with_version = |v: u8| SignatureData {
+            specification_version: v,
+            content_type: SIGNATURE_WASM_MODULE_CONTENT_TYPE,
+            hash_function: 0x01,
+            signed_hashes_set: vec![SignedHashes {
+                hashes: vec![vec![7; 32]],
+                signatures: vec![],
+            }],
+        };
+        for v in [crate::SIGNATURE_VERSION_V1, crate::SIGNATURE_VERSION_V2] {
+            let parsed = SignatureData::deserialize(with_version(v).serialize().unwrap()).unwrap();
+            assert_eq!(parsed.specification_version, v);
+        }
+        for v in [0u8, 3, 0x7f] {
+            assert!(matches!(
+                SignatureData::deserialize(with_version(v).serialize().unwrap()),
+                Err(CoreError::ParseError)
+            ));
+        }
     }
 
     #[test]

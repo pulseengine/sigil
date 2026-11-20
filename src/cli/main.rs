@@ -218,6 +218,16 @@ fn start() -> Result<(), WSError> {
                         .long("signature-file")
                         .short('S')
                         .help("Signature file"),
+                )
+                .arg(
+                    Arg::new("signature_version")
+                        .value_name("version")
+                        .long("signature-version")
+                        .value_parser(["1", "2"])
+                        .default_value("1")
+                        .help("Signature format version for key-based WASM signing. \
+                               1 (default) leaves the 8-byte module preamble unbound; \
+                               2 binds it into the signed hash (#303). Verifiers accept both."),
                 ),
         )
         .subcommand(
@@ -788,6 +798,27 @@ fn start() -> Result<(), WSError> {
             wsc::format::FormatType::Wasm
         };
 
+        // Signature format version (#303). Only key-based WASM signing has a
+        // versioned format; reject an explicit choice anywhere it would be
+        // silently ignored.
+        let signature_version = match matches
+            .get_one::<String>("signature_version")
+            .map(|s| s.as_str())
+        {
+            Some("2") => wsc::SignatureVersion::V2,
+            _ => wsc::SignatureVersion::V1,
+        };
+        let signature_version_explicit = matches.value_source("signature_version")
+            == Some(clap::parser::ValueSource::CommandLine);
+        if signature_version_explicit
+            && (matches.get_flag("keyless") || format_type != wsc::format::FormatType::Wasm)
+        {
+            return Err(WSError::UsageError(
+                "--signature-version applies only to key-based WASM signing",
+            )
+            .into());
+        }
+
         // Non-WASM format signing (ELF, MCUboot)
         if format_type != wsc::format::FormatType::Wasm {
             use wsc::format::SignableArtifact;
@@ -902,8 +933,13 @@ fn start() -> Result<(), WSError> {
                 None
             };
             let module = Module::deserialize_from_file(input_file)?;
-            let (module, signature) =
-                sk.sign_multi(module, key_id.as_ref(), signature_file.is_some(), false)?;
+            let (module, signature) = sk.sign_multi_with_version(
+                module,
+                key_id.as_ref(),
+                signature_file.is_some(),
+                false,
+                signature_version,
+            )?;
             if let Some(signature_file) = signature_file {
                 module.serialize_to_file(output_file)?;
                 create_file_with_dirs(signature_file)?.write_all(&signature)?;
