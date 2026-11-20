@@ -41,22 +41,23 @@ concurrency:
 jobs:
   required:
     name: Required checks
-    # Self-hosted `light` (owner decision 2026-11-14: the org's ~5 hosted slots
-    # left this job queued past its deadline). Trade-off: it polls for up to
-    # an hour and holds a light runner while doing so. light has 3 runners and
-    # also serves the jobs this one waits for (claim check, vacuous-oracle
-    # gate, cargo audit, cargo vet), so three PRs polling at once can starve
-    # them. Queued time no longer counts against the 3600 s stall clock
-    # (2026-11-18), so starvation now shows as a long wait, up to the 5 h
-    # overall cap, not as a red PR. If that shows up, move this job to its own
-    # label rather than back to the hosted queue.
-    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","light"]') || 'ubuntu-24.04' }}
+    # Self-hosted `gate-poller` (owner decision 2026-11-20, notice
+    # 20261120T055256-0fafb1; label provided by smithy#215 on
+    # pulseengine-ci-01-17/-18). Before this the job polled on `light`, which
+    # also runs the jobs it waits for (claim check, vacuous-oracle gate,
+    # cargo audit, cargo vet): three PRs polling at once held all three light
+    # runners and deadlocked them (runs 44659921868, 44663333155). The
+    # gate-poller runners are capped at 1-2 GB RAM and one job each; this job
+    # only runs gh and python, so it fits and no build may move here. Fork
+    # PRs stay on hosted ubuntu-24.04: self-hosted runners never run fork
+    # code.
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && fromJSON('["self-hosted","linux","x64","gate-poller"]') || 'ubuntu-24.04' }}
     # Above the script's 5 h overall cap, so the script fails with its own
     # message before the runner cancels the job.
     timeout-minutes: 320
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-    # The self-hosted light runners ship no gh; required-checks.py needs it.
+    # The self-hosted runners ship no gh; required-checks.py needs it.
     - uses: ./.github/actions/setup-gh
 
     - name: Decision table self-test
