@@ -540,6 +540,20 @@ mod tests {
         );
     }
 
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_maximal_tree_size_does_not_overflow() {
+        // tree_size comes from the unsigned proof JSON. u64::MAX needs depth
+        // 64, the largest shift into the u64 turn bitset is 63: guard that
+        // boundary, and that a wrong-length or bogus proof is rejected.
+        let leaf = [7u8; 32];
+        let root = [9u8; 32];
+        let err = verify_inclusion_proof(u64::MAX - 1, u64::MAX, &leaf, &[], &root);
+        assert!(err.is_err());
+        let path = vec![[1u8; 32]; 64];
+        assert!(verify_inclusion_proof(u64::MAX - 1, u64::MAX, &leaf, &path, &root).is_err());
+    }
+
     #[test]
     fn test_empty_leaf_hash() {
         // From Google CT test vectors: A leaf containing empty data
