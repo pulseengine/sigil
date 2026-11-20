@@ -84,7 +84,7 @@ pub fn compute_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 /// * `leaf_index` - Index of the leaf in the tree (0-based)
 /// * `tree_size` - Total number of leaves in the tree
 /// * `leaf_hash` - Hash of the leaf data (32 bytes)
-/// * `proof_hashes` - Audit path hashes from leaf to root
+/// * `proof_hashes` - Audit path hashes, ordered leaf to root (RFC 6962 PATH)
 /// * `expected_root` - Expected Merkle tree root hash (32 bytes)
 ///
 /// # Returns
@@ -92,18 +92,29 @@ pub fn compute_node_hash(left: &[u8; 32], right: &[u8; 32]) -> [u8; 32] {
 ///
 /// # Algorithm
 ///
-/// The algorithm walks up the Merkle tree from the leaf to the root:
-/// 1. Start with `current_hash = leaf_hash`
-/// 2. For each proof hash in the audit path:
-///    - Determine if current node is left or right child based on index
-///    - Compute parent: `hash(0x01 || left || right)`
-///    - Update index to parent's index
-/// 3. Compare final computed hash with expected root
+/// RFC 6962 §2.1.1 defines PATH(m, D[n]) recursively from the root down:
+/// split at k, the largest power of two below n, recurse into the half
+/// that holds m, and append the other half's root. The audit path is
+/// therefore ordered leaf to root, and its last hash is the sibling at the
+/// root's split.
+///
+/// 1. Descend from the root exactly as PATH does, recording at each level
+///    whether leaf m lies in the right subtree. The number of levels is
+///    the required proof length.
+/// 2. Reject a proof of any other length.
+/// 3. Hash upward from the leaf: proof hash j pairs with the decision made
+///    j levels above the leaf, i.e. the decisions in reverse order.
+/// 4. Compare the result with the expected root.
+///
+/// The walk before sigil#137's fix applied the top-down decisions in
+/// top-down order to the leaf-to-root hashes. That agrees with RFC 6962
+/// only when the decision sequence reads the same both ways (e.g. leaf 0
+/// of a perfect tree), so real Rekor proofs failed.
 ///
 /// # Security
 /// - Validates that leaf exists in tree of specified size
 /// - Cryptographically binds leaf to root via hash chain
-/// - Prevents tampering with log entries
+/// - Rejects proofs with extra or missing hashes
 pub fn verify_inclusion_proof(
     leaf_index: u64,
     tree_size: u64,
@@ -111,7 +122,9 @@ pub fn verify_inclusion_proof(
     proof_hashes: &[[u8; 32]],
     expected_root: &[u8; 32],
 ) -> Result<(), WSError> {
-    // Validate inputs
+    if tree_size == 0 {
+        return Err(WSError::RekorError("Tree size cannot be zero".to_string()));
+    }
     if leaf_index >= tree_size {
         return Err(WSError::RekorError(format!(
             "Leaf index {} is out of range for tree size {}",
@@ -119,113 +132,49 @@ pub fn verify_inclusion_proof(
         )));
     }
 
-    if tree_size == 0 {
-        return Err(WSError::RekorError("Tree size cannot be zero".to_string()));
+    // Step 1: root-to-leaf descent. Bit `d` of `right_turns` is set when,
+    // at depth `d` below the root, the leaf lies in the right subtree.
+    // A u64 tree has depth at most 64.
+    let mut right_turns: u64 = 0;
+    let mut depth: usize = 0;
+    let mut index = leaf_index;
+    let mut size = tree_size;
+    while size > 1 {
+        let k = largest_power_of_two_less_than(size);
+        if index >= k {
+            right_turns |= 1u64 << depth;
+            index -= k;
+            size -= k;
+        } else {
+            size = k;
+        }
+        depth += 1;
     }
 
-    // Special case: single-leaf tree
-    if tree_size == 1 {
-        if leaf_index != 0 {
-            return Err(WSError::RekorError(
-                "Leaf index must be 0 for single-leaf tree".to_string(),
-            ));
-        }
-        if !proof_hashes.is_empty() {
-            return Err(WSError::RekorError(
-                "Proof should be empty for single-leaf tree".to_string(),
-            ));
-        }
-        if leaf_hash != expected_root {
-            return Err(WSError::RekorError(
-                "Leaf hash does not match root for single-leaf tree".to_string(),
-            ));
-        }
-        return Ok(());
+    // Step 2: the proof length is fixed by (leaf_index, tree_size).
+    if proof_hashes.len() != depth {
+        return Err(WSError::RekorError(format!(
+            "Inclusion proof has {} hashes; leaf {} of a tree of size {} needs {}",
+            proof_hashes.len(),
+            leaf_index,
+            tree_size,
+            depth
+        )));
     }
 
-    // Walk up the tree computing hashes
+    // Step 3: leaf-to-root hashing. proof_hashes[0] is the leaf's sibling,
+    // which belongs to the deepest decision (depth - 1).
     let mut current_hash = *leaf_hash;
-    let mut current_index = leaf_index;
-    let mut current_tree_size = tree_size;
-
-    #[cfg(test)]
-    {
-        println!("   Starting with leaf hash: {}", hex::encode(current_hash));
-        println!(
-            "   Leaf index: {}, Tree size: {}",
-            current_index, current_tree_size
-        );
+    for (j, sibling) in proof_hashes.iter().enumerate() {
+        let is_right = (right_turns >> (depth - 1 - j)) & 1 == 1;
+        current_hash = if is_right {
+            compute_node_hash(sibling, &current_hash)
+        } else {
+            compute_node_hash(&current_hash, sibling)
+        };
     }
 
-    #[allow(clippy::unused_enumerate_index)]
-    for (_i, proof_hash) in proof_hashes.iter().enumerate() {
-        // Determine if current node is left or right child
-        // The tree is built left-to-right, so we can determine position
-        // based on whether the index is even or odd at each level
-
-        // Calculate the size of the left subtree at this level
-        // This is the largest power of 2 less than current_tree_size
-        let left_subtree_size = largest_power_of_two_less_than(current_tree_size);
-
-        let is_left_child = current_index < left_subtree_size;
-
-        #[cfg(test)]
-        let (left_hex, right_hex) = if is_left_child {
-            (hex::encode(current_hash), hex::encode(proof_hash))
-        } else {
-            (hex::encode(proof_hash), hex::encode(current_hash))
-        };
-
-        let (left, right) = if is_left_child {
-            // Current node is in left subtree
-            (&current_hash, proof_hash)
-        } else {
-            // Current node is in right subtree
-            (proof_hash, &current_hash)
-        };
-
-        current_hash = compute_node_hash(left, right);
-
-        #[cfg(test)]
-        {
-            println!(
-                "\n   Step {}: {} child",
-                _i + 1,
-                if is_left_child { "LEFT" } else { "RIGHT" }
-            );
-            println!("     Left:   {}", left_hex);
-            println!("     Right:  {}", right_hex);
-            println!("     Result: {}", hex::encode(current_hash));
-            println!(
-                "     Index: {} -> {}, Tree size: {} -> {}",
-                current_index,
-                if current_index >= left_subtree_size {
-                    current_index - left_subtree_size
-                } else {
-                    current_index
-                },
-                current_tree_size,
-                if current_index >= left_subtree_size {
-                    current_tree_size - left_subtree_size
-                } else {
-                    left_subtree_size
-                }
-            );
-        }
-
-        // Move up to parent level
-        if current_index >= left_subtree_size {
-            current_index -= left_subtree_size;
-            current_tree_size -= left_subtree_size;
-        } else {
-            current_tree_size = left_subtree_size;
-        }
-    }
-
-    #[cfg(test)]
-    println!("\n   Final computed root: {}", hex::encode(current_hash));
-
-    // Final computed hash should match the expected root
+    // Step 4.
     if &current_hash != expected_root {
         return Err(WSError::RekorError(format!(
             "Computed root hash does not match expected root. Computed: {}, Expected: {}",
@@ -252,9 +201,144 @@ fn largest_power_of_two_less_than(n: u64) -> u64 {
     1u64 << (63 - (n - 1).leading_zeros())
 }
 
+/// Reference RFC 6962 §2.1 Merkle tree, written straight from the
+/// recursive definitions of MTH and PATH. Tests use it as the oracle for
+/// `verify_inclusion_proof`; it shares only the two hash primitives.
+#[cfg(test)]
+pub(crate) mod reference {
+    use super::compute_node_hash;
+
+    /// k: the largest power of two smaller than n (n > 1).
+    fn split(n: usize) -> usize {
+        let mut k = 1;
+        while k * 2 < n {
+            k *= 2;
+        }
+        k
+    }
+
+    /// MTH over leaf hashes (n >= 1).
+    pub(crate) fn mth(leaves: &[[u8; 32]]) -> [u8; 32] {
+        match leaves.len() {
+            0 => panic!("MTH of an empty list is not needed here"),
+            1 => leaves[0],
+            n => {
+                let k = split(n);
+                compute_node_hash(&mth(&leaves[..k]), &mth(&leaves[k..]))
+            }
+        }
+    }
+
+    /// PATH(m, D[n]): the audit path for leaf m, ordered leaf to root.
+    pub(crate) fn path(m: usize, leaves: &[[u8; 32]]) -> Vec<[u8; 32]> {
+        let n = leaves.len();
+        if n == 1 {
+            return Vec::new();
+        }
+        let k = split(n);
+        if m < k {
+            let mut p = path(m, &leaves[..k]);
+            p.push(mth(&leaves[k..]));
+            p
+        } else {
+            let mut p = path(m - k, &leaves[k..]);
+            p.push(mth(&leaves[..k]));
+            p
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn synthetic_leaves(n: usize) -> Vec<[u8; 32]> {
+        (0..n)
+            .map(|i| compute_leaf_hash(format!("leaf-{i}").as_bytes()))
+            .collect()
+    }
+
+    /// The reference tree reproduces the Google CT root vectors, so it is
+    /// an oracle independent of `verify_inclusion_proof`.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_reference_tree_matches_ct_root_vectors() {
+        let inputs: Vec<&[u8]> = vec![
+            &[],
+            &[0x00],
+            &[0x10],
+            &[0x20, 0x21],
+            &[0x30, 0x31],
+            &[0x40, 0x41, 0x42, 0x43],
+            &[0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57],
+            &[
+                0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d,
+                0x6e, 0x6f,
+            ],
+        ];
+        let roots = [
+            "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            "fac54203e7cc696cf0dfcb42c92a1d9dbaf70ad9e621f4bd8d98662f00e3c125",
+            "aeb6bcfe274b70a14fb067a5e5578264db0fa9b51af5e0ba159158f329e06e77",
+            "d37ee418976dd95753c1c73862b9398fa2a2cf9b4ff0fdfe8b30cd95209614b7",
+            "4e3bbb1f7b478dcfe71fb631631519a3bca12c9aefca1612bfce4c13a86264d4",
+            "76e67dadbcdf1e10e1b74ddc608abd2f98dfb16fbce75277b5232a127f2087ef",
+            "ddb89be403809e325750d3d263cd78929c2942b7942a34b77e122c9594a74c8c",
+            "5dc9da79a70659a9ad559cb701ded9a2ab9d823aad2f4960cfe370eff4604328",
+        ];
+        let leaves: Vec<[u8; 32]> = inputs.iter().map(|d| compute_leaf_hash(d)).collect();
+        for n in 1..=8 {
+            assert_eq!(
+                hex::encode(reference::mth(&leaves[..n])),
+                roots[n - 1],
+                "n={n}"
+            );
+        }
+    }
+
+    /// Every leaf of every tree size up to 40 verifies with its RFC 6962
+    /// audit path. The pre-fix walk split the tree top-down but consumed
+    /// the leaf-to-root path bottom-up, so it failed e.g. leaf 1 of 8.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_inclusion_every_index_matches_rfc6962_reference() {
+        for n in 1..=40usize {
+            let leaves = synthetic_leaves(n);
+            let root = reference::mth(&leaves);
+            for m in 0..n {
+                let p = reference::path(m, &leaves);
+                verify_inclusion_proof(m as u64, n as u64, &leaves[m], &p, &root)
+                    .unwrap_or_else(|e| panic!("leaf {m} of {n}: {e}"));
+            }
+        }
+    }
+
+    /// Planted controls on a valid path: a flipped sibling, an extra or a
+    /// missing sibling, a different index, or a different leaf must fail.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_inclusion_rejects_tampered_paths() {
+        for (n, m) in [(2usize, 1usize), (7, 3), (8, 1), (13, 12), (33, 17)] {
+            let leaves = synthetic_leaves(n);
+            let root = reference::mth(&leaves);
+            let p = reference::path(m, &leaves);
+            let (mi, ni) = (m as u64, n as u64);
+            assert!(verify_inclusion_proof(mi, ni, &leaves[m], &p, &root).is_ok());
+            for i in 0..p.len() {
+                let mut bad = p.clone();
+                bad[i][0] ^= 1;
+                assert!(verify_inclusion_proof(mi, ni, &leaves[m], &bad, &root).is_err());
+            }
+            let mut longer = p.clone();
+            longer.push([0u8; 32]);
+            assert!(verify_inclusion_proof(mi, ni, &leaves[m], &longer, &root).is_err());
+            let shorter = &p[..p.len() - 1];
+            assert!(verify_inclusion_proof(mi, ni, &leaves[m], shorter, &root).is_err());
+            let other = (m + 1) % n;
+            assert!(verify_inclusion_proof(other as u64, ni, &leaves[m], &p, &root).is_err());
+            assert!(verify_inclusion_proof(mi, ni, &leaves[other], &p, &root).is_err());
+        }
+    }
 
     #[test]
     fn test_leaf_hash_computation() {

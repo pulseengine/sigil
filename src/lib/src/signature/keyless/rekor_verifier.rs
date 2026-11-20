@@ -295,6 +295,15 @@ pub struct RekorKeyring {
     source: String,
 }
 
+/// Decode a hex string that must be exactly 32 bytes.
+fn decode_hash32(hex_str: &str, what: &str) -> Result<[u8; 32], WSError> {
+    let bytes = hex::decode(hex_str)
+        .map_err(|e| WSError::RekorError(format!("Failed to decode {}: {}", what, e)))?;
+    bytes
+        .try_into()
+        .map_err(|b: Vec<u8>| WSError::RekorError(format!("Invalid {} length: {}", what, b.len())))
+}
+
 impl RekorKeyring {
     /// Extract tree ID from a Rekor UUID
     ///
@@ -822,6 +831,11 @@ impl RekorKeyring {
     ///
     /// # Returns
     /// `Ok(())` if checkpoint is valid for this proof, `Err(WSError)` otherwise
+    ///
+    /// Note: [`verify_inclusion_proof`](Self::verify_inclusion_proof) calls
+    /// this only after requiring equal sizes. The larger-checkpoint case
+    /// below accepts without a consistency proof and must not be relied on
+    /// for soundness (sigil#137).
     pub fn is_valid_for_proof(
         checkpoint: &Checkpoint,
         proof_root_hash: &[u8; 32],
@@ -875,7 +889,27 @@ impl RekorKeyring {
         )))
     }
 
-    /// Verify a Merkle tree inclusion proof
+    /// Verify a Merkle tree inclusion proof against a signed checkpoint
+    ///
+    /// The root the Merkle walk must reach is the root a trusted log key
+    /// signed, never the `rootHash` of the proof JSON, which is unsigned:
+    /// anyone can pick a root and compute matching proof hashes for it.
+    ///
+    /// Steps, each fail-closed:
+    /// 1. The proof must carry a checkpoint (signed tree head).
+    /// 2. The checkpoint origin must name rekor.sigstore.dev and the tree
+    ///    ID in the entry UUID.
+    /// 3. The checkpoint signature must verify under the entry's log key.
+    /// 4. The checkpoint size must equal the proof's tree size. A proof for
+    ///    a smaller tree would need a verified consistency proof to the
+    ///    checkpoint's tree, which this verifier does not implement.
+    /// 5. The proof's `rootHash` must equal the checkpoint root.
+    /// 6. The RFC 6962 walk from SHA-256(0x00 || body) at the proof's leaf
+    ///    index must reach the checkpoint root at the checkpoint size.
+    ///
+    /// Scope: Rekor v1 (ECDSA P-256) entries. Rekor v2 (Ed25519) logs are
+    /// rejected earlier by the key lookup. This is not called from either
+    /// keyless verify path yet (REQ-40, sigil#137).
     ///
     /// # Arguments
     /// * `entry` - The Rekor log entry containing the inclusion proof
@@ -887,165 +921,61 @@ impl RekorKeyring {
             return Err(WSError::RekorError("Missing inclusion proof".to_string()));
         }
 
-        // Deserialize the inclusion proof from JSON
         let proof: InclusionProof = serde_json::from_slice(&entry.inclusion_proof)
             .map_err(|e| WSError::RekorError(format!("Failed to parse inclusion proof: {}", e)))?;
 
-        log::debug!("Inclusion proof verification:");
-        log::debug!("  Entry Log Index: {}", entry.log_index);
-        log::debug!("  Proof Log Index: {}", proof.log_index);
-        log::debug!("  Tree Size: {}", proof.tree_size);
-        log::debug!("  UUID: {}", entry.uuid);
-
-        #[cfg(test)]
-        {
-            println!("\n🔍 Inclusion Proof Debug Info:");
-            println!("   Entry Log Index: {}", entry.log_index);
-            println!("   Proof Log Index: {}", proof.log_index);
-            println!("   Tree Size: {}", proof.tree_size);
-            println!("   UUID: {}", entry.uuid);
-        }
-
-        // Compute the leaf hash from the entry body (per RFC 6962)
-        // Per Rekor's verify.go:158-162, the leaf hash is computed as:
-        //   1. Base64 decode the body field
-        //   2. Compute SHA-256(0x00 || body_bytes)
-        // This is NOT extracted from the UUID - the UUID is derived FROM this hash.
+        // Leaf hash per RFC 6962 over the base64-decoded body (Rekor v1
+        // verify.go). For the committed fixture this equals the leaf hash
+        // embedded in the entry UUID.
         let body_bytes = BASE64
             .decode(&entry.body)
             .map_err(|e| WSError::RekorError(format!("Failed to decode entry body: {}", e)))?;
-
-        // Compute RFC 6962 leaf hash: SHA-256(0x00 || body)
         let leaf_hash = merkle::compute_leaf_hash(&body_bytes);
 
-        #[cfg(test)]
-        println!(
-            "   Leaf hash (computed from body): {}",
-            hex::encode(leaf_hash)
-        );
-
-        // Decode proof hashes from hex
-        let proof_hashes: Result<Vec<[u8; 32]>, _> = proof
+        let proof_hashes = proof
             .hashes
             .iter()
-            .map(|h| {
-                let bytes = hex::decode(h).map_err(|e| {
-                    WSError::RekorError(format!("Failed to decode proof hash: {}", e))
-                })?;
-                if bytes.len() != 32 {
-                    return Err(WSError::RekorError(format!(
-                        "Invalid proof hash length: {}",
-                        bytes.len()
-                    )));
-                }
-                let mut arr = [0u8; 32];
-                arr.copy_from_slice(&bytes);
-                Ok(arr)
-            })
-            .collect();
-        let proof_hashes = proof_hashes?;
+            .map(|h| decode_hash32(h, "proof hash"))
+            .collect::<Result<Vec<[u8; 32]>, WSError>>()?;
+        let proof_root = decode_hash32(&proof.root_hash, "root hash")?;
 
-        #[cfg(test)]
-        println!("   Number of proof hashes: {}", proof_hashes.len());
+        // 1. A signed checkpoint is required.
+        let checkpoint_str = proof.checkpoint.as_deref().ok_or_else(|| {
+            WSError::RekorError(
+                "Inclusion proof has no checkpoint: its root hash is unsigned, so the proof \
+                 alone proves nothing (sigil#137)"
+                    .to_string(),
+            )
+        })?;
+        let checkpoint = Checkpoint::decode(checkpoint_str)?;
 
-        // Decode expected root hash from hex
-        let expected_root = hex::decode(&proof.root_hash)
-            .map_err(|e| WSError::RekorError(format!("Failed to decode root hash: {}", e)))?;
-        if expected_root.len() != 32 {
+        // 2. and 3. The checkpoint belongs to this log and tree, and a
+        // trusted key signed it.
+        RekorKeyring::validate_checkpoint_origin(&checkpoint, &entry.uuid)?;
+        self.verify_checkpoint(&checkpoint, &entry.log_id)?;
+
+        // 4. Same tree size, or the signed root says nothing about the proof.
+        if checkpoint.note.size != proof.tree_size {
             return Err(WSError::RekorError(format!(
-                "Invalid root hash length: {}",
-                expected_root.len()
+                "Checkpoint tree size ({}) differs from the inclusion proof tree size ({}); \
+                 without a verified consistency proof the proof's root is unsigned",
+                checkpoint.note.size, proof.tree_size
             )));
         }
-        let mut root_arr = [0u8; 32];
-        root_arr.copy_from_slice(&expected_root);
 
-        #[cfg(test)]
-        println!("   Expected root hash: {}", hex::encode(root_arr));
+        // 5. The proof's own root must be the signed one.
+        RekorKeyring::is_valid_for_proof(&checkpoint, &proof_root, proof.tree_size)?;
 
-        // If checkpoint is present, use checkpoint-based verification (more robust)
-        // Otherwise, fall back to direct root hash comparison
-        if let Some(checkpoint_str) = &proof.checkpoint {
-            log::debug!("Using checkpoint-based verification");
-
-            #[cfg(test)]
-            println!("\n📋 Checkpoint-based verification:");
-
-            // Parse the checkpoint
-            let checkpoint = Checkpoint::decode(checkpoint_str)?;
-
-            #[cfg(test)]
-            {
-                println!("   Checkpoint origin: {}", checkpoint.note.origin);
-                println!("   Checkpoint size: {}", checkpoint.note.size);
-                println!(
-                    "   Checkpoint root hash: {}",
-                    hex::encode(checkpoint.note.hash)
-                );
-                println!("   Proof tree size: {}", proof.tree_size);
-                println!("   Proof root hash: {}", hex::encode(root_arr));
-                println!("   Signature name: {}", checkpoint.signature.name);
-            }
-
-            // SECURITY: Validate checkpoint origin (hostname and tree ID)
-            RekorKeyring::validate_checkpoint_origin(&checkpoint, &entry.uuid)?;
-
-            #[cfg(test)]
-            println!("   ✅ Checkpoint origin validated");
-
-            // Verify checkpoint signature
-            self.verify_checkpoint(&checkpoint, &entry.log_id)?;
-
-            #[cfg(test)]
-            println!("   ✅ Checkpoint signature verified");
-
-            // Validate checkpoint is consistent with the proof
-            // Note: If tree sizes don't match (checkpoint newer or older than proof),
-            // we skip this validation and rely on the Merkle proof alone
-            if checkpoint.note.size == proof.tree_size {
-                RekorKeyring::is_valid_for_proof(&checkpoint, &root_arr, proof.tree_size)?;
-
-                #[cfg(test)]
-                println!("   ✅ Checkpoint matches proof exactly");
-            } else {
-                log::debug!(
-                    "Checkpoint tree size ({}) != proof tree size ({}) - skipping root hash comparison",
-                    checkpoint.note.size,
-                    proof.tree_size
-                );
-
-                #[cfg(test)]
-                println!("   ⚠️  Checkpoint size mismatch - relying on Merkle proof alone");
-
-                // The checkpoint and proof reference different tree states
-                // This can happen due to:
-                // 1. Log growth between checkpoint signature and proof generation
-                // 2. API caching returning slightly stale data
-                // We still verify the Merkle proof below, which is sufficient
-            }
-        } else {
-            log::debug!("No checkpoint present, using direct verification");
-
-            #[cfg(test)]
-            println!("\n⚠️  No checkpoint available (old-style verification)");
-        }
-
-        // Verify the inclusion proof using RFC 6962 algorithm
-        #[cfg(test)]
-        println!("\n⏳ Computing Merkle root from leaf...");
-
-        // Use the proof's log_index field for Merkle verification
-        // Per Rekor's verify.go:164, they use e.Verification.InclusionProof.LogIndex
-        // This is the actual position in the Merkle tree (may differ from entry.log_index)
+        // 6. Walk to the signed root at the signed size.
         merkle::verify_inclusion_proof(
             proof.log_index,
-            proof.tree_size,
+            checkpoint.note.size,
             &leaf_hash,
             &proof_hashes,
-            &root_arr,
+            &checkpoint.note.hash,
         )?;
 
-        log::debug!("Merkle inclusion proof verified successfully");
+        log::debug!("Merkle inclusion proof verified against the signed checkpoint");
         Ok(())
     }
 
@@ -1300,7 +1230,9 @@ mod tests {
     /// NOTE: This test uses hardcoded Rekor data and may fail if the proof becomes stale.
     /// To update test data, run: ./scripts/update-rekor-test-data.sh
     #[test]
-    #[ignore] // Merkle proof fails due to Rekor log sharding - SET verification is sufficient
+    // This proof carries no checkpoint, so verify_inclusion_proof rejects it
+    // by design (sigil#137). Its SET also fails to verify (pre-existing).
+    #[ignore]
     fn test_verify_real_production_rekor_entry() {
         use super::super::RekorEntry;
 
@@ -1371,10 +1303,12 @@ mod tests {
     /// This test uses current production data from logIndex 539031017.
     /// Fetched fresh from rekor.sigstore.dev to ensure proof data is current.
     ///
-    /// NOTE: This test uses hardcoded Rekor data and may fail if the proof becomes stale.
-    /// To update test data, run: ./scripts/update-rekor-test-data.sh
+    /// The data is self-contained (proof plus its signed checkpoint), so it
+    /// does not go stale. It was ignored because the pre-fix Merkle walk
+    /// computed c21c3876… instead of the signed root 4aa12003…; the cause
+    /// was the walk order in merkle.rs, not log sharding (sigil#137).
+    // rivet: verifies REQ-40
     #[test]
-    #[ignore] // Merkle proof fails due to Rekor log sharding - SET verification is sufficient
     fn test_verify_fresh_rekor_entry_with_current_proof() {
         use super::super::RekorEntry;
 
@@ -1433,7 +1367,10 @@ mod tests {
     /// This is the entry that's currently failing in CI with:
     /// "Computed root hash does not match expected root"
     #[test]
-    #[ignore] // This test uses real production data that may become stale
+    // The hardcoded data is inconsistent: SHA-256(0x00 || body) is f8b8e6d6…
+    // but the UUID's leaf hash is 0f907d46…, and the SET does not verify,
+    // so the body is not this entry's body. Not evidence either way.
+    #[ignore]
     fn test_verify_github_actions_failing_entry() {
         use super::super::RekorEntry;
 
@@ -1486,5 +1423,321 @@ mod tests {
         }
 
         println!("\n🎉 SUCCESS! GitHub Actions entry verified!");
+    }
+
+    // ------------------------------------------------------------------------
+    // Inclusion proofs against a signed checkpoint (REQ-40, sigil#137).
+    //
+    // Two families. The real fixture (a Rekor v1 entry from rekor.sigstore.dev,
+    // fetched 2025-11-01, checkpoint size == proof tree size) is the positive
+    // control and the base for planted tampering. The synthetic tree, signed
+    // by a test key, carries the forgeries the pre-fix verifier accepted: a
+    // self-consistent proof with no checkpoint, or with a validly signed
+    // checkpoint of a different tree size.
+    // ------------------------------------------------------------------------
+
+    const FIXTURE_JSON: &str =
+        include_str!("rekor_verifier.rs.test_data/recent_entry_20251101_175321.json");
+
+    fn fixture_entry() -> RekorEntry {
+        let v: serde_json::Value = serde_json::from_str(FIXTURE_JSON).unwrap();
+        RekorEntry {
+            uuid: v["uuid"].as_str().unwrap().to_string(),
+            log_index: v["logIndex"].as_u64().unwrap(),
+            body: v["body"].as_str().unwrap().to_string(),
+            log_id: v["logID"].as_str().unwrap().to_string(),
+            inclusion_proof: serde_json::to_vec(&v["inclusionProof"]).unwrap(),
+            signed_entry_timestamp: v["signedEntryTimestamp"].as_str().unwrap().to_string(),
+            integrated_time: v["integratedTime"].as_str().unwrap().to_string(),
+        }
+    }
+
+    fn with_proof(
+        mut entry: RekorEntry,
+        f: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+    ) -> RekorEntry {
+        let mut proof: serde_json::Value = serde_json::from_slice(&entry.inclusion_proof).unwrap();
+        f(proof.as_object_mut().unwrap());
+        entry.inclusion_proof = serde_json::to_vec(&proof).unwrap();
+        entry
+    }
+
+    fn embedded() -> RekorKeyring {
+        RekorKeyring::from_embedded_trust_root().unwrap()
+    }
+
+    fn inclusion_err(keyring: &RekorKeyring, entry: &RekorEntry) -> String {
+        match keyring.verify_inclusion_proof(entry) {
+            Ok(()) => panic!("expected the inclusion proof to be rejected, it was accepted"),
+            Err(e) => e.to_string(),
+        }
+    }
+
+    /// Checkpoint text in Rekor's signed-note format, signed by `sk` and
+    /// labelled with the fingerprint of `fingerprint_of`.
+    fn checkpoint_text(
+        sk: &p256::ecdsa::SigningKey,
+        fingerprint_of: &VerifyingKey,
+        origin: &str,
+        size: u64,
+        root: [u8; 32],
+    ) -> String {
+        use p256::ecdsa::signature::DigestSigner;
+        let note = CheckpointNote {
+            origin: origin.to_string(),
+            size,
+            hash: root,
+            other_content: vec![],
+        };
+        let marshalled = note.marshal();
+        let sig: Signature = sk.sign_digest(|d: &mut Sha256| d.update(marshalled.as_bytes()));
+        let mut sig_bytes = RekorKeyring::compute_key_fingerprint(fingerprint_of)
+            .unwrap()
+            .to_vec();
+        sig_bytes.extend_from_slice(sig.to_der().as_bytes());
+        format!(
+            "{marshalled}\n— rekor.sigstore.dev {}\n",
+            BASE64.encode(sig_bytes)
+        )
+    }
+
+    /// Positive control: the real production entry verifies (SET and
+    /// inclusion against its signed checkpoint). Before the merkle.rs fix
+    /// the walk computed 7f5a0721… instead of the signed root e3b5321b….
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_inclusion_verifies_against_signed_checkpoint() {
+        let keyring = embedded();
+        let entry = fixture_entry();
+        keyring.verify_set(&entry).expect("fixture SET");
+        keyring
+            .verify_inclusion_proof(&entry)
+            .expect("the real fixture entry must verify against its signed checkpoint");
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_tampered_proof_hash() {
+        let entry = with_proof(fixture_entry(), |p| {
+            let h = p["hashes"][3].as_str().unwrap();
+            let first = if h.starts_with('0') { "1" } else { "0" };
+            let flipped = format!("{first}{}", &h[1..]);
+            p["hashes"][3] = serde_json::Value::String(flipped);
+        });
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(err.contains("Computed root hash does not match"), "{err}");
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_missing_proof() {
+        let mut entry = fixture_entry();
+        entry.inclusion_proof.clear();
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(err.contains("Missing inclusion proof"), "{err}");
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_missing_checkpoint() {
+        let entry = with_proof(fixture_entry(), |p| {
+            p.remove("checkpoint");
+        });
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(err.contains("no checkpoint"), "{err}");
+    }
+
+    /// The checkpoint content is unchanged and carries the real v1 key's
+    /// fingerprint, so only the signature check can reject it.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_checkpoint_signed_by_wrong_key() {
+        use p256::elliptic_curve::Generate;
+        let keyring = embedded();
+        let real_key = *keyring.key_for(REKOR_V1_LOG_ID).unwrap();
+        let wrong = p256::ecdsa::SigningKey::try_generate().expect("system RNG");
+        let entry = with_proof(fixture_entry(), |p| {
+            let cp = Checkpoint::decode(p["checkpoint"].as_str().unwrap()).unwrap();
+            let note = &cp.note;
+            let text = checkpoint_text(&wrong, &real_key, &note.origin, note.size, note.hash);
+            p["checkpoint"] = serde_json::Value::String(text);
+        });
+        let err = inclusion_err(&keyring, &entry);
+        assert!(
+            err.contains("Checkpoint signature verification failed"),
+            "{err}"
+        );
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_checkpoint_size_not_proof_size() {
+        let entry = with_proof(fixture_entry(), |p| {
+            let size = p["treeSize"].as_u64().unwrap();
+            p["treeSize"] = serde_json::json!(size + 1);
+        });
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(
+            err.contains("differs from the inclusion proof tree size"),
+            "{err}"
+        );
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_proof_root_not_checkpoint_root() {
+        let entry = with_proof(fixture_entry(), |p| {
+            p["rootHash"] = serde_json::Value::String("11".repeat(32));
+        });
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(err.contains("root hash mismatch"), "{err}");
+    }
+
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_fixture_rejects_changed_body() {
+        let mut entry = fixture_entry();
+        let mut body = BASE64.decode(&entry.body).unwrap();
+        let last = body.len() - 2;
+        body[last] ^= 0x01;
+        entry.body = BASE64.encode(body);
+        let err = inclusion_err(&embedded(), &entry);
+        assert!(err.contains("Computed root hash does not match"), "{err}");
+    }
+
+    const SYN_LOG_ID: &str = "synthetic-test-log";
+    const SYN_TREE_ID: u64 = 1193050959916656506;
+    const SYN_INDEX: usize = 5;
+
+    struct SyntheticLog {
+        keyring: RekorKeyring,
+        sk: p256::ecdsa::SigningKey,
+        vk: VerifyingKey,
+    }
+
+    impl SyntheticLog {
+        fn new() -> Self {
+            use p256::elliptic_curve::Generate;
+            let sk = p256::ecdsa::SigningKey::try_generate().expect("system RNG");
+            let vk = *sk.verifying_key();
+            let keyring = RekorKeyring {
+                keys: vec![(SYN_LOG_ID.to_string(), vk)],
+                unsupported: vec![],
+                source: "test".to_string(),
+            };
+            Self { keyring, sk, vk }
+        }
+
+        fn checkpoint(&self, size: u64, root: [u8; 32]) -> String {
+            let origin = format!("rekor.sigstore.dev - {SYN_TREE_ID}");
+            checkpoint_text(&self.sk, &self.vk, &origin, size, root)
+        }
+    }
+
+    /// Leaf hashes of an n-leaf tree whose leaf SYN_INDEX is `body`.
+    fn synthetic_leaves(n: usize, body: &[u8], salt: &str) -> Vec<[u8; 32]> {
+        (0..n)
+            .map(|i| {
+                if i == SYN_INDEX {
+                    merkle::compute_leaf_hash(body)
+                } else {
+                    merkle::compute_leaf_hash(format!("{salt}-{i}").as_bytes())
+                }
+            })
+            .collect()
+    }
+
+    fn synthetic_entry(body: &[u8], proof: serde_json::Value) -> RekorEntry {
+        let leaf = merkle::compute_leaf_hash(body);
+        RekorEntry {
+            uuid: format!("{SYN_TREE_ID:016x}{}", hex::encode(leaf)),
+            log_index: SYN_INDEX as u64,
+            body: BASE64.encode(body),
+            log_id: SYN_LOG_ID.to_string(),
+            inclusion_proof: serde_json::to_vec(&proof).unwrap(),
+            signed_entry_timestamp: String::new(),
+            integrated_time: String::new(),
+        }
+    }
+
+    fn synthetic_proof(leaves: &[[u8; 32]], checkpoint: Option<String>) -> serde_json::Value {
+        let root = merkle::reference::mth(leaves);
+        let hashes: Vec<String> = merkle::reference::path(SYN_INDEX, leaves)
+            .iter()
+            .map(hex::encode)
+            .collect();
+        let mut proof = serde_json::json!({
+            "hashes": hashes,
+            "logIndex": SYN_INDEX,
+            "rootHash": hex::encode(root),
+            "treeSize": leaves.len(),
+        });
+        if let Some(cp) = checkpoint {
+            proof["checkpoint"] = serde_json::Value::String(cp);
+        }
+        proof
+    }
+
+    /// Positive control for the synthetic family: the genuine 8-leaf tree
+    /// with its signed checkpoint verifies, so the rejections below are not
+    /// the synthetic setup rejecting everything.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_synthetic_genuine_proof_verifies() {
+        let log = SyntheticLog::new();
+        let body = b"genuine entry";
+        let leaves = synthetic_leaves(8, body, "log");
+        let cp = log.checkpoint(8, merkle::reference::mth(&leaves));
+        let entry = synthetic_entry(body, synthetic_proof(&leaves, Some(cp)));
+        log.keyring
+            .verify_inclusion_proof(&entry)
+            .expect("genuine proof");
+    }
+
+    /// Forgery: an entry the log never saw, with a self-consistent proof to
+    /// a root the attacker computed, and no checkpoint. Accepted before.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_synthetic_forged_proof_without_checkpoint_is_rejected() {
+        let log = SyntheticLog::new();
+        let body = b"forged entry";
+        let forged = synthetic_leaves(8, body, "attacker");
+        let entry = synthetic_entry(body, synthetic_proof(&forged, None));
+        let err = inclusion_err(&log.keyring, &entry);
+        assert!(err.contains("no checkpoint"), "{err}");
+    }
+
+    /// Forgery: a self-consistent proof to an attacker root at size 8,
+    /// shipped with a genuinely signed checkpoint of the real log at size 9.
+    /// The pre-fix verifier skipped the root comparison when sizes differed.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_synthetic_forged_proof_with_other_size_checkpoint_is_rejected() {
+        let log = SyntheticLog::new();
+        let real = synthetic_leaves(9, b"genuine entry", "log");
+        let cp = log.checkpoint(9, merkle::reference::mth(&real));
+        let body = b"forged entry";
+        let forged = synthetic_leaves(8, body, "attacker");
+        let entry = synthetic_entry(body, synthetic_proof(&forged, Some(cp)));
+        let err = inclusion_err(&log.keyring, &entry);
+        assert!(
+            err.contains("differs from the inclusion proof tree size"),
+            "{err}"
+        );
+    }
+
+    /// Forgery at equal size: the proof's own root is the attacker's, the
+    /// signed checkpoint is the real log's.
+    // rivet: verifies REQ-40
+    #[test]
+    fn test_synthetic_forged_root_with_same_size_checkpoint_is_rejected() {
+        let log = SyntheticLog::new();
+        let real = synthetic_leaves(8, b"genuine entry", "log");
+        let cp = log.checkpoint(8, merkle::reference::mth(&real));
+        let body = b"forged entry";
+        let forged = synthetic_leaves(8, body, "attacker");
+        let entry = synthetic_entry(body, synthetic_proof(&forged, Some(cp)));
+        let err = inclusion_err(&log.keyring, &entry);
+        assert!(err.contains("root hash mismatch"), "{err}");
     }
 }
