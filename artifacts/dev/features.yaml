@@ -500,7 +500,8 @@ artifacts:
     type: feature
     title: "Embedded on-target trust chain: no_std verifier + signed kiln.resource_limits (reject-at-load)"
     status: draft
-    tags: [embedded, no_std, kiln, gale, trust-chain]
+    release: v0.14.0
+    tags: [embedded, no_std, kiln, gale, trust-chain, objective-o1]
     fields:
       description: "On-target (thumbv7em-none-eabi, gale/gust) offline key-based verification so kiln's loader can trust the signed kiln.resource_limits bounds for reject-at-load. Reuses kiln's existing ResourceLimitsSection (already no_std/bounded) and sigil's existing key-based Ed25519 path in wsc-verify-core; HW-crypto via the wsc:crypto hardware interface provided by gale. Tracks #187; kiln#415/AD-WCMC-001."
     links:
@@ -511,7 +512,8 @@ artifacts:
     type: requirement
     title: no_std wsc-verify-core staticlib for thumbv7em-none-eabi (secure-boot verify)
     status: draft
-    tags: [embedded, no_std]
+    release: v0.14.0
+    tags: [embedded, no_std, objective-o1]
     fields:
       description: "Carve wsc-verify-core to #![no_std] behind a default 'std' feature so the host CLI is unaffected: feature-gate file-IO (std::fs/os::unix/env::temp_dir/Path ~30 uses); replace std::io::Read/Cursor (~18) with a slice reader; core::fmt. PRIMARY embedding is as a WASM COMPONENT compiled to Cortex-M via meld to loom to synth (DD-9), not a hand-carved thumbv7em staticlib — the direct thumbv7em build stays as a dep-viability check. Curve-agile: Ed25519 + ECDSA-P256 (signature/multi.rs,simple.rs). gale#164 constraints on the final artifact (synth output): no-alloc preferred or bounded+documented heap, panic=abort/no-unwind, plain extern C entry, pre-partition-start with no OS services. Alloc-free-verify spike pending. Enabling release for #187."
       release: v0.10.0
@@ -527,7 +529,8 @@ artifacts:
     type: requirement
     title: Signed reject-at-load of kiln.resource_limits (bounds covered by whole-module signature)
     status: draft
-    tags: [embedded, kiln, secure-boot]
+    release: v0.14.0
+    tags: [embedded, kiln, secure-boot, objective-o1]
     fields:
       description: "Reuse kiln's existing ResourceLimitsSection (kiln.resource_limits v1, already no_std/BoundedMap). sigil's whole-module signed hash already covers it (only the sig section is stripped). Pipeline: kiln embed_limits -> sigil signs -> target verifies. Verify+loader MUST reject if signature invalid OR section absent OR signed bounds (max_memory_usage/max_call_depth/...) exceed the provisioned RAM/stack budget. Hooks kiln's extract_resource_limits_from_binary / resource_limits_loader. Closes the 'trust an unsigned size claim' gap in #187."
       release: v0.11.0
@@ -779,7 +782,7 @@ artifacts:
     title: SigstoreBundle::verify(&trust_bundle, artifact_digest) — in-library offline bundle verify
     status: draft
     description: "The verify half of #260: once a cosign bundle is ingested (from_sigstore_bundle), a consumer needs an in-library entry point that verifies it offline against a provisioned TrustBundle without shelling out to 'cosign verify-blob'. SigstoreBundle currently has no verify method. Add SigstoreBundle::verify(&self, trust_bundle, artifact_digest) delegating to the AirGappedVerifier crypto path (Rekor SET + Fulcio chain + ECDSA P-256 + body-binding). REQ-23 anticipated this ('add an in-library SigstoreBundle::verify') but it never landed. sigil#231; composes with REQ-27/#260."
-    tags: [keyless, offline, airgapped, verify]
+    tags: [keyless, offline, airgapped, verify, objective-o2]
     links:
       - type: depends-on
         target: REQ-27
@@ -832,7 +835,7 @@ artifacts:
     title: Sign the WASM preamble — the signature does not bind the artifact bytes
     status: draft
     description: "The 8-byte WASM preamble is hashed by neither sign nor verify: SecretKey::sign hashes only section.serialize output, and Module::init_from_reader consumes the preamble before hashing begins while accepting BOTH WASM_HEADER and WASM_COMPONENT_HEADER. So a signed core module's preamble can be rewritten to the component preamble (or vice versa) and the signature still verifies — two distinct files share one valid signature, and the preamble is what selects every WASM runtime's parse mode. validate_format_consistency runs only at sign time, never on verify. Found by the v0.12.0 Mythos pass; oracle kept as an #[ignore]d test (poc_verify_accepts_rewritten_module_preamble) with positive and negative controls. BREAKING: hashing the preamble changes what is signed and invalidates every existing signature, so this needs a SIGNATURE_VERSION bump, a migration decision on whether v1 signatures stay acceptable, and a ModuleStreamReader::header() accessor in wasm_module. Adjacent to AS-17/UCA-16 but distinct (intra-WASM, same parser). sigil#303."
-    tags: [soundness, signature-format, breaking, wasm]
+    tags: [soundness, signature-format, breaking, wasm, objective-o1]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5
@@ -910,3 +913,39 @@ artifacts:
       model: claude-opus-5
       timestamp: 2026-10-14T19:16:44Z
     release: v0.13.0
+
+  - id: REQ-40
+    type: requirement
+    title: Run Merkle inclusion proofs in both keyless verify paths, Rekor v1 and v2
+    status: draft
+    release: v0.14.0
+    description: "Objective (until serves: ships): none directly; soundness, prerequisite for the O2 attestation piece (plan B3, docs/plans/v0.14.0.md). Online (src/lib/src/signature/keyless/signer.rs:674) and air-gapped (src/lib/src/airgapped/verifier.rs:208) keyless verify skip the Rekor inclusion proof; Rekor v2 (Ed25519 log) needs checkpoint + inclusion. Acceptance: fresh entries from both logs verify; planted tampered proof, missing proof, wrong checkpoint, wrong identity and wrong digest fail. Kill: v2 tiled-log semantics unverifiable offline -> SET-only for v2, documented. Closes #137 and the rest of #259/REQ-29; informs DD-11, #138."
+    tags: [keyless, rekor, inclusion, soundness]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5-5
+      timestamp: 2026-11-19T23:28:16Z
+
+  - id: REQ-41
+    type: requirement
+    title: Run the fork guard as a released, wsc-signed WASI component under kiln, with wasmtime as the differential
+    status: draft
+    release: v0.14.0
+    description: "Objective (until serves: ships): O5 (plan B5). The guard is built and run unsigned under wasmtime today (.github/workflows/claim-check.yml). Acceptance: wsc verify before execution; planted byte flip, wrong key and removed verify step turn the job red; kiln, wasmtime and check.py outputs byte-equal on the guard corpus (21 cases, 29 shapes, live tree); no *_GAP switch. Kill: kiln cannot run a wasip2 component with directory preopens -> stays wasmtime-only, not counted. Depends on kiln, plant (plant guard hand-over), varve."
+    tags: [o5, kiln, guard, self-hosting]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5-5
+      timestamp: 2026-11-19T23:28:16Z
+
+  - id: REQ-42
+    type: requirement
+    title: A clean machine installs wsc from the release assets and verifies with it
+    status: draft
+    release: v0.13.0
+    description: "Objective (until serves: ships): O2, the 2026-Q4 committed target ('sigil publishes a release, so the attestation tool can be installed instead of built from git'). Acceptance: a CI job on a clean container installs wsc from release assets (not git), checks the cosign signature and SLSA attestation, runs wsc verify on a signed component and wsc verify-chain on an attested one; planted tampered module, module changed after attestation, and wrong key exit non-zero. Kill: the release cannot run on the clean container without a source build. Needs REQ-37 (musl)."
+    tags: [o2, release, install]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5-5
+      timestamp: 2026-11-19T23:28:16Z
