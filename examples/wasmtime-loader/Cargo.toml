@@ -2,7 +2,7 @@
 name = "wasmtime-loader"
 version = "0.1.0"
 edition = "2021"
-# Pinned to the repo toolchain (rust-toolchain.toml channel = "1.96.1"). This
+# At or below the repo toolchain (rust-toolchain.toml, 1.100.0 since 2026-11-21). This
 # makes cargo's MSRV-aware resolver pick dependency versions that actually
 # build here, so an incompatible bump fails fast with a clear MSRV message
 # instead of surfacing as an opaque "requires rustc 1.96.0" build error in CI.

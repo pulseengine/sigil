@@ -52,7 +52,21 @@ rust.toolchain(
     extra_target_triples = [
         "wasm32-wasip2",  # WASI Preview 2 for component builds
     ],
-    versions = ["1.90.0"],
+    versions = ["1.100.0"],
+    # rules_rust 0.65.0 has no checksums for 1.100.0 and would otherwise fetch
+    # the toolchain unverified. Values are static.rust-lang.org's published
+    # .sha256 files; the two macOS ones also match what Bazel computed locally.
+    sha256s = {
+        "rustc-1.100.0-aarch64-apple-darwin.tar.xz": "3fcd7f1709f62dda58bf4db2dcfd630a451e750aadaaa551a21cc4a627a37b4c",
+        "rustc-1.100.0-x86_64-unknown-linux-gnu.tar.xz": "f1d0b1dec81dab6f523cd098507763487b0d4bd7fd2c87582f154128719be03b",
+        "clippy-1.100.0-aarch64-apple-darwin.tar.xz": "fb57f639b5b9bcf1262df1ff81bcfc9e44338fbc729b0d5aad531b96493d6391",
+        "clippy-1.100.0-x86_64-unknown-linux-gnu.tar.xz": "0d18df3bff6c852ef8243727fed075ecb33dbf93b8ab8c138c2f45e3f270102a",
+        "cargo-1.100.0-aarch64-apple-darwin.tar.xz": "7e18265d2d2cda8dec6cac4d0faa3bbafe927b401e5185350abc7d669f9adafb",
+        "cargo-1.100.0-x86_64-unknown-linux-gnu.tar.xz": "7e29ce07d7c6e92d1826870575ba27d57fff6cb3e754aa57d99099cb88fab35d",
+        "rust-std-1.100.0-aarch64-apple-darwin.tar.xz": "9345645b6f56eea28bf8cc2c0f628a61d507a688f91c1bec5ae6bfad216a16c7",
+        "rust-std-1.100.0-x86_64-unknown-linux-gnu.tar.xz": "4591b6486594ded52ecd6135db95bf9355bbd3ca7a380888b141528bbcf9a5d4",
+        "rust-std-1.100.0-wasm32-wasip2.tar.xz": "532d5210ca87ddc4a7697170524d271f51b74ff9296e25e2b2d6df436d624d6f",
+    },
 )
 use_repo(rust, "rust_toolchains")
 
