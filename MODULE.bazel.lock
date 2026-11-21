@@ -646,7 +646,7 @@
     "@@rules_lean+//lean:extensions.bzl%lean": {
       "general": {
         "bzlTransitiveDigest": "xWCDsrgjR1eNscJlJQNMqFhLpDMbq9p2hefEcKeC+TE=",
-        "usagesDigest": "qbRhYKQMwoVfnTg2lbGwVwiMgQHLqrwv2i7fa3eTS60=",
+        "usagesDigest": "eTUZ56lD+SKCwAaYeVpCwj9SRF4fZS/CXJDp625zbX4=",
         "recordedFileInputs": {},
         "recordedDirentsInputs": {},
         "envVariables": {},

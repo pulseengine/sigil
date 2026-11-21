@@ -68,6 +68,21 @@ provisioning, or the `runtime` feature.
 
 ### Verification and CI
 
+- **Toolchain: Rust 1.100.0, exact, everywhere a release is built.**
+  `rust-toolchain.toml` moves 1.96.1 -> 1.100.0, and the Bazel `rust.toolchain`
+  that builds `wsc-component.wasm` and `wsc-cli.wasm` moves 1.90.0 -> 1.100.0.
+  `release.yml` installs 1.100.0 through a SHA-pinned `dtolnay/rust-toolchain`
+  and fails the job if `rustc --version` differs from `rust-toolchain.toml`
+  (fleet rule 2026-11-21; 1.97 stays the fleet MSRV floor). The old
+  `rustup update stable` / `rustup default stable` lines never chose the
+  compiler: v0.12.2's run 44866256499 logged 1.96.1 "overridden by
+  rust-toolchain.toml". New CI step `scripts/wasip2-sign-roundtrip.sh`: `wsc
+  sign` + `wsc verify` on a wasip2 component built by the pinned toolchain,
+  and `verify` must reject it with one byte changed. *Falsification:* a
+  release built from this tree whose build log shows a rustc other than
+  1.100.0, or a pinned-toolchain wasip2 component that `wsc sign` rejects
+  while this step is green.
+
 - **`wsc verify` exit contract is gated on Linux (#367).**
   `scripts/cli-exit-contract.sh` runs in CI. A valid signature must exit 0.
   Each of these must exit non-zero and never print "Signature is valid":

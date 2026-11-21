@@ -270,7 +270,7 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # Installs the pinned toolchain (1.96.1) from rust-toolchain.toml.
+    # Installs the pinned toolchain (1.100.0) from rust-toolchain.toml.
     - name: Install pinned Rust toolchain
       run: rustup show
 

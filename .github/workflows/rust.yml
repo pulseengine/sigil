@@ -95,6 +95,14 @@ jobs:
       if: matrix.build-system == 'cargo'
       run: cargo test --verbose
 
+    # release.yml fails if `wsc sign` cannot parse wsc-cli.wasm, a wasip2
+    # component (#164). A toolchain bump can change the component layout, so
+    # check sign + verify (and a tampered-byte negative control) on a wasip2
+    # component built by the pinned toolchain here, before a release finds out.
+    - name: wsc signs a wasip2 component from the pinned toolchain
+      if: matrix.build-system == 'cargo'
+      run: scripts/wasip2-sign-roundtrip.sh target/debug/wsc
+
     # wasmtime is an optional dependency of wsc, enabled only by the `runtime`
     # feature, and nothing above builds that feature. So a wasmtime bump was
     # never compiled by CI: dependabot's wasmtime 50 PR (#348) showed 26 green
