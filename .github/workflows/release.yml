@@ -104,12 +104,9 @@ jobs:
             asset_name: wsc-linux-aarch64
             archive_prefix: wsc
             cross: true
-          # macOS x86_64 (Intel) - using macos-15-intel (macos-13 deprecated Dec 2025)
-          - target: x86_64-apple-darwin
-            os: macos-15-intel
-            artifact_name: wsc
-            asset_name: wsc-macos-x86_64
-            archive_prefix: wsc
+          # No macOS x86_64 (Intel) build: owner decision 2026-11-20 stopped
+          # Intel macOS builds fleet-wide. Intel Macs build from source
+          # (Rosetta 2 runs x86_64 on Apple Silicon, not the reverse).
           # macOS aarch64 (Apple Silicon)
           - target: aarch64-apple-darwin
             os: macos-latest
@@ -669,9 +666,10 @@ jobs:
         if [ -z "$(ls -A compliance 2>/dev/null)" ]; then echo "::error::compliance report missing or empty (#352)"; exit 1; fi
         cp -r compliance/. release-assets/
 
-        # On a release tag, the versioned archives are required: four platform
-        # archives for varve's layer plus the tpm2 one, each holding exactly one
-        # `wsc` (pulseengine-layers #68). A main push has none.
+        # On a release tag, the versioned archives are required: three platform
+        # archives for varve's layer (no Intel macOS since 2026-11-20) plus the
+        # tpm2 one, each holding exactly one `wsc` (pulseengine-layers #68). A
+        # main push has none.
         if [ "${{ github.event_name }}" = "release" ]; then
           TAG="${{ github.event.release.tag_name }}"
         elif [ "${{ github.ref_type }}" = "tag" ]; then
@@ -685,7 +683,6 @@ jobs:
           for a in \
             "wsc-${TAG}-x86_64-unknown-linux-gnu.tar.gz" \
             "wsc-${TAG}-aarch64-unknown-linux-gnu.tar.gz" \
-            "wsc-${TAG}-x86_64-apple-darwin.tar.gz" \
             "wsc-${TAG}-aarch64-apple-darwin.tar.gz" \
             "wsc-tpm2-${TAG}-x86_64-unknown-linux-gnu.tar.gz"; do
             test -f "release-assets/$a" || { echo "::error::versioned archive $a missing"; exit 1; }
