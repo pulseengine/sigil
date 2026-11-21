@@ -54,6 +54,23 @@ decision #3 src/wasm_module/varint.rs:29: FullMcdc
 decision #4 boxed.rs:1879: NoWitness
     c0 (branch 14): GAP — try a row
 R
+# linux/1.100.0: varint.rs:28 only (3: c2,c3,c4); mod.rs:455 no longer instrumented.
+cat > "$T/linux1100" <<'R'
+decision #1 src/wasm_module/varint.rs:28: Partial
+    c2 (branch 6): GAP — try a row
+    c3 (branch 7): GAP — try a row
+    c4 (branch 8): GAP — try a row
+decision #2 mod.rs:389: NoWitness
+R
+# linux/1.100.0 plus one more verify-core gap.
+cat > "$T/linux1100p1" <<'R'
+decision #1 src/wasm_module/varint.rs:28: Partial
+    c2 (branch 6): GAP — try a row
+    c3 (branch 7): GAP — try a row
+    c4 (branch 8): GAP — try a row
+decision #5 src/wasm_module/mod.rs:456: NoWitness
+    c0 (branch 9): GAP — try a row
+R
 # A genuine further regression: a third verify-core decision loses coverage.
 cat > "$T/regress" <<'R'
 decision #0 src/wasm_module/varint.rs:28: NoWitness
@@ -79,7 +96,10 @@ check "linux/1.94.0 (real) vs baseline 4"           "$T/linux194" 4  pass
 check "a further regression still trips it (5>4)"   "$T/regress"  4  regression
 check "linux/1.96.1 vs the OLD baseline 3"          "$T/linux196" 3  regression
 check "inlined-std gaps alone never count"          "$T/empty"   99  empty-scope
+check "linux/1.100.0 (real) vs baseline 3"          "$T/linux1100"   3  pass
+check "one more gap on 1.100.0 trips it (4>3)"      "$T/linux1100p1" 3  regression
+check "linux/1.96.1 vs the 1.100.0 baseline 3"      "$T/linux196"    3  regression
 
 echo
-if [ "$bad" -eq 0 ]; then echo "6/6 verdict cases hold."; else echo "$bad case(s) drifted."; fi
+if [ "$bad" -eq 0 ]; then echo "9/9 verdict cases hold."; else echo "$bad case(s) drifted."; fi
 exit $(( bad > 0 ))

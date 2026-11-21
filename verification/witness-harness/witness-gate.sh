@@ -125,7 +125,32 @@ WITNESS_VERSION="${WITNESS_VERSION:-v0.37.0}"
 # decision changed* rather than as a sum crossing a line. Tracked separately;
 # this change buys back the potency the empty-scope path had given away.
 # ---------------------------------------------------------------------------
-SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-4}"
+# RECALIBRATION, 2026-11-21 (toolchain 1.96.1 -> 1.100.0, fleet rule)
+#
+# Measured on the CI host, linux x86_64, witness v0.37.0, identical source and
+# scenario set (PR run 44949819149, job 136985060416):
+#
+#   decision                         linux/1.96.1        linux/1.100.0
+#   src/wasm_module/varint.rs:28     in scope, 2 gaps    in scope, 3 gaps (c2,c3,c4)
+#   src/wasm_module/mod.rs:455       in scope, 2 gaps    NOT INSTRUMENTED
+#   in-scope decisions / src gaps    2 / 4               1 / 3
+#
+# mod.rs:455 is verify-core's header check (`header != WASM_HEADER && header !=
+# WASM_COMPONENT_HEADER`, now at :456). Under 1.100.0 the report carries no
+# decision at that line, under any path: the compiler lowers the two [u8; 8]
+# comparisons without a branch witness instruments, so the decision set SHRANK.
+# That is the scoping regression the notice below warns about, not a closed gap;
+# no verify-core source changed. varint.rs:28 gains one gap, c2, whose suggested
+# row {c0=T, c2=T} is again a read_exact copy-path condition (see WHY 3 AND NOT
+# 0 above): infeasible at verify-core's two read lengths.
+#
+# The baseline moves 4 -> 3, the measured value, so the unit mod.rs:455 freed is
+# not left as headroom for a new varint gap. What remains measured is one
+# decision that is, by the analysis above, inlined std: this gate now says little
+# about verify-core's own logic. The per-decision assertion (#318, #362) is the
+# fix, not a further baseline move.
+# ---------------------------------------------------------------------------
+SRC_BASELINE_GAP="${SRC_BASELINE_GAP:-3}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
