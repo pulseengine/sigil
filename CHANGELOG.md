@@ -9,12 +9,25 @@ All notable changes to sigil are documented here. The project follows
 
 - **Versioned release archives.** Each release now also carries
   `wsc-v<ver>-<target-triple>.tar.gz` for x86_64/aarch64 Linux (glibc) and
-  x86_64/aarch64 macOS, plus `wsc-tpm2-v<ver>-x86_64-unknown-linux-gnu.tar.gz`.
+  aarch64 macOS, plus `wsc-tpm2-v<ver>-x86_64-unknown-linux-gnu.tar.gz`.
   Each archive holds exactly one file, `wsc`. The cosign-signed
   `SHA256SUMS.txt` covers them. The versionless binaries (`wsc-linux-x86_64`
   and the others) are still published, for at least this release, so existing
-  consumers keep working. *Falsification:* a tag whose release lacks one of the five
+  consumers keep working. *Falsification:* a tag whose release lacks one of the four
   archives, or whose archive holds anything but `wsc`, fails the release job.
+
+### Removed
+
+- **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
+  Mac users: build from source (`cargo install --locked --git
+  https://github.com/pulseengine/sigil --tag <tag> wsc-cli`).** The release matrix
+  no longer builds `x86_64-apple-darwin`, so neither `wsc-macos-x86_64` nor
+  `wsc-v<ver>-x86_64-apple-darwin.tar.gz` is published. The witness gate script
+  reports an unsupported host on an Intel Mac instead of downloading a
+  witness asset that may not exist. Source builds keep the triple
+  (`MODULE.bazel`, `flake.nix`). *Falsification:* a release from this version
+  on that carries an x86_64-apple-darwin asset, or a `SHA256SUMS.txt` entry
+  for one.
 
 ## [0.12.1] — 2026-11-13
 
