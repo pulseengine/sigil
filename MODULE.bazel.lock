@@ -1136,7 +1136,7 @@
         "bzlTransitiveDigest": "LbXic0emYXmxnVXOCaVAzvPAFOp2Wqbv+0sXIiTNyFU=",
         "usagesDigest": "IoLoA9MZSxDPS6sqBdnnQran4764ZV3h1UgJEFjHvEw=",
         "recordedFileInputs": {
-          "@@//Cargo.lock": "1a108bf46200275780a2acab4534914525447969918cbeb20231237f57b95608",
+          "@@//Cargo.lock": "70f9bb30eed6848468407d1a3187e0cbb904e525486ed748091e224686a5b33c",
           "@@//Cargo.toml": "67d37d9fd667adf45b30cf5ebceeee57997b61ad1166dc530d0ca1d52eb8067d",
           "@@//src/attestation/Cargo.toml": "1e3e3b16afcd93444dfcb6ad640946557e6ab10adbe80f0c6ac8b5619f3d298d",
           "@@//src/cli/Cargo.toml": "fb6450709a17a36e539e61fb682b2289b5d3c32ae77347630a4fe2fcdf241e05",
