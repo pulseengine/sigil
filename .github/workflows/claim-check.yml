@@ -61,6 +61,23 @@ jobs:
           wasmtime run --dir . "$guard" . | tee guard.out
           python3 verification/selfhosted-guard/check.py . > check.out
           diff -u check.out guard.out
+      # The wasmtime floor (CHANGELOG, owner decision 2026-11-21): components
+      # built by rustc 1.100 import wasi:cli/exit@0.2.12 exit-with-code, which
+      # wasmtime < 46.0.0 refuses. The installed wasmtime above must run the
+      # guard; 45.0.0 must refuse it on that import and nothing else. The
+      # tarball hash is pinned here and equals GitHub's asset digest.
+      - name: wasmtime floor (45.0.0 refuses, current runs the 1.100 component)
+        run: |
+          old_dir="$RUNNER_TEMP/wasmtime-45"
+          mkdir -p "$old_dir"
+          curl -fsSL -o "$old_dir/w.tar.xz" \
+            https://github.com/bytecodealliance/wasmtime/releases/download/v45.0.0/wasmtime-v45.0.0-x86_64-linux.tar.xz
+          echo "9d92e6dc04630f617e0e5d532327a5a917ac4898587e07f4fb7a5fc7fffef760  $old_dir/w.tar.xz" | sha256sum -c -
+          tar -xJf "$old_dir/w.tar.xz" -C "$old_dir"
+          scripts/wasmtime-floor-control.sh \
+            "$CARGO_TARGET_DIR/wasm32-wasip2/release/selfhosted-guard.wasm" \
+            "$(command -v wasmtime)" \
+            "$old_dir/wasmtime-v45.0.0-x86_64-linux/wasmtime"
       # plant (owner decision 20261118T070142-7ed73c): each control in
       # ci-controls.toml plants one bad workflow and requires the guard above
       # to reject that job by name; compared-nothing deletes the workflows.

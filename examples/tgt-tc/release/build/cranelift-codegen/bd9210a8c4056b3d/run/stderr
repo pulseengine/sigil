@@ -1,0 +1,26 @@
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/settings.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/types.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/opcodes.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/inst_builder.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/settings-pulley.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/settings-pulley.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/settings-arm64.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/numerics.isle
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_numerics.rs
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/clif_opt.isle
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/clif_lower.isle
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/assembler.isle
+Writing generated file: /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/assembler-isle-macro.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_opt.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_opt.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_x64.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_x64.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_aarch64.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_aarch64.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_s390x.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_s390x.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_riscv64.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_riscv64.rs
+Rebuilding /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_pulley_shared.rs
+Writing ISLE-generated Rust code to /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-codegen/bd9210a8c4056b3d/out/isle_pulley_shared.rs
+fatal: not a git repository (or any of the parent directories): .git

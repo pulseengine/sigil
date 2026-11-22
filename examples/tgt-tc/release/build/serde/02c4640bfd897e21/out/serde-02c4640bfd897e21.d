@@ -1,0 +1,14 @@
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/02c4640bfd897e21/out/serde-02c4640bfd897e21.d: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/5ef567c7443dd176/out/private.rs
+
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/02c4640bfd897e21/out/libserde-02c4640bfd897e21.rlib: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/5ef567c7443dd176/out/private.rs
+
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/02c4640bfd897e21/out/libserde-02c4640bfd897e21.rmeta: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/5ef567c7443dd176/out/private.rs
+
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/5ef567c7443dd176/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/serde/5ef567c7443dd176/out
