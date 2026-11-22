@@ -1,0 +1,11 @@
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/ct-codecs/bd4543a4c67a2a62/out/ct_codecs-bd4543a4c67a2a62.d: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base32.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base64.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/error.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/hex.rs
+
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/ct-codecs/bd4543a4c67a2a62/out/libct_codecs-bd4543a4c67a2a62.rlib: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base32.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base64.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/error.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/hex.rs
+
+/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/ct-codecs/bd4543a4c67a2a62/out/libct_codecs-bd4543a4c67a2a62.rmeta: /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/lib.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base32.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base64.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/error.rs /Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/hex.rs
+
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/lib.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base32.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/base64.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/error.rs:
+/Users/r/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/ct-codecs-1.1.8/src/hex.rs:

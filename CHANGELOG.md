@@ -16,6 +16,21 @@ All notable changes to sigil are documented here. The project follows
   consumers keep working. *Falsification:* a tag whose release lacks one of the four
   archives, or whose archive holds anything but `wsc`, fails the release job.
 
+### Changed
+
+- **wasip2 components need wasmtime 46.0.0 or later.** sigil's `.wasm`
+  (wsc-component, wsc-cli.wasm) is built with Rust 1.100.0, whose std makes
+  every wasm32-wasip2 component import `wasi:cli/exit@0.2.12`
+  `exit-with-code`. wasmtime 45.0.0 and earlier refuse such a component at
+  instantiate ("instance export `exit-with-code` has the wrong type"); 46.0.0
+  through 51.0.0 run it. Hosts that load sigil's components must be at or
+  above that floor. The optional `runtime` feature and
+  `examples/wasmtime-loader` move to wasmtime 50.0.3, which needs rustc 1.97.
+  *Falsification:* claim-check.yml builds the self-hosted guard component
+  with the pinned toolchain and requires wasmtime 45.0.0 to refuse it on that
+  import while the CI wasmtime runs it; the step fails if 45.0.0 runs it or
+  fails for any other reason.
+
 ### Removed
 
 - **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
