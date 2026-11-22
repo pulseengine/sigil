@@ -43,7 +43,7 @@ jobs:
     name: Required checks
     # Self-hosted `gate-poller` (owner decision 2026-11-20, notice
     # 20261120T055256-0fafb1; label provided by smithy#215 on
-    # pulseengine-ci-01-17/-18). Before this the job polled on `light`, which
+    # the gate-poller pool). Before this the job polled on `light`, which
     # also runs the jobs it waits for (claim check, vacuous-oracle gate,
     # cargo audit, cargo vet): three PRs polling at once held all three light
     # runners and deadlocked them (runs 44659921868, 44663333155). The
