@@ -706,11 +706,11 @@ impl KeylessSignature {
 
         // Parse integrated_time from Rekor entry (RFC3339 format)
         let integrated_time =
-            chrono::DateTime::parse_from_rfc3339(&self.rekor_entry.integrated_time).map_err(
-                |e| WSError::CertificateError(format!("Failed to parse integrated_time: {}", e)),
-            )?;
+            crate::rfc3339::parse(&self.rekor_entry.integrated_time).map_err(|e| {
+                WSError::CertificateError(format!("Failed to parse integrated_time: {}", e))
+            })?;
 
-        let integrated_time_unix = integrated_time.timestamp();
+        let integrated_time_unix = crate::rfc3339::unix_secs(integrated_time);
 
         // Verify the leaf certificate (first in chain)
         // The leaf certificate must chain up to a trusted Fulcio root CA
@@ -1172,16 +1172,15 @@ fn json_i64(v: &serde_json::Value) -> Option<i64> {
 /// Convert an `integratedTime` (Unix seconds, given as a JSON number or
 /// string) into the RFC3339 form the wsc `RekorEntry.integrated_time` field
 /// is documented to hold. [`KeylessSignature::verify_cert_chain`] parses this
-/// field with `parse_from_rfc3339`, so storing bare Unix seconds would make
+/// field with `rfc3339::parse`, so storing bare Unix seconds would make
 /// every ingested bundle fail cert-chain verification.
 fn integrated_time_to_rfc3339(v: &serde_json::Value) -> Result<String, WSError> {
     let secs = json_i64(v).ok_or_else(|| {
         WSError::KeylessFormatError("integratedTime is not an integer".to_string())
     })?;
-    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp(secs, 0).ok_or_else(|| {
+    crate::rfc3339::format_unix_secs_z(secs).ok_or_else(|| {
         WSError::KeylessFormatError(format!("integratedTime {} is out of range", secs))
-    })?;
-    Ok(dt.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+    })
 }
 
 #[cfg(test)]
@@ -1750,7 +1749,7 @@ mod tests {
     #[test]
     fn integrated_time_accepts_number_and_decimal_string() {
         // Both wire forms map to the SAME RFC3339 instant. `verify_cert_chain`
-        // parses this field with `parse_from_rfc3339`, so a bare Unix-seconds
+        // parses this field with `rfc3339::parse`, so a bare Unix-seconds
         // string here would break every ingested bundle.
         assert_eq!(
             integrated_time_to_rfc3339(&serde_json::json!(1_787_295_161i64)).unwrap(),

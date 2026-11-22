@@ -412,12 +412,10 @@ fn check_attestation_age(
     let enforcement = policy.effective_enforcement(policy.signatures.enforcement);
 
     // Parse the attestation timestamp
-    let attestation_time = chrono::DateTime::parse_from_rfc3339(&attestation.timestamp)
-        .ok()?;
-    let now = chrono::Utc::now();
-    let age = now.signed_duration_since(attestation_time);
+    let attestation_time = crate::rfc3339::parse(&attestation.timestamp).ok()?;
+    let age = jiff::Timestamp::now().duration_since(attestation_time);
 
-    if age.num_seconds() < 0 {
+    if age.as_secs() < 0 {
         // Future timestamp - suspicious
         return Some(RuleResult::fail(
             "signatures.attestation_age",
@@ -427,8 +425,8 @@ fn check_attestation_age(
     }
 
     let max_age_secs = max_age.as_secs() as i64;
-    if age.num_seconds() > max_age_secs {
-        let days = age.num_days();
+    if age.as_secs() > max_age_secs {
+        let days = age.as_secs() / 86400;
         let max_days = max_age_secs / (24 * 60 * 60);
         Some(RuleResult::fail(
             "signatures.attestation_age",
@@ -436,7 +434,7 @@ fn check_attestation_age(
             format!("Attestation is {} days old, maximum allowed is {} days", days, max_days),
         ))
     } else {
-        let days = age.num_days();
+        let days = age.as_secs() / 86400;
         Some(RuleResult::pass(
             "signatures.attestation_age",
             enforcement,

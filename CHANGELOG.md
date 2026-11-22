@@ -18,6 +18,24 @@ All notable changes to sigil are documented here. The project follows
 
 ### Changed
 
+- **chrono is gone from wsc and wsc-attestation; timestamps use jiff 1.0**
+  (RUSTSEC-2026-0543: chrono is unmaintained). The new `wsc::rfc3339`
+  module keeps chrono's exact behavior. Formatting writes the same bytes
+  (`+00:00`, then 0, 3, 6 or 9 fractional digits; `Z` with whole seconds
+  for Rekor `integratedTime`). Parsing accepts exactly chrono's RFC 3339
+  grammar, so verifiers neither gain nor lose accepted timestamp shapes. One
+  boundary moves: an instant within about 26 hours of year 10000, such as
+  RFC 5280's "no expiry" `99991231235959Z`, still parses, but reads as
+  jiff's last instant, 9999-12-30T22:00:00.999999999Z. **Library API
+  (breaking):** `SignatureFreshnessPolicy::with_minimum_timestamp` takes a
+  `wsc::rfc3339::Timestamp` (jiff) instead of `chrono::DateTime<Utc>`.
+  chrono stays in `Cargo.lock` only through regorus under the optional
+  `rego` feature (its Rego `time.*` builtins). *Falsification:* the
+  `rfc3339` unit tests pin 40 inputs to the values chrono 0.4.44 gave. A
+  differential run against chrono over 2,000,000 generated strings found 0
+  parse or format differences outside the documented year-9999 clamp, and it
+  caught each of 4 planted parser mutations.
+
 - **Outbound TLS trusts the operating system's trust store, with no bundled
   roots.** Fulcio, Rekor, OIDC token endpoints, the Sigstore trusted-root
   fetch, and the WebPKI check under certificate pinning used to trust the

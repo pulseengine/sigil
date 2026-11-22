@@ -704,9 +704,9 @@ impl RekorKeyring {
         let verifying_key = self.key_for(&entry.log_id)?;
 
         // Parse integrated_time from RFC3339 to Unix timestamp
-        let integrated_time = chrono::DateTime::parse_from_rfc3339(&entry.integrated_time)
+        let integrated_time = crate::rfc3339::parse(&entry.integrated_time)
             .map_err(|e| WSError::RekorError(format!("Failed to parse integrated_time: {}", e)))?;
-        let integrated_time_unix = integrated_time.timestamp();
+        let integrated_time_unix = crate::rfc3339::unix_secs(integrated_time);
 
         // Construct the JSON object that was signed (without "verification" field)
         // This matches Rekor's API response structure

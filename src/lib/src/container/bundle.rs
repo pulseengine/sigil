@@ -258,8 +258,8 @@ fn build_tlog_entry(
     };
 
     // Convert integrated_time from RFC3339 to Unix timestamp string.
-    let integrated_time_str = chrono::DateTime::parse_from_rfc3339(&rekor.integrated_time)
-        .map(|dt| dt.timestamp().to_string())
+    let integrated_time_str = crate::rfc3339::parse(&rekor.integrated_time)
+        .map(|ts| crate::rfc3339::unix_secs(ts).to_string())
         .unwrap_or_else(|_| rekor.integrated_time.clone());
 
     TransparencyLogEntry {

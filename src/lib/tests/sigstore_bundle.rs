@@ -584,7 +584,7 @@ fn from_sigstore_bundle_v03_negative_control_faithful_digest() {
 /// Test 6 — `verify_cert_chain` (offline: embedded Fulcio trust roots, no
 /// network) accepts the ingested legacy bundle. This is the leg that depends
 /// on `integrated_time` being RFC3339: `verify_cert_chain` parses that field
-/// with `parse_from_rfc3339` and checks the leaf cert's validity window
+/// with `rfc3339::parse` and checks the leaf cert's validity window
 /// against it. The fixture cert's window is 2026-08-21T06:52:40Z ..
 /// 07:02:40Z and integrated_time is 06:52:41Z (inside the window), so this
 /// returns `Ok`. A bare Unix-seconds string here would make the parse fail

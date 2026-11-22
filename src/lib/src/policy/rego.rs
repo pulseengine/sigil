@@ -318,7 +318,7 @@ impl RegoInput {
         Self {
             attestation: attestation_json,
             slsa_level,
-            current_time: chrono::Utc::now().to_rfc3339(),
+            current_time: crate::rfc3339::now(),
             context: serde_json::Value::Null,
         }
     }

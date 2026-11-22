@@ -195,7 +195,7 @@ impl BuildEnvironment {
         let os_version = capture_command_output("uname", &["-sr"])
             .or_else(|| std::env::var("OS").ok());
 
-        let captured_at = Some(chrono::Utc::now().to_rfc3339());
+        let captured_at = Some(crate::rfc3339::now());
 
         Self {
             rustc_version,

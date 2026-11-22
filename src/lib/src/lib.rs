@@ -101,6 +101,9 @@ pub mod format;
 /// resolves for existing callers.
 pub use wsc_dsse as dsse;
 
+/// RFC 3339 timestamps: chrono-compatible formatting and parsing, on jiff.
+pub use wsc_attestation::rfc3339;
+
 /// in-toto Statement v1.0 implementation
 ///
 /// Provides the in-toto attestation framework Statement layer.

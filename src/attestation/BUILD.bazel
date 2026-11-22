@@ -14,9 +14,9 @@ rust_library(
     edition = "2024",
     deps = [
         "@wsc_deps//:base64",
-        "@wsc_deps//:chrono",
         "@wsc_deps//:getrandom",
         "@wsc_deps//:hex",
+        "@wsc_deps//:jiff",
         "@wsc_deps//:serde",
         "@wsc_deps//:serde_json",
         "@wsc_deps//:sha2",
