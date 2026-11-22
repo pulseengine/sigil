@@ -83,6 +83,24 @@ provisioning, or the `runtime` feature.
 
 ### Verification and CI
 
+- **Every Cargo lockfile is committed, current, and audited; Bazel refuses a
+  stale MODULE.bazel.lock.** `scripts/lockfile-gate.sh` (Supply Chain
+  Security, Cargo Audit job) requires a committed `Cargo.lock` for every
+  cargo root. torture-runner and fuzz gain theirs, and the dead
+  `src/component/Cargo.lock`, which cargo never read, is removed. Each lock
+  must pass `cargo metadata --locked`, and `cargo audit` runs on all six
+  locks instead of the root one only. That audit found
+  `examples/wasmtime-loader` carrying 14 zstd/zstd-safe advisories through
+  wasmtime's default `cache` feature. The example now disables wasmtime's
+  default features, as `src/lib` already did. The eight `--ignore` entries
+  matched nothing in any lock and are removed. CI cargo builds, tests,
+  benches and both release builds pass `--locked`. `.bazelrc` sets
+  `--lockfile_mode=error`. *Falsification:* three planted controls run in
+  CI. A lock with one package removed must be refused by `--locked`, for
+  every root. A smallvec 1.6.0 lock must fail the audit on
+  RUSTSEC-2021-0003. Changing Cargo.lock without regenerating
+  MODULE.bazel.lock must make Bazel fail with "no longer up-to-date".
+
 - **Toolchain: Rust 1.100.0, exact, everywhere a release is built.**
   `rust-toolchain.toml` moves 1.96.1 -> 1.100.0, and the Bazel `rust.toolchain`
   that builds `wsc-component.wasm` and `wsc-cli.wasm` moves 1.90.0 -> 1.100.0.

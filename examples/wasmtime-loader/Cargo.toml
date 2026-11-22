@@ -13,7 +13,11 @@ wsc = { path = "../../src/lib" }
 # 50.x needs rustc 1.97 (rust-toolchain.toml pins 1.100.0) and is the line the
 # fleet aligned on; it runs wasip2 components built by rustc 1.100, which
 # wasmtime < 46.0.0 refuses. src/lib/Cargo.toml has the history.
-wasmtime = "50.0.3"
+# Default features OFF, like src/lib: wasmtime's default `cache` feature pulls
+# zstd 0.13 / zstd-safe 7.3, which carry RUSTSEC-2026-0391 and 13 zstd-safe
+# advisories. The loader never configures a compilation cache. `anyhow` keeps
+# wasmtime::Error convertible into the loader's anyhow::Error.
+wasmtime = { version = "50.0.3", default-features = false, features = ["anyhow", "component-model", "runtime", "cranelift", "std"] }
 anyhow = "1.0"
 env_logger = "0.11"
 log = "0.4"

@@ -11,16 +11,20 @@ on:
   push:
     branches: [main]
     paths:
-      - 'Cargo.lock'
-      - 'Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+      - 'scripts/lockfile-gate.sh'
+      - 'verification/lockfile-controls/**'
       - 'supply-chain/**'
       - 'deny.toml'
       - 'rust-toolchain.toml'
       - '.github/workflows/supply-chain.yml'
   pull_request:
     paths:
-      - 'Cargo.lock'
-      - 'Cargo.toml'
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+      - 'scripts/lockfile-gate.sh'
+      - 'verification/lockfile-controls/**'
       - 'supply-chain/**'
       - 'deny.toml'
       - 'rust-toolchain.toml'
@@ -57,30 +61,26 @@ jobs:
       run: rustup update stable && rustup default stable
     - name: Install cargo-audit
       run: cargo install --locked cargo-audit
-    - name: Run cargo audit
+    - name: Every cargo root has a committed, current lock
+      # Each lock must pass `cargo metadata --locked`; a planted control per
+      # lock (one [[package]] entry removed) must be refused. See the script.
+      run: scripts/lockfile-gate.sh locked
+    - name: Run cargo audit on every committed Cargo.lock
       # NOTE: advisories are gated HERE only. The cargo-deny job below runs
       # bans/licenses/sources, so deny.toml's [advisories].ignore is not the
       # gate and the two lists are not actually kept in sync.
       #
-      # No wasmtime entry here any more. RUSTSEC-2026-0315 and -0325 were the
-      # last two documented exceptions in this list; REQ-31 / #302 moved the
-      # toolchain to 1.96.1 and wasmtime to 49.0.4, which retires them along
-      # with -0327 (9.3 CRITICAL), -0326 and -0316. An exception retired beats
-      # an exception renewed: each `--ignore` line here is a standing
-      # obligation, not a closed item.
-      # RUSTSEC-2026-0097 (rand 0.8.5 transitive) was removed from this
-      # list when regorus was bumped 0.2.8 → 0.10 — the residual 0.8.5
-      # instance now drops out of the dep graph entirely.
-      run: |
-        cargo audit \
-          --ignore RUSTSEC-2025-0046 \
-          --ignore RUSTSEC-2025-0118 \
-          --ignore RUSTSEC-2026-0006 \
-          --ignore RUSTSEC-2026-0020 \
-          --ignore RUSTSEC-2026-0021 \
-          --ignore RUSTSEC-2025-0057 \
-          --ignore RUSTSEC-2025-0134 \
-          --ignore RUSTSEC-2024-0436
+      # Every Cargo.lock in the repository is audited, not only the root one:
+      # examples/wasmtime-loader carried 14 zstd/zstd-safe advisories that the
+      # root-only audit never saw (fixed in the PR that added this). A planted
+      # smallvec 1.6.0 lock must fail on RUSTSEC-2021-0003.
+      #
+      # No --ignore lines. The eight that were here (RUSTSEC-2025-0046,
+      # -2025-0118, -2026-0006, -2026-0020, -2026-0021, -2025-0057,
+      # -2025-0134, -2024-0436) matched no crate in any lock on 2026-11-22,
+      # so each was a standing exemption with nothing left to exempt. A new
+      # exception goes here with its reason and its retirement condition.
+      run: scripts/lockfile-gate.sh audit
 
   cargo-deny:
     name: Cargo Deny

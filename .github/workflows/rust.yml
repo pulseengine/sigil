@@ -89,11 +89,11 @@ jobs:
     # Cargo build and test
     - name: Cargo Build
       if: matrix.build-system == 'cargo'
-      run: cargo build --verbose
+      run: cargo build --locked --verbose
 
     - name: Cargo Test
       if: matrix.build-system == 'cargo'
-      run: cargo test --verbose
+      run: cargo test --locked --verbose
 
     # release.yml fails if `wsc sign` cannot parse wsc-cli.wasm, a wasip2
     # component (#164). A toolchain bump can change the component layout, so
@@ -118,7 +118,7 @@ jobs:
       run: |
         echo "Building Wasmtime integration example"
         cd examples/wasmtime-loader
-        cargo build --release --verbose
+        cargo build --locked --release --verbose
 
     - name: Test Wasmtime Example
       if: matrix.build-system == 'cargo'
@@ -127,7 +127,7 @@ jobs:
         cd examples/wasmtime-loader
 
         # Test: Verify binary runs and shows help
-        cargo run --release -- --help
+        cargo run --locked --release -- --help
 
     # Bazel setup and builds
     - name: Install Nix
@@ -155,6 +155,27 @@ jobs:
     - name: Build CLI Component (Bazel)
       if: matrix.build-system == 'bazel'
       run: bazel build //src/cli:wasmsign_cli
+
+    # .bazelrc sets --lockfile_mode=error, so the three builds above passed
+    # against MODULE.bazel.lock as committed. Planted control: change
+    # Cargo.lock without regenerating MODULE.bazel.lock (the drift a
+    # dependency PR produces) and require Bazel to refuse it.
+    - name: Stale MODULE.bazel.lock is refused (planted control)
+      if: matrix.build-system == 'bazel'
+      run: |
+        echo >> Cargo.lock
+        if out="$(bazel build --nobuild //src/lib:wsc 2>&1)"; then
+          git checkout -- Cargo.lock
+          echo "::error::Bazel accepted a MODULE.bazel.lock that no longer matches Cargo.lock: --lockfile_mode=error is not in effect"
+          exit 1
+        fi
+        git checkout -- Cargo.lock
+        grep -q 'MODULE.bazel.lock is no longer up-to-date' <<<"$out" || {
+          echo "::error::Bazel failed with Cargo.lock changed, but not on the stale lockfile"
+          printf '%s\n' "$out" | tail -10
+          exit 1
+        }
+        echo "ok  Bazel refuses a stale MODULE.bazel.lock"
 
     # Audit 2026-04-30 finding C-7 (partial): Bazel CI now ATTEMPTS to
     # run tests, not just validate that targets compile. continue-on-error
@@ -224,7 +245,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Run Keyless Integration Tests
-      run: cargo test --test keyless_integration -- --ignored --nocapture
+      run: cargo test --locked --test keyless_integration -- --ignored --nocapture
       env:
         RUST_LOG: debug
 
@@ -240,12 +261,12 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Run Air-Gapped Unit Tests
-      run: cargo test --test airgapped_e2e -- --nocapture
+      run: cargo test --locked --test airgapped_e2e -- --nocapture
       env:
         RUST_LOG: info
 
     - name: Run Air-Gapped Integration Tests (with OIDC)
-      run: cargo test --test airgapped_e2e -- --ignored --nocapture
+      run: cargo test --locked --test airgapped_e2e -- --ignored --nocapture
       env:
         RUST_LOG: debug
 
@@ -261,7 +282,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Build CLI
-      run: cargo build --release
+      run: cargo build --locked --release
 
     # #366: a gate may trust `wsc verify`'s exit code. Tampered payload,
     # tampered signature, wrong key and unsigned module must each exit
@@ -344,7 +365,7 @@ jobs:
       continue-on-error: true
       run: |
         echo "📝 Note: These tests use hardcoded data and may fail if not recently updated"
-        cargo test signature::keyless::rekor_verifier::tests -- --ignored --nocapture
+        cargo test --locked signature::keyless::rekor_verifier::tests -- --ignored --nocapture
       env:
         RUST_LOG: debug
 
@@ -377,8 +398,8 @@ jobs:
       # coverage went unreported (REQ-30 / #258; enforced by the
       # vacuous-oracle-gate job below).
       run: |
-        cargo llvm-cov -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --lcov --output-path lcov.info
-        cargo llvm-cov -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --html --output-dir coverage-html
+        cargo llvm-cov --locked -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --lcov --output-path lcov.info
+        cargo llvm-cov --locked -p wsc -p wsc-dsse -p wsc-verify-core -p wsc-attestation --html --output-dir coverage-html
     - name: Upload LCOV to Codecov
       if: (env.CODECOV_TOKEN != '') && github.event.pull_request.head.repo.fork != true
       uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
