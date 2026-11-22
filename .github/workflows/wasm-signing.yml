@@ -52,8 +52,8 @@ jobs:
         # Install from crates.io (when published)
         # cargo install wsc-cli --version ${{ env.WSC_VERSION }}
 
-        # Or build from source
-        cargo install --git https://github.com/pulseengine/wsc.git wsc-cli
+        # Or build from this checkout, with the committed Cargo.lock
+        cargo install --locked --path src/cli
 
     - name: Build WASM module
       run: |
@@ -96,7 +96,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
     - name: Install wsc
-      run: cargo install --git https://github.com/aspect-build/wsc.git wsc-cli
+      run: cargo install --locked --path src/cli
 
     - name: Generate bundle keypair
       run: |
