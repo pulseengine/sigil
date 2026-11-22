@@ -54,7 +54,6 @@ rust_library(
         "@wsc_deps//:spki",
         "@wsc_deps//:time",
         "@wsc_deps//:ureq",
-        "@wsc_deps//:webpki-roots",
         "@wsc_deps//:x509-parser",
          # Certificate provisioning dependencies
          "@wsc_deps//:rcgen",
@@ -62,7 +61,12 @@ rust_library(
          "@wsc_deps//:zeroize",
          # Policy file parsing (TOML format)
          "@wsc_deps//:toml",
-     ],
+     ] + select({
+        # The OS trust store for outbound TLS (src/tls_roots.rs). wasm32 has
+        # no platform store and reads SSL_CERT_FILE instead.
+        "@platforms//cpu:wasm32": [],
+        "//conditions:default": ["@wsc_deps//:rustls-native-certs"],
+    }),
 )
 
 exports_files([

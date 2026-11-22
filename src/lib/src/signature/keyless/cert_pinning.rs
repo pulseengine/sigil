@@ -385,12 +385,15 @@ impl PinnedCertVerifier {
         pinning: PinningConfig,
         crypto_provider: Arc<CryptoProvider>,
     ) -> Result<Self, WSError> {
-        // Create base WebPKI verifier using system roots
-        let roots = rustls::RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
+        // Base WebPKI verifier over the operating system's trust store
+        // (crate::tls_roots; no bundled fallback). The pin check below runs
+        // only after this chain validation succeeds.
+        let roots = crate::tls_roots::os_root_store()?;
 
-        let base_verifier = rustls::client::WebPkiServerVerifier::builder(Arc::new(roots))
+        let base_verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(
+            Arc::new(roots),
+            crypto_provider.clone(),
+        )
             .build()
             .map_err(|e| {
                 WSError::CertificatePinningError(format!("Failed to create base verifier: {}", e))

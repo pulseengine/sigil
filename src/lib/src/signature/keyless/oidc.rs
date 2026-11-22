@@ -284,7 +284,8 @@ impl GitHubOidcProvider {
         // and an optional audience parameter
         let url = format!("{}&audience=sigstore", self.request_url);
 
-        let response = ureq::get(&url)
+        let response = crate::tls_roots::os_agent()?
+            .get(&url)
             .header("Authorization", &format!("Bearer {}", self.request_token))
             .call()
             .map_err(|e| {

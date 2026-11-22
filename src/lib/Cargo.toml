@@ -57,7 +57,13 @@ uuid = { version = "1.11", features = ["v4"] }
 # wsc then failed to compile. examples/wasmtime-loader reproduced exactly that in
 # CI; a downstream such as varve would have hit it on upgrading. Raise this
 # floor whenever the code adopts a newer `unversioned` API.
-ureq = "3.5"
+#
+# Default features OFF: ureq's default `rustls` feature bundles the
+# webpki-roots root set. sigil trusts the operating system's store instead
+# (src/lib/src/tls_roots.rs) and every agent is built with explicit roots, so
+# an agent built without them fails its first HTTPS request rather than
+# silently trusting a compiled-in set.
+ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider", "gzip"] }
 # SPKI encoding for public keys
 spki = { version = "0.8", features = ["alloc"] }
 # ECDSA P-256 for keyless signing (required by Sigstore/Rekor hashedrekord)
@@ -67,7 +73,6 @@ ecdsa = { version = "0.17", features = ["algorithm", "getrandom"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["std"] }
 rustls-pki-types = { version = "1.11", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
-webpki-roots = "1.0"
 pem = "4.0"
 const-oid = { version = "0.10", default-features = false, features = ["db"] }
 # X.509 certificate generation for provisioning
@@ -95,7 +100,9 @@ optional = true
 [dependencies.reqwest]
 version = "0.12"
 default-features = false
-features = ["rustls-tls", "json"]
+# rustls-tls-manual-roots: no bundled roots; the client is given the OS
+# trust store (tls_roots::os_root_store) explicitly.
+features = ["rustls-tls-manual-roots", "json"]
 optional = true
 
 # Rego policy language support (optional, for power users)
@@ -150,6 +157,11 @@ optional = true
 [target.'cfg(target_os = "linux")'.dependencies.tss-esapi]
 version = "7"
 optional = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# The OS trust store for outbound TLS (src/lib/src/tls_roots.rs). wasm32 has
+# no platform store and reads SSL_CERT_FILE instead.
+rustls-native-certs = "0.8"
 
 [dev-dependencies]
 # WAT (WebAssembly Text) parser for tests

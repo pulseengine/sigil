@@ -154,7 +154,8 @@ pub fn fetch_sigstore_trusted_root() -> Result<SigstoreTrustedRoot, WSError> {
 
 /// Fetch and parse trusted root from a custom URL
 pub fn fetch_sigstore_trusted_root_from_url(url: &str) -> Result<SigstoreTrustedRoot, WSError> {
-    let response = ureq::get(url)
+    let response = crate::tls_roots::os_agent()?
+        .get(url)
         .call()
         .map_err(|e| WSError::InternalError(format!("Failed to fetch trusted root: {}", e)))?;
 

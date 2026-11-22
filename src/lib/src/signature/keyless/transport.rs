@@ -252,13 +252,14 @@ pub fn create_pinned_agent(pinning: PinningConfig) -> Result<ureq::Agent, WSErro
 /// Use this when certificate pinning is disabled or not available.
 ///
 /// # Returns
-/// A configured ureq::Agent with standard WebPKI validation
+/// A configured ureq::Agent with standard WebPKI validation against the
+/// operating system's trust store ([`crate::tls_roots`]).
+///
+/// # Errors
+/// [`WSError::NoTrustedRoots`] when the trust store holds no usable root.
 #[cfg(not(target_os = "wasi"))]
-pub fn create_standard_agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .http_status_as_error(false)
-        .build()
-        .into()
+pub fn create_standard_agent() -> Result<ureq::Agent, WSError> {
+    crate::tls_roots::os_agent()
 }
 
 /// Create an HTTP agent with optional certificate pinning.
@@ -304,7 +305,7 @@ pub fn create_agent_with_optional_pinning(
                 ));
             }
             log::debug!("Certificate pinning disabled, using standard TLS");
-            Ok(create_standard_agent())
+            create_standard_agent()
         }
     }
 }
@@ -315,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_create_standard_agent() {
-        let agent = create_standard_agent();
+        let agent = create_standard_agent().expect("OS trust store");
         // Just verify it can be created
         assert!(format!("{:?}", agent).contains("Agent"));
     }
