@@ -1,0 +1,13 @@
+version = 4
+
+[[package]]
+name = "lockfile-control"
+version = "0.0.0"
+dependencies = [
+ "smallvec",
+]
+
+[[package]]
+name = "smallvec"
+version = "1.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -2,6 +2,12 @@
 
 # Enable bzlmod (Bazel module system)
 common --enable_bzlmod
+# MODULE.bazel.lock is checked, never rewritten, in every build: a Cargo.lock
+# or MODULE.bazel change without a regenerated lock fails instead of
+# resolving something nobody reviewed. Regenerate with
+# `bazel mod deps --lockfile_mode=update` or any build with that flag.
+# CI plants a stale lock to show this can fail (rust.yml, bazel job).
+common --lockfile_mode=error
 
 # Build configuration
 build --incompatible_strict_action_env

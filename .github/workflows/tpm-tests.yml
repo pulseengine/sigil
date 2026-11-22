@@ -79,14 +79,14 @@ jobs:
 
     - name: Build with TPM2 feature
       run: |
-        cargo build --features tpm2 -p wsc --verbose
+        cargo build --locked --features tpm2 -p wsc --verbose
 
     - name: Run TPM2 tests
       run: |
         export TPM2_TCTI="swtpm:host=localhost,port=2321"
 
         # Run the ignored TPM tests
-        cargo test --features tpm2 -p wsc \
+        cargo test --locked --features tpm2 -p wsc \
           platform::tpm2::tests \
           -- --ignored --nocapture
       env:
@@ -97,7 +97,7 @@ jobs:
         export TPM2_TCTI="swtpm:host=localhost,port=2321"
 
         # Simple integration test: generate key, sign, verify
-        cargo test --features tpm2 -p wsc \
+        cargo test --locked --features tpm2 -p wsc \
           test_tpm2_sign_verify \
           -- --ignored --nocapture
       env:
@@ -122,14 +122,14 @@ jobs:
     - name: Build with TPM2 feature (should skip TPM code)
       run: |
         # On macOS, the tpm2 feature should compile but the module is not included
-        cargo build --features tpm2 -p wsc --verbose
+        cargo build --locked --features tpm2 -p wsc --verbose
 
         echo "✅ TPM2 feature compiles on macOS (module excluded)"
 
     - name: Run non-TPM tests
       run: |
         # Regular tests should still pass
-        cargo test -p wsc --verbose
+        cargo test --locked -p wsc --verbose
 
   # Windows compile check - verifies the feature compiles (TPM code is excluded)
   # NOTE: tss-esapi doesn't have pre-generated bindings for Windows x86_64.
@@ -149,7 +149,7 @@ jobs:
       run: |
         # TPM2 feature will compile on Windows, but TPM code is excluded
         # via platform guards (cfg(target_os = "linux") only)
-        cargo build --features tpm2 -p wsc --verbose
+        cargo build --locked --features tpm2 -p wsc --verbose
 
         echo "TPM2 feature compiles on Windows (TPM module excluded via platform guards)"
 

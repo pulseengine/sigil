@@ -157,7 +157,7 @@ jobs:
 
     - name: Build CLI
       run: |
-        cargo build --release --bin wsc --target ${{ matrix.target }} ${{ matrix.features && format('--features {0}', matrix.features) || '' }}
+        cargo build --locked --release --bin wsc --target ${{ matrix.target }} ${{ matrix.features && format('--features {0}', matrix.features) || '' }}
 
     - name: Create artifact directory
       shell: bash
@@ -325,7 +325,7 @@ jobs:
     - name: Build wsc Native CLI
       run: |
         echo "Building wsc native CLI for signing..."
-        cargo build --release --bin wsc
+        cargo build --locked --release --bin wsc
 
         # Verify the CLI works
         ./target/release/wsc --version

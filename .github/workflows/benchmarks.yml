@@ -56,7 +56,7 @@ jobs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
     - name: Run benchmarks (reduced sample size)
-      run: cargo bench -p wsc --bench verification_benchmarks -- --sample-size 10 --warm-up-time 1
+      run: cargo bench --locked -p wsc --bench verification_benchmarks -- --sample-size 10 --warm-up-time 1
       timeout-minutes: 20
 
   # PR gate: deterministic cost of the verification paths, PR merge commit vs
@@ -120,13 +120,13 @@ jobs:
         elif [ "$BASE_GG" != "$GUNGRAUN_VERSION" ]; then
           echo "NO_BASE=gungraun $BASE_GG at base, $GUNGRAUN_VERSION at head" >> "$GITHUB_ENV"
         else
-          cargo bench -p wsc --bench verification_callgrind -- \
+          cargo bench --locked -p wsc --bench verification_callgrind -- \
             --home="$RUNNER_TEMP/gg-base" --save-summary=pretty-json
         fi
 
     - name: Measure PR head
       run: |
-        cargo bench -p wsc --bench verification_callgrind -- \
+        cargo bench --locked -p wsc --bench verification_callgrind -- \
           --home="$RUNNER_TEMP/gg-head" --save-summary=pretty-json
 
     - name: Verdict
@@ -177,7 +177,7 @@ jobs:
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
     - name: Run full benchmark suite
-      run: cargo bench -p wsc --bench verification_benchmarks
+      run: cargo bench --locked -p wsc --bench verification_benchmarks
       timeout-minutes: 60
 
     - name: Upload criterion output
