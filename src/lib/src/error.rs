@@ -97,6 +97,12 @@ pub enum WSError {
     #[error("Certificate pinning failed: {0}")]
     CertificatePinningError(String),
 
+    /// The trust store for outbound TLS holds no usable root certificate.
+    /// sigil uses the operating system's trust store and bundles no roots,
+    /// so this is a configuration error on the host, not a TLS failure.
+    #[error("No trusted root certificates for TLS: {0}")]
+    NoTrustedRoots(String),
+
     #[error("Keyless signature format error: {0}")]
     KeylessFormatError(String),
 

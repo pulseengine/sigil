@@ -137,6 +137,7 @@ mod sync_impl {
             let config = ureq::Agent::config_builder()
                 .http_status_as_error(false)
                 .timeout_global(Some(std::time::Duration::from_secs(self.timeout_secs)))
+                .tls_config(crate::tls_roots::ureq_tls_config()?)
                 .build();
             let agent = ureq::Agent::new_with_config(config);
 
@@ -181,6 +182,7 @@ mod sync_impl {
             let config = ureq::Agent::config_builder()
                 .http_status_as_error(false)
                 .timeout_global(Some(std::time::Duration::from_secs(self.timeout_secs)))
+                .tls_config(crate::tls_roots::ureq_tls_config()?)
                 .build();
             let agent = ureq::Agent::new_with_config(config);
 
@@ -223,6 +225,17 @@ mod sync_impl {
 mod async_impl {
     use super::*;
 
+    /// rustls client settings trusting the OS store (reqwest is built
+    /// without bundled roots, `rustls-tls-manual-roots`).
+    fn os_rustls_config() -> Result<rustls::ClientConfig, WSError> {
+        let provider = std::sync::Arc::new(rustls::crypto::ring::default_provider());
+        Ok(rustls::ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .map_err(|e| WSError::InternalError(format!("TLS configuration failed: {e}")))?
+            .with_root_certificates(crate::tls_roots::os_root_store()?)
+            .with_no_client_auth())
+    }
+
     #[maybe_async::async_impl]
     impl HttpClient for SimpleHttpClient {
         async fn get(
@@ -233,6 +246,7 @@ mod async_impl {
             let client = reqwest::Client::builder()
                 .user_agent(&self.user_agent)
                 .timeout(std::time::Duration::from_secs(self.timeout_secs))
+                .use_preconfigured_tls(os_rustls_config()?)
                 .build()
                 .map_err(|e| WSError::InternalError(format!("Failed to create HTTP client: {}", e)))?;
 
@@ -274,6 +288,7 @@ mod async_impl {
             let client = reqwest::Client::builder()
                 .user_agent(&self.user_agent)
                 .timeout(std::time::Duration::from_secs(self.timeout_secs))
+                .use_preconfigured_tls(os_rustls_config()?)
                 .build()
                 .map_err(|e| WSError::InternalError(format!("Failed to create HTTP client: {}", e)))?;
 

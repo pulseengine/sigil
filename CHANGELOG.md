@@ -18,6 +18,27 @@ All notable changes to sigil are documented here. The project follows
 
 ### Changed
 
+- **Outbound TLS trusts the operating system's trust store, with no bundled
+  roots.** Fulcio, Rekor, OIDC token endpoints, the Sigstore trusted-root
+  fetch, and the WebPKI check under certificate pinning used to trust the
+  compiled-in `webpki-roots` set. They now trust what the host trusts
+  (`rustls-native-certs`: the macOS keychain, the Windows store, the
+  OpenSSL-style bundle on Linux). `SSL_CERT_FILE` or `SSL_CERT_DIR` replaces
+  the platform store on every OS; wasm32 builds read `SSL_CERT_FILE` only.
+  `webpki-roots` is no longer a dependency, so ureq and reqwest have no
+  bundled roots to fall back to. **Action for minimal containers:** a host
+  with an empty store gets `NoTrustedRoots` ("install the system CA bundle
+  (the `ca-certificates` package ...) or set SSL_CERT_FILE"); install
+  `ca-certificates` or mount a bundle. Library API:
+  `transport::create_standard_agent()` now returns `Result`, and
+  `WSError::NoTrustedRoots` is new. *Falsification:*
+  `src/lib/tests/tls_trust_store.rs` runs a local HTTPS server whose CA no
+  real store contains. With the host store, the plain and the pinned client
+  must both refuse it on the certificate, even though the pinned client pins
+  the leaf. With the CA in `SSL_CERT_FILE`, both must succeed. With a
+  certificate-free `SSL_CERT_FILE`, building either client must fail with
+  `NoTrustedRoots`.
+
 - **wasip2 components need wasmtime 46.0.0 or later.** sigil's `.wasm`
   (wsc-component, wsc-cli.wasm) is built with Rust 1.100.0, whose std makes
   every wasm32-wasip2 component import `wasi:cli/exit@0.2.12`

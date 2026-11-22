@@ -152,6 +152,10 @@ pub mod sct;
 /// prefix. Addresses Ferrocene RUSTC_CSTR_0030 for tool version verification.
 pub mod build_env;
 
+/// Root certificates for outbound TLS: the operating system's trust store,
+/// with no bundled fallback.
+pub mod tls_roots;
+
 /// HTTP client abstraction for sync/async support
 ///
 /// Provides a unified HTTP client interface using `maybe_async` for compile-time
