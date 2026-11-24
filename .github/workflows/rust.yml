@@ -132,7 +132,7 @@ jobs:
     # Bazel setup and builds
     - name: Install Nix
       if: matrix.build-system == 'bazel'
-      uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086 # v31.11.5
+      uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
       with:
         nix_path: nixpkgs=channel:nixos-unstable
 
@@ -386,7 +386,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
     - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
     - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
       with:
         tool: cargo-llvm-cov
     - name: Generate coverage (LCOV + HTML)
