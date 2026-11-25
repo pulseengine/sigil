@@ -293,10 +293,8 @@ impl GitHubOidcProvider {
             })?;
 
         // Parse the JSON response
-        let body = response
-            .into_body()
-            .read_to_string()
-            .map_err(|e| WSError::OidcError(format!("Failed to read response body: {}", e)))?;
+        let body = crate::tls_roots::success_body(response)
+            .map_err(|e| WSError::OidcError(format!("GitHub OIDC token request failed: {}", e)))?;
 
         let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
             WSError::OidcError(format!("Failed to parse GitHub OIDC response: {}", e))
@@ -516,6 +514,51 @@ mod tests {
 
     // Note: These tests don't manipulate env vars to avoid unsafe code.
     // Instead, they test the logic with the current environment state.
+
+    /// Serve one HTTP/1.1 response on 127.0.0.1 and return the base URL.
+    fn serve_once(status_line: &'static str, body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            s.write_all(resp.as_bytes()).unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    /// A non-2xx answer from the token endpoint is reported with its status,
+    /// not as a JSON parse error (the regression #408 introduced).
+    #[cfg(not(target_os = "wasi"))]
+    #[test]
+    fn github_token_error_status_is_reported() {
+        let base = serve_once("403 Forbidden", "<html>forbidden</html>");
+        let provider = GitHubOidcProvider {
+            request_token: "t".to_string(),
+            request_url: format!("{base}/token?api-version=2.0"),
+        };
+        let err = provider.get_token_impl().unwrap_err().to_string();
+        assert!(err.contains("HTTP 403 Forbidden"), "{err}");
+        assert!(err.contains("<html>forbidden</html>"), "{err}");
+        assert!(!err.contains("parse"), "{err}");
+    }
+
+    #[cfg(not(target_os = "wasi"))]
+    #[test]
+    fn github_token_success_returns_value() {
+        let base = serve_once("200 OK", r#"{"value":"tok"}"#);
+        let provider = GitHubOidcProvider {
+            request_token: "t".to_string(),
+            request_url: format!("{base}/token?api-version=2.0"),
+        };
+        assert_eq!(provider.get_token_impl().unwrap(), "tok");
+    }
 
     /// Build a JWT with the supplied header/payload JSON for tests. The
     /// signature segment is a placeholder — these tests only exercise parsing.

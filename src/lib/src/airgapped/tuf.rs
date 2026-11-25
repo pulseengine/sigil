@@ -159,10 +159,8 @@ pub fn fetch_sigstore_trusted_root_from_url(url: &str) -> Result<SigstoreTrusted
         .call()
         .map_err(|e| WSError::InternalError(format!("Failed to fetch trusted root: {}", e)))?;
 
-    let body = response
-        .into_body()
-        .read_to_string()
-        .map_err(|e| WSError::InternalError(format!("Failed to read response: {}", e)))?;
+    let body = crate::tls_roots::success_body(response)
+        .map_err(|e| WSError::InternalError(format!("Failed to fetch trusted root: {}", e)))?;
 
     parse_trusted_root(&body)
 }
@@ -381,6 +379,33 @@ fn is_leap_year(year: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Serve one HTTP/1.1 response on 127.0.0.1 and return the base URL.
+    fn serve_once(status_line: &'static str, body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf);
+            let resp = format!(
+                "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            s.write_all(resp.as_bytes()).unwrap();
+        });
+        format!("http://{addr}")
+    }
+
+    #[test]
+    fn trusted_root_fetch_reports_http_status() {
+        let base = serve_once("404 Not Found", "no such root");
+        let err = fetch_sigstore_trusted_root_from_url(&format!("{base}/trusted_root.json"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("HTTP 404 Not Found: no such root"), "{err}");
+    }
 
     const SAMPLE_TRUSTED_ROOT: &str = r#"{
         "mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1",

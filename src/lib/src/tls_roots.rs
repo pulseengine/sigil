@@ -135,6 +135,25 @@ pub fn os_agent() -> Result<ureq::Agent, WSError> {
         .into())
 }
 
+/// The body of a 2xx response, or an error naming the status and quoting
+/// the first 200 characters of the body.
+///
+/// [`os_agent`] returns HTTP error statuses as responses, so a caller that
+/// expects success must check the status; otherwise an error page reaches a
+/// JSON parser and the status is lost ("expected value at line 1 column 1").
+pub fn success_body(response: ureq::http::Response<ureq::Body>) -> Result<String, String> {
+    let status = response.status();
+    let body = response
+        .into_body()
+        .read_to_string()
+        .map_err(|e| format!("Failed to read response body: {e}"))?;
+    if status.is_success() {
+        return Ok(body);
+    }
+    let snippet: String = body.chars().take(200).collect();
+    Err(format!("HTTP {status}: {snippet}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
