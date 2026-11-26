@@ -218,3 +218,6 @@ theorem cofactored_verification_sound
   -- then apply verification_equation_sound to rewrite [s]B = R + [k]A.
   rw [scalarMul_mul (Curve25519.h : ℤ) s B]
   rw [verification_equation_sound a r k s A R hA hR hs]
+
+-- NEGATIVE CONTROL for #418: reverted in the next commit; must turn Required checks red.
+theorem planted_control : (1 : ℕ) = 2 := by sorry
