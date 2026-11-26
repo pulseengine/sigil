@@ -50,7 +50,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
+        # Dated: cargo-fuzz needs nightly (-Zsanitizer). Keep in sync with the
+        # `cargo +nightly-...` below; move both together.
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master 2026-11-15
+        with:
+          toolchain: nightly-2026-11-24
 
       - name: Install cargo-fuzz
         run: cargo install --locked cargo-fuzz
@@ -74,7 +78,7 @@ jobs:
           cd fuzz
           DURATION="${DURATION_INPUT:-$DEFAULT_DURATION}"
           echo "Fuzzing ${TARGET} for ${DURATION} seconds..."
-          cargo +nightly fuzz run "${TARGET}" -- -max_total_time="${DURATION}"
+          cargo +nightly-2026-11-24 fuzz run "${TARGET}" -- -max_total_time="${DURATION}"
         # No continue-on-error: a crash, OOM, timeout or failed build is a red
         # leg. The uploads below run on always(), so the reproducer still lands.
 

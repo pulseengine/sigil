@@ -1,19 +1,26 @@
 version: 2
-# One PR per logical release across all directories: version-locked families
-# (wasm-tools, wasmtime) and all github-actions pins must not split into one
-# PR per directory. (Learned from loom/witness/mcp/relay/rules_wasm_component,
-# where one release arrived as 4-8 PRs.)
+# Grouped monthly updates (fleet template, owner decision 2026-11-21; same
+# shape as pulseengine/rivet). One entry per ecosystem, its directories in one
+# `directories:` list, so a release opens one PR and not one per directory.
+# Every entry runs monthly (the 1st, 02:00 UTC), keeps at most 2 PRs open, and
+# waits 7 days after a release (cooldown). Lockstep groups come first because
+# Dependabot puts a dependency in the FIRST group it matches; then one
+# minor-patch group. Majors stay ungrouped, one PR each, so a breaking change
+# is read on its own. Security updates ignore the schedule and the limit.
 #
 # `groups` is a property of an `updates` entry, never top-level: a top-level
 # `groups:` (as #338/#340 had it) is rejected by Dependabot ("additional
-# properties ["groups"]"), which silently disabled the grouping. Cross-
-# directory grouping comes from ONE cargo entry listing every manifest under
-# `directories:`; its groups then span all of them, one PR per group.
+# properties ["groups"]"), which silently disabled the grouping.
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - dependencies
     groups:
@@ -21,15 +28,24 @@ updates:
         patterns:
           - "*"
   - package-ecosystem: cargo
+    # Every committed Cargo.lock root (scripts/lockfile-gate.sh checks the
+    # same six), plus two workspace members listed since #338.
     directories:
       - /
       - /fuzz
       - /examples/wasmtime-loader
       - /src/attestation
       - /src/cli
+      - /verification/selfhosted-guard
+      - /verification/torture-runner
       - /verification/witness-harness
     schedule:
-      interval: weekly
+      interval: monthly
+      time: "02:00"
+      timezone: Etc/UTC
+    open-pull-requests-limit: 2
+    cooldown:
+      default-days: 7
     labels:
       - dependencies
     groups:
@@ -47,3 +63,7 @@ updates:
         patterns:
           - "wasmtime"
           - "wasmtime-*"
+      minor-patch:
+        update-types:
+          - minor
+          - patch
