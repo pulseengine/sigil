@@ -26,6 +26,7 @@ on:
       - 'verification/witness-harness/**'
       - 'verification/rocq/**'
       - 'lean/**'
+      - 'scripts/lean-proof-gate.py'
       - 'MODULE.bazel'
       - 'BUILD.bazel'
       - '.bazelrc'
@@ -51,6 +52,7 @@ on:
       - 'verification/witness-harness/**'
       - 'verification/rocq/**'
       - 'lean/**'
+      - 'scripts/lean-proof-gate.py'
       - 'MODULE.bazel'
       - 'BUILD.bazel'
       - '.bazelrc'
@@ -258,6 +260,60 @@ jobs:
       # stub, not a real Rocq proof. continue-on-error stays until a `.v`
       # file is wired in.
       continue-on-error: true
+
+  # Lean proofs of the Ed25519 verification equation (CV-24). A real gate, no
+  # continue-on-error. `lake build` alone accepts `sorry` (a warning), so the
+  # decision is lean-proof-gate.py: it reads Lean's own axiom report
+  # (lean/ProofAudit.lean, Lean.collectAxioms per declaration) and fails on any
+  # sorry or axiom not listed with a reason in lean/PROOF_LEDGER.txt, and on
+  # any stale ledger entry. Until this job existed no CI step ran Lean, and the
+  # file had never compiled (imports after the module docstring; a notation
+  # precedence bug made every curve statement ill-typed).
+  lean-proofs:
+    name: Lean Ed25519 proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Install elan (pinned release, sha256-checked)
+      env:
+        ELAN_VERSION: v4.2.4
+        ELAN_SHA256: 42b94d4244e8353142c456ec0e4ca6528fd898a6c604d4059f494e706e431f63
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/elan.tar.gz" \
+          "https://github.com/leanprover/elan/releases/download/${ELAN_VERSION}/elan-x86_64-unknown-linux-gnu.tar.gz"
+        echo "${ELAN_SHA256}  $RUNNER_TEMP/elan.tar.gz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/elan.tar.gz" -C "$RUNNER_TEMP"
+        "$RUNNER_TEMP/elan-init" -y --default-toolchain none --no-modify-path
+        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+    - name: Cache lake packages and build output
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.elan
+          lean/.lake
+        key: lean-${{ hashFiles('lean/lean-toolchain', 'lean/lake-manifest.json') }}
+
+    - name: Fetch the mathlib build cache
+      working-directory: lean
+      # A speed-up only: without it lake builds the imported mathlib modules
+      # (about 1000 files) from source. The decision is the gate step below.
+      run: lake exe cache get || echo "::warning::mathlib cache unavailable; building from source"
+
+    - name: Build lean/
+      working-directory: lean
+      run: lake build
+
+    - name: Lean's axiom report
+      working-directory: lean
+      run: lake env lean ProofAudit.lean | tee "$RUNNER_TEMP/lean-audit.txt"
+
+    - name: Gate on sorry and unledgered axioms
+      run: |
+        python3 scripts/lean-proof-gate.py --self-test
+        python3 scripts/lean-proof-gate.py "$RUNNER_TEMP/lean-audit.txt" lean/PROOF_LEDGER.txt
 
   # MC/DC branch-coverage gate on wsc-verify-core via the witness harness
   # (#165 Track C / #128). Unlike the WIP proof jobs above, this is a real

@@ -91,11 +91,19 @@ KNOWN_BLOCKING = {"failure", "cancelled", "timed_out", "action_required", "stale
 # paths filter — anything filtered cannot be required to appear.
 ALWAYS_PRESENT = ("Documentation claims hold",)
 
+# Contexts whose absence fails a merge_group run only. These live in workflows
+# with a pull_request paths filter, so a PR may legitimately lack them, but
+# every such workflow also triggers on merge_group without a filter: on the
+# merge-group commit they must report, or the queue would merge past a gate
+# that never ran.
+MERGE_GROUP_PRESENT = ("Lean Ed25519 proofs",)
+
 SELF = "Required checks"
 
 
 def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT,
-             workflow_runs=(), self_run_id=None):
+             workflow_runs=(), self_run_id=None, event=None,
+             merge_group_present=MERGE_GROUP_PRESENT):
     """Pure decision function: (check-runs, workflow runs) -> (verdict, reasons).
 
     verdict is "pass", "fail" or "wait". Kept free of I/O so --self-test can
@@ -133,6 +141,14 @@ def classify(runs, self_name=SELF, always_present=ALWAYS_PRESENT,
                 f"required context never reported: {name!r} — its workflow has no "
                 f"paths filter, so absence means it stopped running"
             )
+    if event == "merge_group":
+        for name in merge_group_present:
+            if name not in present:
+                reasons.append(
+                    f"required context never reported on the merge group: {name!r} "
+                    f"— its workflow runs on every merge_group, so absence means it "
+                    f"stopped running"
+                )
 
     return ("fail", reasons) if reasons else ("pass", [])
 
@@ -265,6 +281,18 @@ SELF_TEST_CASES = [
 # (name, [(seconds since start, check-runs) per poll], deadline, expected stalled at the last poll)
 _Q = lambda n: {"name": n, "status": "queued", "conclusion": None}
 _R = lambda n: {"name": n, "status": "in_progress", "conclusion": None}
+_LEAN = {"name": "Lean Ed25519 proofs", "status": "completed", "conclusion": "success"}
+_DOCS = {"name": "Documentation claims hold", "status": "completed", "conclusion": "success"}
+EVENT_CASES = [
+    # (name, runs, event, expected verdict)
+    ("merge_group without the Lean context -> fail", [_DOCS], "merge_group", "fail"),
+    ("merge_group with the Lean context green -> pass", [_DOCS, _LEAN], "merge_group", "pass"),
+    ("merge_group with the Lean context failed -> fail",
+     [_DOCS, dict(_LEAN, conclusion="failure")], "merge_group", "fail"),
+    ("pull_request without the Lean context (paths-filtered) -> pass",
+     [_DOCS], "pull_request", "pass"),
+]
+
 CLOCK_CASES = [
     ("queued for longer than the deadline is not a stall",
      [(0, [_Q("Kani varint")]), (7200, [_Q("Kani varint")])], 3600, []),
@@ -290,9 +318,12 @@ def self_test():
         ok = got == expected
         bad += not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {name}: expected stalled {expected}, got {got}")
-    cases = [(n, r, (), None, e) for n, r, e in SELF_TEST_CASES] + WORKFLOW_CASES
-    for name, runs, wruns, self_id, expected in cases:
-        got, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_id)
+    cases = ([(n, r, (), None, None, e) for n, r, e in SELF_TEST_CASES]
+             + [(n, r, w, i, None, e) for n, r, w, i, e in WORKFLOW_CASES]
+             + [(n, r, (), None, ev, e) for n, r, ev, e in EVENT_CASES])
+    for name, runs, wruns, self_id, event, expected in cases:
+        got, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_id,
+                                event=event)
         ok = got == expected
         bad += not ok
         print(f"{'ok  ' if ok else 'FAIL'}  {name}: expected {expected}, got {got}"
@@ -335,7 +366,8 @@ def main():
             print(f"::error::required-checks could not read the check board: {e}")
             return 1
 
-        verdict, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_run_id)
+        verdict, reasons = classify(runs, workflow_runs=wruns, self_run_id=self_run_id,
+                                    event=event)
         if verdict == "pass":
             print(f"All {len(runs) - 1} other check-runs are acceptable, and every "
                   f"always-present context reported. Mergeable.")

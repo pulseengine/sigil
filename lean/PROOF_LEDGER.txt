@@ -1,0 +1,33 @@
+# Proof ledger for lean/Ed25519.lean, checked by scripts/lean-proof-gate.py
+# against Lean's own report (lean/ProofAudit.lean: Lean.collectAxioms per
+# declaration). Format, one entry per line:
+#
+#   axiom <name> <reason>     a declared axiom the proofs may rest on
+#   open  <name> <reason>     a theorem whose proof still contains `sorry`
+#
+# Lean's standard axioms (propext, Quot.sound, Classical.choice) need no entry.
+# Every other axiom a theorem depends on must be listed here; a theorem that
+# depends on sorryAx must be listed as open. A stale entry (no such
+# declaration, or an open theorem that no longer uses sorry) also fails the
+# gate, so this file cannot drift from the proofs.
+#
+# The axioms are the abstract curve model: Curve25519 points form an additive
+# commutative group with an integer scalar action and a base point of order ℓ.
+# None of them is derived from the curve equation. A theorem marked checked
+# below is checked RELATIVE TO THIS MODEL, not against Curve25519 itself.
+
+axiom CurvePoint            abstract type of curve points; no concrete curve
+axiom curveGroup            the points form an additive commutative group (assumed, not built from the curve)
+axiom B                     the Ed25519 base point, as an opaque constant
+axiom scalarMul             integer scalar multiplication, as an opaque function
+axiom scalarMul_zero        [0]P = 0 (group-action law, assumed)
+axiom scalarMul_one         [1]P = P (group-action law, assumed)
+axiom scalarMul_add         [n+m]P = [n]P + [m]P (group-action law, assumed)
+axiom scalarMul_mul         [n*m]P = [n]([m]P) (group-action law, assumed)
+axiom scalarMul_neg         [-n]P = -[n]P (group-action law, assumed)
+axiom basepoint_order       [ℓ]B = 0 (assumed; not computed from the curve)
+axiom add_zero_curvepoint   P + 0 = P (follows from curveGroup; stated separately because scalarMul is not tied to the group's nsmul)
+axiom scalarMul_zero_point  [n]0 = 0 (follows from the action laws; stated as an axiom)
+
+open basepoint_prime_order          needs scalarMul tied to curveGroup's zsmul and addOrderOf B = ℓ
+open verification_equation_complete rests on basepoint_prime_order

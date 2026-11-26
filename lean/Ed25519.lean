@@ -1,3 +1,6 @@
+import Mathlib.GroupTheory.OrderOfElement
+import Mathlib.Data.ZMod.Basic
+
 /-!
   # Ed25519 Algebraic Properties (CV-24)
 
@@ -12,28 +15,27 @@
 
   ## Status
 
-  Honesty policy: every claim below states *exactly* how much of the
-  proof body is mechanically checked. A `sorry` is treated as an open
-  obligation and the table is required to say so. See
-  `audit/2026-04-30/findings.md` C-2 for the audit context.
+  CI-checked: the `Lean Ed25519 proofs` job (formal-verification.yml)
+  builds this file and runs `scripts/lean-proof-gate.py` over Lean's own
+  axiom report (`ProofAudit.lean`). Any `sorry` or axiom not listed in
+  `PROOF_LEDGER.txt` fails it. Until 2026-11-26 the file had never
+  compiled (imports after this docstring; the `[n] P` notation parsed
+  `[0] P = 0` as `[0] (P = 0)`), so nothing below was checked before then.
 
-  - `scalarMul_mul_order`: PROVEN (depends on the `scalarMul_zero_point`
-    axiom declared in this file).
-  - `verification_equation_sound`: PROVEN — full mechanized proof, no
-    `sorry` in the body.
-  - `verification_equation_complete`: OPEN (`sorry`) — body relies on
-    `basepoint_prime_order`, which is itself open. The proof sketch in
-    the body is a roadmap, not a proof.
-  - `cofactored_verification_sound`: PROVEN — follows from
-    `verification_equation_sound`, no `sorry` in the body.
-  - `basepoint_prime_order`: OPEN (`sorry`) — needs an `AddGroup`
-    instance on `CurvePoint` connected to `scalarMul`, plus
-    `addOrderOf B = Curve25519.ℓ`, then Mathlib's
-    `addOrderOf_dvd_of_nsmul_eq_zero`.
+  "Checked" means checked RELATIVE TO the 12 axioms of the abstract curve
+  model declared below (see the ledger); none is derived from Curve25519.
+
+  - `verification_equation_sound`: checked. The witness sign was wrong
+    before (`Int.modEq_iff_dvd` gives `ℓ ∣ (r + k*a) - s`); fixed.
+  - `cofactored_verification_sound`: checked (follows from the above).
+  - `scalarMul_mul_order`: checked.
+  - `scalarMul_neg_one_add`: checked.
+  - `basepoint_prime_order`: OPEN (`sorry`), ledgered. Needs `scalarMul`
+    tied to `curveGroup`'s zsmul, plus `addOrderOf B = Curve25519.ℓ`.
+  - `verification_equation_complete`: OPEN (`sorry`), ledgered. Rests on
+    `basepoint_prime_order`.
 -/
 
-import Mathlib.GroupTheory.OrderOfElement
-import Mathlib.Data.ZMod.Basic
 
 -- Curve25519 parameters
 def Curve25519.p : ℕ := 2^255 - 19
@@ -46,7 +48,7 @@ axiom curveGroup : AddCommGroup CurvePoint
 axiom B : CurvePoint  -- base point
 axiom scalarMul : ℤ → CurvePoint → CurvePoint
 
-notation:70 "[" n "]" P => scalarMul n P
+notation:70 "[" n "]" P:71 => scalarMul n P
 
 -- Core axioms
 axiom scalarMul_zero (P : CurvePoint) : [0] P = @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero
@@ -142,17 +144,18 @@ theorem verification_equation_sound
   -- Int.modEq_iff_dvd.mp gives: (↑ℓ) ∣ (s - (r + k * a)).
   -- Destructuring the divisibility yields witness m with hm.
   obtain ⟨m, hm⟩ := Int.modEq_iff_dvd.mp hs
-  -- hm : s - (r + k * a) = ↑ℓ * m
-  -- Derive: s = (r + k * a) + m * ℓ
-  have hs_eq : s = (r + k * a) + m * (Curve25519.ℓ : ℤ) := by omega
+  -- hm : r + k * a - s = ↑ℓ * m  (Int.modEq_iff_dvd: a ≡ b ↔ n ∣ b - a)
+  -- Derive: s = (r + k * a) + (-m) * ℓ
+  have hs_eq : s = (r + k * a) + (-m) * (Curve25519.ℓ : ℤ) := by
+    rw [neg_mul, mul_comm m]; omega
   -- Step 2: Rewrite [s]B using the decomposition s = (r + k*a) + m*ℓ.
   rw [hs_eq]
   -- Goal: [r + k * a + m * ↑ℓ]B = R + [k]A
   -- Step 3: Distribute scalar multiplication over the outer sum.
-  rw [scalarMul_add (r + k * a) (m * (Curve25519.ℓ : ℤ)) B]
+  rw [scalarMul_add (r + k * a) ((-m) * (Curve25519.ℓ : ℤ)) B]
   -- Goal: [r + k*a]B + [m*ℓ]B = R + [k]A
   -- Step 4: [m*ℓ]B = O via scalarMul_mul_order.
-  rw [scalarMul_mul_order m]
+  rw [scalarMul_mul_order (-m)]
   -- Goal: [r + k*a]B + O = R + [k]A
   -- Step 5: Eliminate + O on the left via add_zero_curvepoint.
   rw [add_zero_curvepoint ([r + k * a] B)]

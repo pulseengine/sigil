@@ -70,6 +70,29 @@ All notable changes to sigil are documented here. The project follows
   import while the CI wasmtime runs it; the step fails if 45.0.0 runs it or
   fails for any other reason.
 
+### Fixed
+
+- **The Lean proof of the Ed25519 verification equation is now compiled and
+  CI-gated; before this it had never compiled.** `lean/Ed25519.lean` put its
+  imports after the module docstring, which Lean 4 rejects, and its `[n] P`
+  notation parsed `[0] P = 0` as `[0] (P = 0)`, so every curve statement was
+  ill-typed. No workflow ran Lean, so the theorems the file and CV-24 called
+  PROVEN had never been checked. Fixed both, plus a wrong witness sign in
+  `verification_equation_sound` (`Int.modEq_iff_dvd` gives
+  `ℓ ∣ (r + k*a) - s`, not `s - (r + k*a)`). Lean now reports, relative to the
+  12-axiom abstract curve model listed in `lean/PROOF_LEDGER.txt` (none
+  derived from Curve25519): **checked** `verification_equation_sound`,
+  `cofactored_verification_sound`, `scalarMul_mul_order`,
+  `scalarMul_neg_one_add`; **open** (`sorry`) `basepoint_prime_order` and
+  `verification_equation_complete`. The new `Lean Ed25519 proofs` job builds
+  `lean/` and runs `scripts/lean-proof-gate.py` over Lean's own axiom report.
+  It fails on any `sorry` or axiom missing from the ledger, and on a stale
+  ledger entry. `Required checks` fails a merge-group run on which that
+  context never reported. `.github/required-contexts.txt` mirrors the
+  contexts branch protection requires. *Falsification:* a commit that adds a
+  theorem ending in `sorry`, or that uses an axiom not in the ledger, gets a
+  red `Required checks` on its merge group.
+
 ### Removed
 
 - **No x86_64-apple-darwin (Intel macOS) assets from this release on. Intel
