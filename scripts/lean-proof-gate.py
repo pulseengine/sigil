@@ -7,8 +7,9 @@ Input 2: the ledger (see lean/PROOF_LEDGER.txt for the format).
 
 Fails (exit 1) when:
   - a declared axiom has no `axiom` ledger entry;
-  - a theorem depends on sorryAx and has no `open` entry;
-  - a theorem depends on an axiom that is neither standard nor ledgered;
+  - any declaration (theorem, def, or other) depends on sorryAx and has no
+    `open` entry;
+  - any declaration depends on an axiom that is neither standard nor ledgered;
   - a ledger entry names nothing, or an `open` theorem no longer uses sorry,
     or an entry has no reason;
   - the audit lists no theorem at all (an empty report is not a pass).
@@ -62,20 +63,24 @@ def check(decls, axioms, opens):
         errors.append(f"axiom {ax} is declared but not in the ledger")
     for name in sorted(set(axioms) - declared_axioms):
         errors.append(f"ledger axiom {name} is not a declared axiom (stale entry)")
-    for name in sorted(set(opens) - set(theorems)):
-        errors.append(f"ledger open {name} is not a theorem (stale entry)")
+    for name in sorted(set(opens) - set(decls)):
+        errors.append(f"ledger open {name} is not a declaration (stale entry)")
     checked, still_open = [], []
-    for name, deps in sorted(theorems.items()):
+    # Every declaration kind, not only theorems: a `def x : P := sorry` or a
+    # def resting on an unledgered axiom is as much a hole as a theorem.
+    for name, (kind, deps) in sorted(decls.items()):
+        if kind == "axiom":
+            continue  # checked against the ledger above; deps is itself
         if "sorryAx" in deps:
             if name not in opens:
-                errors.append(f"theorem {name} uses sorry and is not ledgered as open")
+                errors.append(f"{kind} {name} uses sorry and is not ledgered as open")
             still_open.append(name)
         elif name in opens:
-            errors.append(f"theorem {name} no longer uses sorry: remove its open entry")
-        else:
+            errors.append(f"{kind} {name} no longer uses sorry: remove its open entry")
+        elif kind == "theorem":
             checked.append(name)
         for ax in sorted(deps - STANDARD - {"sorryAx"} - set(axioms)):
-            errors.append(f"theorem {name} depends on unledgered axiom {ax}")
+            errors.append(f"{kind} {name} depends on unledgered axiom {ax}")
     return errors, checked, still_open
 
 
@@ -96,6 +101,11 @@ def self_test():
         ("stale open entry", audit, ledger + "open gone was here\n", 1),
         ("entry without reason", audit, ledger + "axiom CurvePoint\n", 1),
         ("empty audit", "", ledger, 1),
+        ("def with sorry", audit + "decl sneaky def sorryAx\n", ledger, 1),
+        ("def on an unledgered axiom", audit + "decl sneaky def evil\n", ledger, 1),
+        ("other-kind decl with sorry", audit + "decl sneaky other sorryAx\n", ledger, 1),
+        ("unmangled private theorem with sorry",
+         audit + "decl planted_private theorem sorryAx\n", ledger, 1),
         ("Classical.choice is standard", audit.replace("CurvePoint,propext", "Classical.choice,CurvePoint"), ledger, 0),
     ]
     bad = 0
