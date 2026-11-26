@@ -1,3 +1,6 @@
+import Mathlib.GroupTheory.OrderOfElement
+import Mathlib.Data.ZMod.Basic
+
 /-!
   # Ed25519 Algebraic Properties (CV-24)
 
@@ -8,32 +11,36 @@
   1. Prove theorems here in Lean4 with Mathlib
   2. Extract verified Rust code via rules_lean (Bazel)
   3. The generated Rust code provides runtime implementations
-     backed by machine-checked algebraic proofs
+     backed by algebraic proofs machine-checked relative to the
+     curve-model axioms below (not derived from Curve25519)
 
   ## Status
 
-  Honesty policy: every claim below states *exactly* how much of the
-  proof body is mechanically checked. A `sorry` is treated as an open
-  obligation and the table is required to say so. See
-  `audit/2026-04-30/findings.md` C-2 for the audit context.
+  CI-checked: the `Lean Ed25519 proofs` job (formal-verification.yml)
+  builds this file and runs `scripts/lean-proof-gate.py` over Lean's own
+  axiom report (`ProofAudit.lean`). Any `sorry` or axiom not listed in
+  `PROOF_LEDGER.txt` fails it. Until 2026-11-26 the file had never
+  compiled (imports after this docstring; the `[n] P` notation parsed
+  `[0] P = 0` as `[0] (P = 0)`), so nothing below was checked before then.
 
-  - `scalarMul_mul_order`: PROVEN (depends on the `scalarMul_zero_point`
-    axiom declared in this file).
-  - `verification_equation_sound`: PROVEN — full mechanized proof, no
-    `sorry` in the body.
-  - `verification_equation_complete`: OPEN (`sorry`) — body relies on
-    `basepoint_prime_order`, which is itself open. The proof sketch in
-    the body is a roadmap, not a proof.
-  - `cofactored_verification_sound`: PROVEN — follows from
-    `verification_equation_sound`, no `sorry` in the body.
-  - `basepoint_prime_order`: OPEN (`sorry`) — needs an `AddGroup`
-    instance on `CurvePoint` connected to `scalarMul`, plus
-    `addOrderOf B = Curve25519.ℓ`, then Mathlib's
-    `addOrderOf_dvd_of_nsmul_eq_zero`.
+  "Checked" means checked RELATIVE TO the 12 axioms of the abstract curve
+  model declared below (see the ledger); none is derived from Curve25519.
+
+  - `verification_equation_sound`: checked. Correctness only (an honest
+    signature verifies), not unforgeability; see its docstring. The
+    witness sign was wrong before (`Int.modEq_iff_dvd` gives
+    `ℓ ∣ (r + k*a) - s`); fixed.
+  - `cofactored_verification_sound`: checked (follows from the above;
+    correctness only, A and R in ⟨B⟩).
+  - `scalarMul_mul_order`: checked.
+  - `scalarMul_neg_one_add`: checked.
+  - `basepoint_prime_order`: OPEN (`sorry`), ledgered. Not derivable from
+    the 12 axioms: the one-point group satisfies them all and falsifies it
+    at n = 1. Needs a further axiom (B has order exactly ℓ).
+  - `verification_equation_complete`: OPEN (`sorry`), ledgered. Rests on
+    `basepoint_prime_order`; not derivable from the axioms either.
 -/
 
-import Mathlib.GroupTheory.OrderOfElement
-import Mathlib.Data.ZMod.Basic
 
 -- Curve25519 parameters
 def Curve25519.p : ℕ := 2^255 - 19
@@ -46,7 +53,7 @@ axiom curveGroup : AddCommGroup CurvePoint
 axiom B : CurvePoint  -- base point
 axiom scalarMul : ℤ → CurvePoint → CurvePoint
 
-notation:70 "[" n "]" P => scalarMul n P
+notation:70 "[" n "]" P:71 => scalarMul n P
 
 -- Core axioms
 axiom scalarMul_zero (P : CurvePoint) : [0] P = @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero
@@ -94,7 +101,7 @@ lemma scalarMul_mul_order (m : ℤ) :
   -- Step 3: [m]O = O by scalarMul_zero_point
   exact scalarMul_zero_point m
 
-/-- The order of B divides ℓ (prime order subgroup). -/
+/-- If [n]B = 0 then ℓ divides n. (OPEN: not derivable from the axioms.) -/
 theorem basepoint_prime_order :
     ∀ n : ℤ, [n] B = @Zero.zero CurvePoint curveGroup.toAddGroup.toAddMonoid.toZero →
     (Curve25519.ℓ : ℤ) ∣ n := by
@@ -117,8 +124,11 @@ theorem basepoint_prime_order :
 
 /-! ## Main verification theorems -/
 
-/-- Verification equation soundness: if s ≡ r + k*a (mod ℓ), then [s]B = R + [k]A.
-    This is the core algebraic identity that makes Ed25519 verification work. -/
+/-- Verification equation, correctness direction: if s ≡ r + k*a (mod ℓ),
+    then [s]B = R + [k]A, i.e. an honestly made signature passes the check.
+    This is correctness, not unforgeability, and it is weaker than the
+    RFC 8032 §5.1.7 check: it does not require 0 ≤ s < ℓ, does not tie k
+    to SHA-512, and assumes A and R lie in ⟨B⟩. -/
 theorem verification_equation_sound
     (a r k s : ℤ)
     (A R : CurvePoint)
@@ -142,17 +152,18 @@ theorem verification_equation_sound
   -- Int.modEq_iff_dvd.mp gives: (↑ℓ) ∣ (s - (r + k * a)).
   -- Destructuring the divisibility yields witness m with hm.
   obtain ⟨m, hm⟩ := Int.modEq_iff_dvd.mp hs
-  -- hm : s - (r + k * a) = ↑ℓ * m
-  -- Derive: s = (r + k * a) + m * ℓ
-  have hs_eq : s = (r + k * a) + m * (Curve25519.ℓ : ℤ) := by omega
+  -- hm : r + k * a - s = ↑ℓ * m  (Int.modEq_iff_dvd: a ≡ b ↔ n ∣ b - a)
+  -- Derive: s = (r + k * a) + (-m) * ℓ
+  have hs_eq : s = (r + k * a) + (-m) * (Curve25519.ℓ : ℤ) := by
+    rw [neg_mul, mul_comm m]; omega
   -- Step 2: Rewrite [s]B using the decomposition s = (r + k*a) + m*ℓ.
   rw [hs_eq]
   -- Goal: [r + k * a + m * ↑ℓ]B = R + [k]A
   -- Step 3: Distribute scalar multiplication over the outer sum.
-  rw [scalarMul_add (r + k * a) (m * (Curve25519.ℓ : ℤ)) B]
+  rw [scalarMul_add (r + k * a) ((-m) * (Curve25519.ℓ : ℤ)) B]
   -- Goal: [r + k*a]B + [m*ℓ]B = R + [k]A
   -- Step 4: [m*ℓ]B = O via scalarMul_mul_order.
-  rw [scalarMul_mul_order m]
+  rw [scalarMul_mul_order (-m)]
   -- Goal: [r + k*a]B + O = R + [k]A
   -- Step 5: Eliminate + O on the left via add_zero_curvepoint.
   rw [add_zero_curvepoint ([r + k * a] B)]
@@ -169,8 +180,8 @@ theorem verification_equation_sound
   rw [← hR]
   -- Goal: R + [k]A = R + [k]A  ∎
 
-/-- Verification equation completeness: if [s]B = R + [k]A then s ≡ r + k*a (mod ℓ).
-    This is the converse direction — a valid verification implies the signer knew a. -/
+/-- Verification equation, converse direction: if [s]B = R + [k]A (with A and R
+    in ⟨B⟩ as hypothesised), then s ≡ r + k*a (mod ℓ). (OPEN.) -/
 theorem verification_equation_complete
     (a r k s : ℤ)
     (A R : CurvePoint)
@@ -199,8 +210,9 @@ theorem verification_equation_complete
   -- This direction requires basepoint_prime_order (which is sorry).
   sorry
 
-/-- Cofactored verification: [h*s]B = [h](R + [k]A).
-    Used in Ed25519ctx and Ed25519ph to avoid small-subgroup attacks. -/
+/-- Cofactored verification, correctness direction: [h*s]B = [h](R + [k]A).
+    The hypotheses put A and R in ⟨B⟩, so this says nothing about
+    small-subgroup components. -/
 theorem cofactored_verification_sound
     (a r k s : ℤ)
     (A R : CurvePoint)

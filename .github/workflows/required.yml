@@ -17,7 +17,9 @@ name: Required
 # So: this workflow has no paths filter, it is the only required context, and it
 # judges what the other workflows actually reported. See
 # verification/required-checks/required-checks.py for the rules and the
-# 18-case decision table (`--self-test`).
+# decision table (`--self-test`). On a merge_group run it also requires the
+# contexts in MERGE_GROUP_PRESENT (the Lean proof gate), whose workflows are
+# paths-filtered on pull_request but always run on the merge group.
 
 on:
   # The merge queue: GitHub creates a merge-group commit and requires this

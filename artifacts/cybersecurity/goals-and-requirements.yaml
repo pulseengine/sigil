@@ -1250,6 +1250,7 @@ artifacts:
     type: cybersecurity-verification
     title: Lean4 proof — Ed25519 algebraic properties via Mathlib
     status: draft
+    description: "lean/Ed25519.lean, CI-gated by the 'Lean Ed25519 proofs' job since 2026-11-26 (before that it had never compiled). Checked relative to a 12-axiom abstract curve model (lean/PROOF_LEDGER.txt), not against Curve25519 itself: verification_equation_sound, cofactored_verification_sound, scalarMul_mul_order, scalarMul_neg_one_add. Open (sorry, ledgered): basepoint_prime_order, verification_equation_complete. Stays draft until the open obligations close."
     tags: [lean4, mathlib, rules_lean]
     fields:
       method: formal-verification

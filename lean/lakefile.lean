@@ -12,3 +12,12 @@ require mathlib from git
 @[default_target]
 lean_lib Ed25519 where
   srcDir := "."
+
+@[default_target]
+lean_lib AuditCore where
+  srcDir := "."
+
+-- Negative-control fixture for the proof gate; built explicitly in CI.
+lean_lib Fixtures where
+  srcDir := "."
+  roots := #[`Fixtures.Planted]
