@@ -29,5 +29,11 @@ axiom basepoint_order       [ℓ]B = 0 (assumed; not computed from the curve)
 axiom add_zero_curvepoint   P + 0 = P (follows from curveGroup; stated separately because scalarMul is not tied to the group's nsmul)
 axiom scalarMul_zero_point  [n]0 = 0 (follows from the action laws; stated as an axiom)
 
-open basepoint_prime_order          needs scalarMul tied to curveGroup's zsmul and addOrderOf B = ℓ
-open verification_equation_complete rests on basepoint_prime_order
+# The two open theorems are NOT derivable from the 12 axioms above. The
+# one-point group (every point and every [n]P equal to 0) satisfies all 12, yet
+# there [1]B = 0 while ℓ does not divide 1, so basepoint_prime_order is false
+# in that model; verification_equation_complete fails there the same way.
+# (A pen-and-paper argument, not machine-checked.) Closing them needs a further
+# axiom, e.g. that B has order exactly ℓ, which must then be ledgered here.
+open basepoint_prime_order          not derivable from the axioms (one-point model); needs an order-exactly-ℓ axiom for B
+open verification_equation_complete rests on basepoint_prime_order; not derivable from the axioms either

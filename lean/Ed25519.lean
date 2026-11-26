@@ -30,10 +30,11 @@ import Mathlib.Data.ZMod.Basic
   - `cofactored_verification_sound`: checked (follows from the above).
   - `scalarMul_mul_order`: checked.
   - `scalarMul_neg_one_add`: checked.
-  - `basepoint_prime_order`: OPEN (`sorry`), ledgered. Needs `scalarMul`
-    tied to `curveGroup`'s zsmul, plus `addOrderOf B = Curve25519.ℓ`.
+  - `basepoint_prime_order`: OPEN (`sorry`), ledgered. Not derivable from
+    the 12 axioms: the one-point group satisfies them all and falsifies it
+    at n = 1. Needs a further axiom (B has order exactly ℓ).
   - `verification_equation_complete`: OPEN (`sorry`), ledgered. Rests on
-    `basepoint_prime_order`.
+    `basepoint_prime_order`; not derivable from the axioms either.
 -/
 
 
