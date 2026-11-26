@@ -321,7 +321,8 @@ jobs:
         if python3 scripts/lean-proof-gate.py "$RUNNER_TEMP/planted-audit.txt" "$RUNNER_TEMP/empty-ledger.txt" > "$RUNNER_TEMP/planted-gate.txt"; then
           echo "::error::the gate passed the planted fixture"; exit 1
         fi
-        cat "$RUNNER_TEMP/planted-gate.txt"
+        # Printed without the ::error:: prefix: these rejections are expected.
+        sed 's/^::error:://' "$RUNNER_TEMP/planted-gate.txt"
         for want in \
           "theorem planted_private uses sorry and is not ledgered as open" \
           "def planted_def uses sorry and is not ledgered as open" \
