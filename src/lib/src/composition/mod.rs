@@ -158,7 +158,7 @@ impl CompositionManifest {
             version: "1.0".to_string(),
             tool: tool.into(),
             tool_version: tool_version.into(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp: crate::rfc3339::now(),
             components: Vec::new(),
             integrator: None,
             metadata: HashMap::new(),
@@ -195,7 +195,7 @@ impl CompositionManifest {
         self.integrator = Some(IntegratorInfo {
             identity: identity.into(),
             signature_index,
-            verification_timestamp: chrono::Utc::now().to_rfc3339(),
+            verification_timestamp: crate::rfc3339::now(),
         });
     }
 
@@ -763,14 +763,17 @@ impl TimestampPolicy {
     /// Returns Ok(()) if valid, Err(String) with reason if invalid
     pub fn validate_timestamp(&self, timestamp: &str, context: &str) -> Result<(), String> {
         // Parse the timestamp
-        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+        let timestamp_utc = crate::rfc3339::parse(timestamp)
             .map_err(|e| format!("Invalid timestamp format for {}: {}", context, e))?;
 
-        let now = chrono::Utc::now();
-        let timestamp_utc = parsed.with_timezone(&chrono::Utc);
+        let now = jiff::Timestamp::now();
 
         // Check if timestamp is too far in the future
-        let future_limit = now + chrono::Duration::seconds(self.future_tolerance_seconds);
+        let future_limit = now
+            .saturating_add(jiff::SignedDuration::from_secs(
+                self.future_tolerance_seconds,
+            ))
+            .unwrap_or(jiff::Timestamp::MAX);
         if timestamp_utc > future_limit {
             return Err(format!(
                 "{} timestamp is too far in the future (more than {} seconds ahead)",
@@ -780,7 +783,9 @@ impl TimestampPolicy {
 
         // Check if timestamp is too old
         if let Some(max_age) = self.max_age_seconds {
-            let age_limit = now - chrono::Duration::seconds(max_age);
+            let age_limit = now
+                .saturating_sub(jiff::SignedDuration::from_secs(max_age))
+                .unwrap_or(jiff::Timestamp::MIN);
             if timestamp_utc < age_limit {
                 let age_days = max_age / 86400;
                 return Err(format!(
@@ -1094,7 +1099,7 @@ impl Sbom {
             serial_number: format!("urn:uuid:{}", Uuid::new_v4()),
             version: 1,
             metadata: Some(SbomMetadata {
-                timestamp: chrono::Utc::now().to_rfc3339(),
+                timestamp: crate::rfc3339::now(),
                 tools: vec![SbomTool {
                     vendor: Some("wsc".to_string()),
                     name: "wsc".to_string(),
@@ -2245,10 +2250,9 @@ fn verify_attestation_recursive(
 
     // Verify attestation timestamp if policy has age limit
     if let Some(max_age) = policy.max_attestation_age {
-        if let Ok(timestamp) = chrono::DateTime::parse_from_rfc3339(&attestation.timestamp) {
-            let now = chrono::Utc::now();
-            let age = now.signed_duration_since(timestamp);
-            if age > chrono::Duration::from_std(max_age).unwrap_or(chrono::TimeDelta::MAX) {
+        if let Ok(timestamp) = crate::rfc3339::parse(&attestation.timestamp) {
+            let age = jiff::Timestamp::now().duration_since(timestamp);
+            if age > crate::rfc3339::saturating_signed(max_age) {
                 result.add_error(format!(
                     "Attestation timestamp {} is older than maximum allowed age",
                     attestation.timestamp
@@ -2482,7 +2486,7 @@ pub struct SignatureFreshnessPolicy {
 
     /// Minimum acceptable signature timestamp (absolute time)
     /// Useful for enforcing "no signatures before this date" policies
-    minimum_timestamp: Option<chrono::DateTime<chrono::Utc>>,
+    minimum_timestamp: Option<jiff::Timestamp>,
 }
 
 impl SignatureFreshnessPolicy {
@@ -2508,28 +2512,26 @@ impl SignatureFreshnessPolicy {
 
     /// Set minimum acceptable timestamp
     /// Signatures created before this time are rejected
-    pub fn with_minimum_timestamp(mut self, timestamp: chrono::DateTime<chrono::Utc>) -> Self {
+    pub fn with_minimum_timestamp(mut self, timestamp: jiff::Timestamp) -> Self {
         self.minimum_timestamp = Some(timestamp);
         self
     }
 
     /// Validate a signature timestamp
     pub fn validate(&self, timestamp: &str, context: &str) -> Result<(), String> {
-        let parsed = chrono::DateTime::parse_from_rfc3339(timestamp)
+        let timestamp_utc = crate::rfc3339::parse(timestamp)
             .map_err(|e| format!("Invalid timestamp format for {}: {}", context, e))?;
-
-        let timestamp_utc = parsed.with_timezone(&chrono::Utc);
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
 
         // Check maximum age
         if let Some(max_age) = self.max_signature_age_seconds {
-            let age = now.signed_duration_since(timestamp_utc);
-            if age.num_seconds() > max_age {
+            let age = now.duration_since(timestamp_utc);
+            if age.as_secs() > max_age {
                 let age_days = max_age / 86400;
                 return Err(format!(
                     "{} signature is too old (created {} days ago, max age: {} days)",
                     context,
-                    age.num_days(),
+                    age.as_secs() / 86400,
                     age_days
                 ));
             }
@@ -2541,7 +2543,7 @@ impl SignatureFreshnessPolicy {
                 return Err(format!(
                     "{} signature was created before minimum acceptable time ({})",
                     context,
-                    min_ts.to_rfc3339()
+                    crate::rfc3339::format(*min_ts)
                 ));
             }
 
@@ -2618,16 +2620,14 @@ impl CertificateValidityPolicy {
         not_after: &str,
         context: &str,
     ) -> Result<(), String> {
-        let now = chrono::Utc::now();
+        let now = jiff::Timestamp::now();
 
         // Parse timestamps
-        let not_before_time = chrono::DateTime::parse_from_rfc3339(not_before)
-            .map_err(|e| format!("Invalid not_before timestamp for {}: {}", context, e))?
-            .with_timezone(&chrono::Utc);
+        let not_before_time = crate::rfc3339::parse(not_before)
+            .map_err(|e| format!("Invalid not_before timestamp for {}: {}", context, e))?;
 
-        let not_after_time = chrono::DateTime::parse_from_rfc3339(not_after)
-            .map_err(|e| format!("Invalid not_after timestamp for {}: {}", context, e))?
-            .with_timezone(&chrono::Utc);
+        let not_after_time = crate::rfc3339::parse(not_after)
+            .map_err(|e| format!("Invalid not_after timestamp for {}: {}", context, e))?;
 
         // Check if certificate is not yet valid
         if now < not_before_time
@@ -2635,7 +2635,7 @@ impl CertificateValidityPolicy {
                 return Err(format!(
                     "{} certificate is not yet valid (valid from: {})",
                     context,
-                    not_before_time.to_rfc3339()
+                    crate::rfc3339::format(not_before_time)
                 ));
             }
 
@@ -2644,15 +2644,15 @@ impl CertificateValidityPolicy {
             return Err(format!(
                 "{} certificate has expired (expired on: {})",
                 context,
-                not_after_time.to_rfc3339()
+                crate::rfc3339::format(not_after_time)
             ));
         }
 
         // Check minimum remaining validity
         if let Some(min_remaining) = self.min_remaining_validity_seconds {
-            let remaining = not_after_time.signed_duration_since(now);
-            if remaining.num_seconds() < min_remaining {
-                let remaining_days = remaining.num_days();
+            let remaining = not_after_time.duration_since(now);
+            if remaining.as_secs() < min_remaining {
+                let remaining_days = remaining.as_secs() / 86400;
                 let min_days = min_remaining / 86400;
                 return Err(format!(
                     "{} certificate expires too soon (remaining: {} days, minimum required: {} days)",
@@ -2677,19 +2677,15 @@ impl CertificateValidityPolicy {
         let not_before = cert.validity().not_before;
         let not_after = cert.validity().not_after;
 
-        // Convert to chrono DateTime for easier comparison
-        let not_before_chrono =
-            chrono::DateTime::<chrono::Utc>::from_timestamp(not_before.timestamp(), 0)
-                .ok_or_else(|| format!("Invalid not_before timestamp for {}", context))?;
-
-        let not_after_chrono =
-            chrono::DateTime::<chrono::Utc>::from_timestamp(not_after.timestamp(), 0)
-                .ok_or_else(|| format!("Invalid not_after timestamp for {}", context))?;
+        // Clamped: RFC 5280's "no expiry", 99991231235959Z, is past jiff's
+        // range (see crate::rfc3339).
+        let not_before_ts = crate::rfc3339::from_unix_secs_clamped(not_before.timestamp());
+        let not_after_ts = crate::rfc3339::from_unix_secs_clamped(not_after.timestamp());
 
         // Validate using our policy
         self.validate_certificate_times(
-            &not_before_chrono.to_rfc3339(),
-            &not_after_chrono.to_rfc3339(),
+            &crate::rfc3339::format(not_before_ts),
+            &crate::rfc3339::format(not_after_ts),
             context,
         )
     }
@@ -2760,7 +2756,7 @@ impl DeviceAttestation {
             hardware_model: hardware_model.into(),
             attestation_data: String::new(),
             attestation_signature: None,
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp: crate::rfc3339::now(),
             device_public_key: String::new(),
             metadata: HashMap::new(),
         }
@@ -2902,7 +2898,7 @@ impl TransparencyLogEntry {
             log_index,
             uuid: uuid.into(),
             body: String::new(),
-            integrated_time: chrono::Utc::now().timestamp(),
+            integrated_time: jiff::Timestamp::now().as_second(),
             log_id: String::new(),
             inclusion_proof: None,
         }
@@ -3224,7 +3220,7 @@ pub fn validate_device_attestation(
         }
 
     // Validate timestamp format
-    if chrono::DateTime::parse_from_rfc3339(&attestation.timestamp).is_err() {
+    if crate::rfc3339::parse(&attestation.timestamp).is_err() {
         return Err(format!(
             "Invalid timestamp format: {}",
             attestation.timestamp
@@ -4425,7 +4421,7 @@ mod tests {
     #[test]
     fn test_timestamp_policy_valid() {
         let policy = TimestampPolicy::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
 
         assert!(policy.validate_timestamp(&now, "Test").is_ok());
     }
@@ -4435,7 +4431,8 @@ mod tests {
         let policy = TimestampPolicy::new().with_future_tolerance_seconds(300); // 5 minutes
 
         // 2 minutes in the future (within tolerance)
-        let future = (chrono::Utc::now() + chrono::Duration::seconds(120)).to_rfc3339();
+        let future =
+            crate::rfc3339::format(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(120));
         assert!(policy.validate_timestamp(&future, "Test").is_ok());
     }
 
@@ -4444,7 +4441,8 @@ mod tests {
         let policy = TimestampPolicy::new().with_future_tolerance_seconds(300); // 5 minutes
 
         // 10 minutes in the future (exceeds tolerance)
-        let future = (chrono::Utc::now() + chrono::Duration::seconds(600)).to_rfc3339();
+        let future =
+            crate::rfc3339::format(jiff::Timestamp::now() + jiff::SignedDuration::from_secs(600));
         let result = policy.validate_timestamp(&future, "Test");
 
         assert!(result.is_err());
@@ -4456,11 +4454,15 @@ mod tests {
         let policy = TimestampPolicy::new().with_max_age_days(30); // 30 days
 
         // 10 days ago (within limit)
-        let recent = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
+        let recent = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
         assert!(policy.validate_timestamp(&recent, "Test").is_ok());
 
         // 40 days ago (exceeds limit)
-        let old = (chrono::Utc::now() - chrono::Duration::days(40)).to_rfc3339();
+        let old = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 40),
+        );
         let result = policy.validate_timestamp(&old, "Test");
 
         assert!(result.is_err());
@@ -4486,7 +4488,7 @@ mod tests {
     #[test]
     fn test_timestamp_policy_optional_present() {
         let policy = TimestampPolicy::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
 
         assert!(
             policy
@@ -4507,7 +4509,7 @@ mod tests {
     #[test]
     fn test_validate_manifest_timestamps() {
         let policy = TimestampPolicy::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
 
         let manifest = CompositionManifest {
             version: "1.0".to_string(),
@@ -4530,7 +4532,9 @@ mod tests {
     fn test_validate_manifest_timestamps_old() {
         let policy = TimestampPolicy::new().with_max_age_days(1);
 
-        let old_time = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
+        let old_time = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
 
         let manifest = CompositionManifest {
             version: "1.0".to_string(),
@@ -4550,7 +4554,7 @@ mod tests {
     #[test]
     fn test_validate_provenance_timestamps() {
         let policy = TimestampPolicy::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
 
         let provenance = BuildProvenance {
             name: "test-component".to_string(),
@@ -4574,7 +4578,7 @@ mod tests {
     #[test]
     fn test_signature_freshness_no_restrictions() {
         let policy = SignatureFreshnessPolicy::new();
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
 
         assert!(policy.validate(&now, "Signature").is_ok());
     }
@@ -4584,11 +4588,15 @@ mod tests {
         let policy = SignatureFreshnessPolicy::new().with_max_age_days(30);
 
         // 10 days old (OK)
-        let recent = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
+        let recent = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
         assert!(policy.validate(&recent, "Signature").is_ok());
 
         // 40 days old (too old)
-        let old = (chrono::Utc::now() - chrono::Duration::days(40)).to_rfc3339();
+        let old = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 40),
+        );
         let result = policy.validate(&old, "Signature");
 
         assert!(result.is_err());
@@ -4597,15 +4605,19 @@ mod tests {
 
     #[test]
     fn test_signature_freshness_minimum_timestamp() {
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+        let cutoff = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 7);
         let policy = SignatureFreshnessPolicy::new().with_minimum_timestamp(cutoff);
 
         // 3 days ago (after cutoff, OK)
-        let recent = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
+        let recent = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 3),
+        );
         assert!(policy.validate(&recent, "Signature").is_ok());
 
         // 10 days ago (before cutoff, fail)
-        let old = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
+        let old = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
         let result = policy.validate(&old, "Signature");
 
         assert!(result.is_err());
@@ -4618,21 +4630,27 @@ mod tests {
 
     #[test]
     fn test_signature_freshness_combined_policies() {
-        let cutoff = chrono::Utc::now() - chrono::Duration::days(60);
+        let cutoff = jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 60);
         let policy = SignatureFreshnessPolicy::new()
             .with_max_age_days(30)
             .with_minimum_timestamp(cutoff);
 
         // 15 days ago (within max age and after cutoff, OK)
-        let valid = (chrono::Utc::now() - chrono::Duration::days(15)).to_rfc3339();
+        let valid = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 15),
+        );
         assert!(policy.validate(&valid, "Signature").is_ok());
 
         // 45 days ago (exceeds max age but after cutoff, fail)
-        let too_old = (chrono::Utc::now() - chrono::Duration::days(45)).to_rfc3339();
+        let too_old = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 45),
+        );
         assert!(policy.validate(&too_old, "Signature").is_err());
 
         // 90 days ago (before cutoff, fail)
-        let before_cutoff = (chrono::Utc::now() - chrono::Duration::days(90)).to_rfc3339();
+        let before_cutoff = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 90),
+        );
         assert!(policy.validate(&before_cutoff, "Signature").is_err());
     }
 
@@ -4644,8 +4662,12 @@ mod tests {
     fn test_certificate_validity_policy_valid() {
         let policy = CertificateValidityPolicy::new();
 
-        let not_before = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
-        let not_after = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+        let not_before = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 30),
+        );
+        let not_after = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 30),
+        );
 
         assert!(
             policy
@@ -4658,8 +4680,12 @@ mod tests {
     fn test_certificate_validity_policy_expired() {
         let policy = CertificateValidityPolicy::new();
 
-        let not_before = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
-        let not_after = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        let not_before = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 60),
+        );
+        let not_after = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 1),
+        );
 
         let result = policy.validate_certificate_times(&not_before, &not_after, "Test");
         assert!(result.is_err());
@@ -4670,8 +4696,12 @@ mod tests {
     fn test_certificate_validity_policy_not_yet_valid() {
         let policy = CertificateValidityPolicy::new();
 
-        let not_before = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
-        let not_after = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+        let not_before = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 1),
+        );
+        let not_after = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 30),
+        );
 
         let result = policy.validate_certificate_times(&not_before, &not_after, "Test");
         assert!(result.is_err());
@@ -4682,8 +4712,12 @@ mod tests {
     fn test_certificate_validity_policy_not_yet_valid_allowed() {
         let policy = CertificateValidityPolicy::new().allow_not_yet_valid(true);
 
-        let not_before = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
-        let not_after = (chrono::Utc::now() + chrono::Duration::days(30)).to_rfc3339();
+        let not_before = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 1),
+        );
+        let not_after = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 30),
+        );
 
         assert!(
             policy
@@ -4697,8 +4731,12 @@ mod tests {
         let policy = CertificateValidityPolicy::new().with_min_remaining_validity_days(10);
 
         // 20 days remaining (OK)
-        let not_before = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
-        let not_after = (chrono::Utc::now() + chrono::Duration::days(20)).to_rfc3339();
+        let not_before = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
+        let not_after = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 20),
+        );
         assert!(
             policy
                 .validate_certificate_times(&not_before, &not_after, "Test")
@@ -4706,8 +4744,12 @@ mod tests {
         );
 
         // 5 days remaining (too soon)
-        let not_before2 = (chrono::Utc::now() - chrono::Duration::days(10)).to_rfc3339();
-        let not_after2 = (chrono::Utc::now() + chrono::Duration::days(5)).to_rfc3339();
+        let not_before2 = crate::rfc3339::format(
+            jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24 * 10),
+        );
+        let not_after2 = crate::rfc3339::format(
+            jiff::Timestamp::now() + jiff::SignedDuration::from_hours(24 * 5),
+        );
         let result = policy.validate_certificate_times(&not_before2, &not_after2, "Test");
 
         assert!(result.is_err());

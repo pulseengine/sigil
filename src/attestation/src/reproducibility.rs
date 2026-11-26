@@ -95,7 +95,7 @@ impl BuildEnvironment {
     /// build-time capture, use the builder pattern with explicit values
     /// from build.rs or CI environment.
     pub fn detect() -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
         let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
 
         Self {
@@ -227,7 +227,7 @@ impl BuildEnvironmentBuilder {
 
     /// Build the BuildEnvironment
     pub fn build(self) -> BuildEnvironment {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
         let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
 
         BuildEnvironment {
@@ -755,7 +755,7 @@ impl ReproducibilityVerification {
             verification_environment: env,
             rebuilt_hash: hash.clone(),
             original_hash: hash,
-            verified_at: chrono::Utc::now().to_rfc3339(),
+            verified_at: crate::rfc3339::now(),
             differences: Vec::new(),
         }
     }
@@ -772,7 +772,7 @@ impl ReproducibilityVerification {
             verification_environment: env,
             rebuilt_hash: rebuilt_hash.into(),
             original_hash: original_hash.into(),
-            verified_at: chrono::Utc::now().to_rfc3339(),
+            verified_at: crate::rfc3339::now(),
             differences,
         }
     }

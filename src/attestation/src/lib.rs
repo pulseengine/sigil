@@ -67,6 +67,9 @@ pub use in_toto_attestation;
 /// Dead Simple Signing Envelope (DSSE) for standards-compliant attestation signing
 pub mod dsse;
 
+/// RFC 3339 timestamps (chrono-compatible formatting and parsing, on jiff)
+pub mod rfc3339;
+
 /// reproducibility tracking — the material-pinning properties SLSA v0.1 called Level 4 (SLSA v1.0 defines Build L0–L3) — build environment and material manifest
 pub mod reproducibility;
 
@@ -195,7 +198,7 @@ impl ProvenanceBuilder {
                 .build_tool_version
                 .unwrap_or_else(|| "unknown".to_string()),
             builder: self.builder,
-            build_timestamp: chrono::Utc::now().to_rfc3339(),
+            build_timestamp: crate::rfc3339::now(),
             metadata: self.metadata,
         }
     }
@@ -718,7 +721,7 @@ impl TransformationAttestationBuilder {
     /// will have algorithm="unsigned" and empty signature.
     pub fn build(self, output_bytes: &[u8], output_name: impl Into<String>) -> TransformationAttestation {
         let output_hash = compute_sha256_hash(output_bytes);
-        let timestamp = chrono::Utc::now().to_rfc3339();
+        let timestamp = crate::rfc3339::now();
         let attestation_id = generate_uuid_v4();
 
         TransformationAttestation {

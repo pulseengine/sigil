@@ -39,10 +39,10 @@ rust_library(
         "@wsc_deps//:wasi",
         # Keyless signing dependencies (common to all targets)
         "@wsc_deps//:base64",
-        "@wsc_deps//:chrono",
         "@wsc_deps//:const-oid",
         "@wsc_deps//:ecdsa",
         "@wsc_deps//:hex",
+        "@wsc_deps//:jiff",
         "@wsc_deps//:p256",
         "@wsc_deps//:pem",
         "@wsc_deps//:rustls",

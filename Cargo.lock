@@ -1043,7 +1043,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
 dependencies = [
  "env_filter",
- "jiff",
+ "jiff 0.2.15",
  "log",
 ]
 
@@ -1734,11 +1734,34 @@ version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be1f93b8b1eb69c77f24bbb0afdf66f54b632ee39af40ca21c4365a1d7347e49"
 dependencies = [
- "jiff-static",
+ "jiff-static 0.2.15",
  "log",
  "portable-atomic",
  "portable-atomic-util",
  "serde",
+]
+
+[[package]]
+name = "jiff"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5e77cbfb9fff4798e283c2d69dff39fc2c45e7da017e5ce95b654e46ea41236"
+dependencies = [
+ "jiff-core",
+ "jiff-static 1.0.2",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+]
+
+[[package]]
+name = "jiff-core"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6b46a105a9874634dd96231021526bf24ca04955a5998c59a9c7666e634b7b8"
+dependencies = [
+ "log",
 ]
 
 [[package]]
@@ -1750,6 +1773,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.108",
+]
+
+[[package]]
+name = "jiff-static"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9067a0b23e5be3147d56b2dcf652b18e6b1364caca93fb157653b6fbcab23a9"
+dependencies = [
+ "jiff-core",
+ "proc-macro2",
+ "quote",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -4608,7 +4643,6 @@ version = "0.12.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "chrono",
  "const-oid",
  "criterion",
  "ct-codecs",
@@ -4618,6 +4652,7 @@ dependencies = [
  "gungraun",
  "hex",
  "hmac-sha256",
+ "jiff 1.0.2",
  "keyring",
  "log",
  "maybe-async",
@@ -4660,12 +4695,12 @@ name = "wsc-attestation"
 version = "0.12.1"
 dependencies = [
  "base64 0.22.1",
- "chrono",
  "ct-codecs",
  "ed25519-compact",
  "getrandom 0.4.3",
  "hex",
  "in_toto_attestation",
+ "jiff 1.0.2",
  "serde",
  "serde_json",
  "sha2 0.11.1",

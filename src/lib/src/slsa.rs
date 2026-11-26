@@ -262,7 +262,7 @@ impl BuildMetadata {
 
     /// Create metadata with current timestamp
     pub fn now() -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::rfc3339::now();
         Self {
             invocation_id: Some(uuid::Uuid::new_v4().to_string()),
             started_on: Some(now.clone()),

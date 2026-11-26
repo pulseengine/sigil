@@ -482,12 +482,11 @@ impl<T: TimeSource> AirGappedVerifier<T> {
         // Parse Rekor integrated_time (RFC3339 -> unix). Parsed inline (not via
         // self.parse_integrated_time) so verify_crypto stays independently
         // testable; mirrors format.rs::verify_cert_chain.
-        let integrated_time_unix =
-            chrono::DateTime::parse_from_rfc3339(&signature.rekor_entry.integrated_time)
-                .map_err(|e| {
-                    WSError::CertificateError(format!("Failed to parse integrated_time: {}", e))
-                })?
-                .timestamp();
+        let integrated_time_unix = crate::rfc3339::unix_secs(
+            crate::rfc3339::parse(&signature.rekor_entry.integrated_time).map_err(|e| {
+                WSError::CertificateError(format!("Failed to parse integrated_time: {}", e))
+            })?,
+        );
 
         // 2. Certificate chain anchored to the bundle's Fulcio roots.
         let cert_pool =
@@ -757,7 +756,7 @@ mod tests {
     const LEAF_NA: &str = "2031-01-01T00:00:00Z";
 
     fn ts(s: &str) -> i64 {
-        chrono::DateTime::parse_from_rfc3339(s).unwrap().timestamp()
+        crate::rfc3339::unix_secs(crate::rfc3339::parse(s).unwrap())
     }
 
     fn odt(unix: i64) -> time::OffsetDateTime {

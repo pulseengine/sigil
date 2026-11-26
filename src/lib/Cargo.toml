@@ -44,7 +44,7 @@ serde_jcs = "0.2"  # RFC 8785 JSON Canonicalization for Rekor SET verification
 base64 = "0.22"
 x509-parser = "0.16"
 time = "0.3"
-chrono = "0.4"
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 hex = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
 # ureq is only used on native (cfg-guarded), but must be unconditional for Bazel
