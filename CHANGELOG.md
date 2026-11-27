@@ -72,6 +72,24 @@ All notable changes to sigil are documented here. The project follows
 
 ### Fixed
 
+- **`wsc show-chain` and `verify-chain` read meld-fused modules (#396).**
+  meld's default build writes `"transformation_type":"fusion"` and omits
+  `attestation_signature` and each input's `signature_status`. wsc refused all
+  three with "unknown variant `fusion`". `TransformationType` gains `Fusion`
+  (and `wsc attest --type fusion`). A missing attestation signature reads as
+  `unsigned`, and a missing input status reads as `unsigned`, so
+  `--require-attestation-signatures` and `--require-signatures` still reject
+  such a chain. An unknown type is still refused. Signing and verifying a
+  fused module (`wsc sign` / `wsc verify`) already worked and is unchanged.
+  Still open: `verify-chain` rejects every meld 0.69 output through the #395
+  binding check, because meld's `output.hash` leaves out its
+  `component-provenance` section as well as its attestation. That stays
+  fail-closed until meld and wsc agree on what the hash covers.
+  *Falsification:* the tests parse meld 0.69.0's attestation byte for byte
+  and run three chain policies over it. Planting any of three mutations makes
+  them fail: dropping the signature default, defaulting input status to
+  `verified`, or giving the absent signature an algorithm.
+
 - **The Lean proof of the Ed25519 verification equation is now compiled and
   CI-gated; before this it had never compiled.** `lean/Ed25519.lean` put its
   imports after the module docstring, which Lean 4 rejects, and its `[n] P`
