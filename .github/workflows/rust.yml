@@ -205,16 +205,18 @@ jobs:
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: scripts/run-wsc-cli-wasm.sh wasmtime "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"
 
-    # Expected failure, pinned: kiln 0.9.0 refuses the fused CLI (opt, 6.8 MB)
-    # with E21A0 "unresolved imports": it provides no wasi:http or wasi:sockets,
-    # and not wasi:filesystem descriptor.sync (79 imports; kiln#745). Unoptimized
-    # builds stopped earlier, on E03ED (23 MB) or E6590 (3.9 MB cargo build).
-    # The step passes only on exactly that failure. It goes red if kiln fails
-    # any other way, and red if kiln runs it, so the day #745 is fixed this step
-    # says so and gets turned into a plain run. Tarball digests are pinned from
-    # each release's SHA256SUMS.txt, which was cosign-verified against that
-    # repo's release workflow identity.
-    - name: wsc-cli.wasm under kiln (expected failure E21A0, kiln#745)
+    # Expected failure, pinned. kiln 0.9.0 cannot run the fused CLI (opt,
+    # 6.8 MB): it provides no wasi:http or wasi:sockets, and not wasi:filesystem
+    # descriptor.sync, so it refuses with E21A0 on 79 imports (kiln#745). Before
+    # refusing it reaches 14 GB of resident memory (kiln#751). On this 16 GB
+    # runner that killed the whole step. kiln therefore runs under a 4 GB
+    # address-space cap, and the step accepts exactly two outcomes:
+    #   - an allocation failure under the cap (kiln#751 still open), or
+    #   - E21A0 (kiln#751 fixed, kiln#745 not).
+    # It goes red if kiln fails any other way, and red if kiln runs the CLI.
+    # Tarball digests are pinned from each release's SHA256SUMS.txt, which was
+    # cosign-verified against that repo's release workflow identity.
+    - name: wsc-cli.wasm under kiln (expected failure, kiln#745 and kiln#751)
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: |
         d="$RUNNER_TEMP/kiln-meld"
@@ -232,17 +234,21 @@ jobs:
         mkdir -p "$d/bin"
         ln -s "$(find "$d" -type f -name kiln -perm -u+x | head -1)" "$d/bin/kiln"
         ln -s "$(find "$d" -type f -name meld -perm -u+x | head -1)" "$d/bin/meld"
-        if out="$(PATH="$d/bin:$PATH" scripts/run-wsc-cli-wasm.sh kiln "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native" 2>&1)"; then
+        if out="$(ulimit -v $((4 * 1024 * 1024)); PATH="$d/bin:$PATH" scripts/run-wsc-cli-wasm.sh kiln "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native" 2>&1)"; then
           printf '%s\n' "$out" | sed 's/^::/  /'
           echo "::error title=kiln#745 looks fixed::wsc-cli.wasm now runs under kiln; replace this expected failure with a plain run"
           exit 1
         fi
         printf '%s\n' "$out" | sed 's/^::/  /'
-        if grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out" \
-           && grep -q 'E21A0' <<<"$out"; then
-          echo "ok  kiln 0.9.0 still refuses the module with E21A0, unresolved wasi:http/wasi:sockets imports (kiln#745), as expected"
+        if ! grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out"; then
+          echo "::error title=kiln failed differently::kiln did not fail at keygen; see the output above"
+          exit 1
+        elif grep -q 'memory allocation of .* failed' <<<"$out"; then
+          echo "ok  kiln 0.9.0 ran out of the 4 GB cap before refusing the module (kiln#751), as expected"
+        elif grep -q 'E21A0' <<<"$out"; then
+          echo "ok  kiln refuses the module with E21A0, unresolved wasi:http/wasi:sockets imports (kiln#745); kiln#751 looks fixed, so drop the cap"
         else
-          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E21A0); see the output above"
+          echo "::error title=kiln failed differently::neither the kiln#751 allocation failure nor the kiln#745 E21A0 refusal; see the output above"
           exit 1
         fi
 

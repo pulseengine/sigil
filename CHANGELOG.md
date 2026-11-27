@@ -12,8 +12,9 @@ All notable changes to sigil are documented here. The project follows
   component. CI builds it the same way and runs it under wasmtime (keygen,
   sign, verify, native cross-check, tamper control). kiln 0.9.0 now gets past
   its size limits and refuses the module on 79 unresolved wasi:http,
-  wasi:sockets and wasi:filesystem imports (E21A0, kiln#745); CI pins that
-  failure. *Falsification:* the next release's `wsc-cli.wasm` is larger than
+  wasi:sockets and wasi:filesystem imports (E21A0, kiln#745). It reaches
+  14 GB of resident memory before refusing (kiln#751), so CI runs kiln under
+  a 4 GB cap and pins the allocation failure or E21A0. *Falsification:* the next release's `wsc-cli.wasm` is larger than
   10 MB, or fails `scripts/run-wsc-cli-wasm.sh wasmtime`.
 
 ## [0.13.0] — 2026-11-27
