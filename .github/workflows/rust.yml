@@ -205,14 +205,15 @@ jobs:
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: scripts/run-wsc-cli-wasm.sh wasmtime "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"
 
-    # Expected failure, pinned: kiln 0.9.0 stops on the fused CLI with E6590
-    # "Foundation bounded capacity exceeded" (kiln#745). The step passes only
+    # Expected failure, pinned: kiln 0.9.0 refuses the fused CLI as built here
+    # (fastbuild, 23 MB) with E03ED "Module file too large" (kiln#745; a 3.9 MB
+    # cargo --release build gets further and stops at E6590). The step passes only
     # on exactly that failure. It goes red if kiln fails any other way, and
     # red if kiln runs it, so the day #745 is fixed this step says so and gets
     # turned into a plain run. Tarball digests are pinned from each release's
     # SHA256SUMS.txt, which was cosign-verified against that repo's release
     # workflow identity.
-    - name: wsc-cli.wasm under kiln (expected failure E6590, kiln#745)
+    - name: wsc-cli.wasm under kiln (expected failure E03ED, kiln#745)
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: |
         d="$RUNNER_TEMP/kiln-meld"
@@ -237,10 +238,10 @@ jobs:
         fi
         printf '%s\n' "$out" | sed 's/^::/  /'
         if grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out" \
-           && grep -q 'E6590' <<<"$out"; then
-          echo "ok  kiln 0.9.0 still fails keygen with E6590 (kiln#745), as expected"
+           && grep -q 'E03ED' <<<"$out"; then
+          echo "ok  kiln 0.9.0 still refuses the module with E03ED (kiln#745), as expected"
         else
-          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E6590); see the output above"
+          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E03ED); see the output above"
           exit 1
         fi
 
