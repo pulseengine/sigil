@@ -27,6 +27,8 @@ on:
       - '.bazelversion'
       - 'wit/**'
       - '.github/workflows/rust.yml'
+      - 'scripts/run-wsc-cli-wasm.sh'
+      - 'scripts/wasip2-sign-roundtrip.sh'
       # The `Vacuous-oracle gate` job below RUNS
       # verification/vacuous-oracle-check/check.py, so a change to the gate's
       # own source must trigger the gate. It did not: this workflow's filters
@@ -48,6 +50,8 @@ on:
       - '.bazelversion'
       - 'wit/**'
       - '.github/workflows/rust.yml'
+      - 'scripts/run-wsc-cli-wasm.sh'
+      - 'scripts/wasip2-sign-roundtrip.sh'
       # The `Vacuous-oracle gate` job below RUNS
       # verification/vacuous-oracle-check/check.py, so a change to the gate's
       # own source must trigger the gate. It did not: this workflow's filters
@@ -176,6 +180,70 @@ jobs:
           exit 1
         }
         echo "ok  Bazel refuses a stale MODULE.bazel.lock"
+
+    # Run what we build. release.yml signs and ships wsc-cli.wasm but nothing
+    # ran it, so a component that fails to instantiate would ship. Build it with
+    # release.yml's exact command, then run keygen, sign, verify, a cross-check
+    # with the native wsc and a tampered-byte negative control inside it.
+    - name: Build wsc-cli.wasm as release.yml does (Bazel, wasm32-wasip2)
+      if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
+      run: |
+        # bazel-bin follows the last configuration, so keep the native binary
+        # before building for wasm32-wasip2.
+        bazel build //src/cli:wasmsign_cli
+        cp bazel-bin/src/cli/wasmsign_cli "$RUNNER_TEMP/wsc-native"
+        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
+        cp bazel-bin/src/cli/wasmsign_cli.wasm "$RUNNER_TEMP/wsc-cli.wasm"
+
+    - name: Install wasmtime
+      if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
+      uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+      with:
+        tool: wasmtime@50.0.1
+
+    - name: wsc-cli.wasm runs under wasmtime (keygen, sign, verify, tamper control)
+      if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
+      run: scripts/run-wsc-cli-wasm.sh wasmtime "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"
+
+    # Expected failure, pinned: kiln 0.9.0 refuses the fused CLI as built here
+    # (fastbuild, 23 MB) with E03ED "Module file too large" (kiln#745; a 3.9 MB
+    # cargo --release build gets further and stops at E6590). The step passes only
+    # on exactly that failure. It goes red if kiln fails any other way, and
+    # red if kiln runs it, so the day #745 is fixed this step says so and gets
+    # turned into a plain run. Tarball digests are pinned from each release's
+    # SHA256SUMS.txt, which was cosign-verified against that repo's release
+    # workflow identity.
+    - name: wsc-cli.wasm under kiln (expected failure E03ED, kiln#745)
+      if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
+      run: |
+        d="$RUNNER_TEMP/kiln-meld"
+        mkdir -p "$d"
+        curl -fsSL -o "$d/kiln.tar.gz" \
+          https://github.com/pulseengine/kiln/releases/download/v0.9.0/kiln-v0.9.0-x86_64-unknown-linux-gnu.tar.gz
+        curl -fsSL -o "$d/meld.tar.gz" \
+          https://github.com/pulseengine/meld/releases/download/v0.69.0/meld-v0.69.0-x86_64-unknown-linux-gnu.tar.gz
+        printf '%s  %s\n' \
+          6a1e334ba319fbaaca5858d333088c0d82a13b789e7479b5af119028b5f32aaf "$d/kiln.tar.gz" \
+          cef5a7fdeb497b3415baa454a2d064c2083aa3a532a2b40fbfe6a7543786787c "$d/meld.tar.gz" \
+          | sha256sum -c -
+        tar -xzf "$d/kiln.tar.gz" -C "$d"
+        tar -xzf "$d/meld.tar.gz" -C "$d"
+        mkdir -p "$d/bin"
+        ln -s "$(find "$d" -type f -name kiln -perm -u+x | head -1)" "$d/bin/kiln"
+        ln -s "$(find "$d" -type f -name meld -perm -u+x | head -1)" "$d/bin/meld"
+        if out="$(PATH="$d/bin:$PATH" scripts/run-wsc-cli-wasm.sh kiln "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native" 2>&1)"; then
+          printf '%s\n' "$out" | sed 's/^::/  /'
+          echo "::error title=kiln#745 looks fixed::wsc-cli.wasm now runs under kiln; replace this expected failure with a plain run"
+          exit 1
+        fi
+        printf '%s\n' "$out" | sed 's/^::/  /'
+        if grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out" \
+           && grep -q 'E03ED' <<<"$out"; then
+          echo "ok  kiln 0.9.0 still refuses the module with E03ED (kiln#745), as expected"
+        else
+          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E03ED); see the output above"
+          exit 1
+        fi
 
     # Audit 2026-04-30 finding C-7 (partial): Bazel CI now ATTEMPTS to
     # run tests, not just validate that targets compile. continue-on-error
