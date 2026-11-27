@@ -285,7 +285,8 @@ jobs:
 
         # Build CLI WASM binary with wasm32-wasip2 platform
         echo "Building CLI WASM binary..."
-        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
+        # Optimized: fastbuild shipped a 23 MB component, opt is 6.8 MB.
+        bazel build --compilation_mode=opt //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
 
         # Find and copy the component WASM
         # Pattern: bazel-out/<platform>-fastbuild-ST-<hash>/bin/src/component/*.wasm
