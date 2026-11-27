@@ -792,7 +792,7 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-21T17:09:28Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-29
     type: requirement
@@ -804,7 +804,7 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-4-8
       timestamp: 2026-08-21T17:09:28Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-30
     type: requirement
@@ -840,30 +840,32 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:14:26Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-33
     type: requirement
     title: Do not retain stale signed_hashes_set entries on re-sign (rollback)
-    status: implemented
+    status: verified
     description: "sign_multi documents that a new signature 'is added to the existing ones', and build_header_section retains previous signed_hashes_set entries; ct_eq_hashes merges only when hash sets are EQUAL, so re-signing modified content appends a second entry while keeping the stale one. PublicKey::verify accepts a stream matching ANY entry, so a composite artifact (v2 header + v1 content) verifies though the publisher never produced it, and a consumer pinning the v2 detached signature accepts v1 content. NOT fixed by the v0.12.0 terminal-hash pinning: v1's hash is terminal within its own entry. Freshness/rollback failure rather than forgery (the key did sign that content once), so severity is below the v0.12.0 truncation wrong-accepts. Oracle kept as an #[ignore]d test with positive and negative controls. Remedy is sign-side: drop entries whose hashes disagree with the content being signed, or make retention opt-in and scoped (legitimate multi-signer co-signing has EQUAL hash sets, which ct_eq_hashes already merges). sigil#304."
     tags: [soundness, freshness, rollback, signing]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:14:26Z
+      reviewed-by: "clean-room agent review 2026-11-27 (fresh context, claude-opus-5-5): CONFIRMED, 2 planted reverts caught"
     release: v0.13.0
 
   - id: REQ-34
     type: requirement
     title: Device certificates must bind the device's public key (HSM provisioning path)
-    status: implemented
+    status: verified
     description: "PrivateCA::create_device_cert (the public-key-only / HSM path via sign_device_certificate) fabricates a signer because rcgen needs one: it builds KeyPair { sk: temp_full_keypair.sk, pk: device_public_key } and passes it to ed25519_to_pem, which is keypair.sk.to_pem() and reads ONLY sk. rcgen re-derives the SPKI from that ephemeral seed, so the pk field is dead code and every certificate on this path carries a throwaway key's SPKI. Measured: device pk 8053c7a6... vs cert SPKI 7d70cad9... Fail-closed rather than forgery (verify_with_certificate checks against the cert's SPKI, so a genuine hardware signature can never validate), but hardware-backed provisioning is non-functional and the certificate attests a binding no party holds, contradicting ProvisioningSession::provision's documented guarantees. Survived because the EKU regression test issues via this same path and passes — webpki never checks subject-key possession. Correct fix: give rcgen the subject SPKI rather than a fabricated keypair; do NOT simply make it error, which would break ProvisioningSession::provision and the shipped examples/iot_provisioning.rs. Predates v0.11.0 (2025-11-14, 7ca8f5a). sigil#288."
     tags: [provisioning, hsm, soundness, tier-5]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:14:26Z
+      reviewed-by: "clean-room agent review 2026-11-27 (fresh context, claude-opus-5-5): CONFIRMED, planted throwaway key caught"
     release: v0.13.0
 
   - id: REQ-35
@@ -876,18 +878,19 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:16:44Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-36
     type: requirement
     title: Honour CertificateConfig::serial_number; stop colliding serials on re-issuance
-    status: implemented
+    status: verified
     description: "CertificateConfig::serial_number is documented 'auto-generated if None' but is never read by any certificate-creation path, so rcgen derives the serial as SHA-256(subject SPKI)[0..20] — a pure function of the subject key. Because a device key is hardware-locked and write-once, every renewal/re-issue produces an IDENTICAL serial, so any CRL, audit log or transparency consumer that identifies a certificate by (issuer, serialNumber) cannot distinguish a revoked certificate from its replacement. Separately ProvisioningSession generates its OWN serial into ProvisioningResult.serial_number which also never reaches the certificate, so the provisioning audit record claims a serial the issued cert does not carry — arguably the sharper half. Interacts with REQ-34/#288: fixing that makes the collision live on the HSM path too, since today serials differ there only because the subject key is randomized. One fix: honour config.serial_number. sigil#289."
     tags: [provisioning, audit, revocation, tier-5]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:16:44Z
+      reviewed-by: "clean-room agent review 2026-11-27 (fresh context, claude-opus-5-5): CONFIRMED, 2 planted reverts caught"
     release: v0.13.0
 
   - id: REQ-37
@@ -900,7 +903,7 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:16:44Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-38
     type: requirement
@@ -912,18 +915,19 @@ artifacts:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-10-14T19:16:44Z
-    release: v0.13.0
+    release: v0.14.0
 
   - id: REQ-39
     type: requirement
     title: verify-chain binds the attested content hash to the bytes it checks
-    status: implemented
+    status: verified
     description: "`wsc attest` records output.hash, the SHA-256 of the output module before the attestation section is appended, but `wsc verify-chain` never recomputed it: a component changed after attestation (one bit flipped in its core module) reported a valid chain (reported on 0.9.2 and 0.12.1, in every mode including --strict and --policy; the CLI path had no hash comparison at all). Only a removed or absent attestation was rejected. Fix: before any chain or policy check, recompute the hash over the module minus post-attestation metadata (the transformation attestation / audit-trail sections and wsc's signature section) and fail on mismatch, also under --report-only, since this is an integrity check rather than a policy rule. Every other section, code and data included, is hashed. sigil#395, reported by rules_wasm_component."
     tags: [attestation, verify, fail-open, security]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5
       timestamp: 2026-11-20T00:00:00Z
+      reviewed-by: "clean-room agent review 2026-11-27 (fresh context, claude-opus-5-5): PARTIAL then closed: command-level tests added (src/cli/tests/verify_chain_cli.rs), 2 planted command reverts caught"
     release: v0.13.0
 
   - id: REQ-40
@@ -954,10 +958,23 @@ artifacts:
     type: requirement
     title: A clean machine installs wsc from the release assets and verifies with it
     status: draft
-    release: v0.13.0
+    release: v0.14.0
     description: "Objective (until serves: ships): O2, the 2026-Q4 committed target ('sigil publishes a release, so the attestation tool can be installed instead of built from git'). Acceptance: a CI job on a clean container installs wsc from release assets (not git), checks the cosign signature and SLSA attestation, runs wsc verify on a signed component and wsc verify-chain on an attested one; planted tampered module, module changed after attestation, and wrong key exit non-zero. Kill: the release cannot run on the clean container without a source build. Needs REQ-37 (musl)."
     tags: [o2, release, install]
     provenance:
       created-by: ai-assisted
       model: claude-opus-5-5
       timestamp: 2026-11-19T23:28:16Z
+
+  - id: REQ-43
+    type: requirement
+    title: verify-chain and show-chain read meld-fused modules' fusion attestation, failing closed on absent signatures
+    status: verified
+    release: v0.13.0
+    description: "meld's default build embeds its own copy of the attestation schema: transformation_type \"fusion\", no attestation_signature, no per-input signature_status. wsc refused it with 'unknown variant fusion', so every meld-fused module had an unreadable chain. Fix: TransformationType::Fusion; an absent attestation_signature reads as unsigned (algorithm \"unsigned\", empty signature) and an absent input signature_status as Unsigned, so --require-attestation-signatures and --require-signatures still reject such a chain; unknown type strings are still refused. Binding the attested output hash to meld's bytes is the #395 verify-chain check, and needs meld#699/#701 (hash covers everything but the attestation). sigil#396, PR #420."
+    tags: [attestation, meld, verify]
+    provenance:
+      created-by: ai-assisted
+      model: claude-opus-5-5
+      timestamp: 2026-11-27T15:40:01Z
+      reviewed-by: "clean-room agent review 2026-11-27 (fresh context, claude-opus-5-5): CONFIRMED, 2 planted reverts caught"
