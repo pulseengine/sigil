@@ -5,6 +5,37 @@ All notable changes to sigil are documented here. The project follows
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-11-27
+
+wsc reads meld-fused modules' attestation chain, trusts the operating
+system's certificate store instead of bundled roots, and drops chrono for
+jiff. Minor version because two library APIs break:
+`SignatureFreshnessPolicy::with_minimum_timestamp` now takes a
+`wsc::rfc3339::Timestamp`, and `TransformationType` gains a variant. The
+CLI's exit contract and signature format are unchanged; `wsc verify` of a
+0.12.x signature behaves as before.
+
+0.12.2 was a patch release cut from the 0.12.1 branch (wasmtime 49.0.6,
+quinn-udp 0.5.16). Its fixes are also on main, so everything in it is in
+this release.
+
+Release gate (rivet, v0.13.0 scope): REQ-33, REQ-34, REQ-36, REQ-39 and
+REQ-43 verified, each with `verifies`-tagged tests, and each re-checked by a
+fresh-context review that planted reverts of the fixes (all caught). That
+review found no test of `verify-chain` as a command, so
+`src/cli/tests/verify_chain_cli.rs` now runs the binary on an attested module
+changed after attestation and requires a rejection in five modes (default,
+`--report-only`, `--strict`, `--policy`, `--policy --report-only`). Moving
+the policy branch ahead of the check, or deleting the check, fails it. Seven
+draft requirements
+(REQ-28, 29, 32, 35, 37, 38, 42) moved to v0.14.0 by owner decision.
+
+Known, not fixed here: `verify-chain` rejects meld 0.69 to 0.71 output via
+the REQ-39 binding check, until a meld release carries meld#701 (its hash
+then covers everything but the attestation section). `wsc-cli.wasm` is still
+built unoptimized (Bazel fastbuild, about 23 MB); kiln 0.9.0 refuses it
+(kiln#745).
+
 ### Added
 
 - **Versioned release archives.** Each release now also carries
@@ -129,6 +160,18 @@ All notable changes to sigil are documented here. The project follows
   (`MODULE.bazel`, `flake.nix`). *Falsification:* a release from this version
   on that carries an x86_64-apple-darwin asset, or a `SHA256SUMS.txt` entry
   for one.
+
+### Falsification
+
+0.13.0 is wrong if any of the following is observed:
+
+- `wsc verify` exits 0 on a module whose signature does not verify, or
+  `verify-chain` exits 0 on a module changed after its attestation;
+- `verify-chain --require-signatures` or `--require-attestation-signatures`
+  exits 0 on a meld attestation that carries no signatures;
+- an RFC 3339 timestamp that chrono 0.4.44 accepted is rejected (or the
+  reverse), outside the documented year-9999 clamp;
+- a keyless fetch fails without naming the HTTP status it got.
 
 ## [0.12.1] — 2026-11-13
 

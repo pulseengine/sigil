@@ -5123,6 +5123,7 @@ mod tests {
         .expect("meld 0.69.0 attestation must parse")
     }
 
+    // rivet: verifies REQ-43
     #[test]
     fn meld_fusion_lenient_policy_accepts() {
         let mut policy = ChainVerificationPolicy::default();
@@ -5132,6 +5133,7 @@ mod tests {
         assert_eq!(result.tools_used, vec!["meld".to_string()]);
     }
 
+    // rivet: verifies REQ-43
     #[test]
     fn meld_fusion_rejected_when_inputs_must_be_signed() {
         let mut policy = ChainVerificationPolicy::default();
@@ -5140,6 +5142,7 @@ mod tests {
         assert!(!result.valid);
     }
 
+    // rivet: verifies REQ-43
     #[test]
     fn meld_fusion_rejected_when_attestation_must_be_signed() {
         let mut policy = ChainVerificationPolicy::default();

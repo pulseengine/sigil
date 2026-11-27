@@ -893,6 +893,7 @@ mod tests {
     /// from a fused module (input path shortened to `guard.wasm`). #396.
     const MELD_0_69_FUSION: &str = include_str!("../tests/fixtures/meld-0.69.0-fusion.json");
 
+    // rivet: verifies REQ-43
     #[test]
     fn meld_fusion_attestation_parses() {
         let a = TransformationAttestation::from_json(MELD_0_69_FUSION)
@@ -923,6 +924,7 @@ mod tests {
         assert_eq!(back, TransformationType::Fusion);
     }
 
+    // rivet: verifies REQ-43
     #[test]
     fn unknown_transformation_type_still_rejected() {
         let bad = MELD_0_69_FUSION.replace("\"fusion\"", "\"teleportation\"");
@@ -930,6 +932,7 @@ mod tests {
         assert!(err.to_string().contains("unknown variant `teleportation`"), "{err}");
     }
 
+    // rivet: verifies REQ-43
     #[test]
     fn explicit_signature_fields_still_win_over_defaults() {
         let mut v: serde_json::Value = serde_json::from_str(MELD_0_69_FUSION).unwrap();
