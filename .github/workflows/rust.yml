@@ -192,7 +192,7 @@ jobs:
         # before building for wasm32-wasip2.
         bazel build //src/cli:wasmsign_cli
         cp bazel-bin/src/cli/wasmsign_cli "$RUNNER_TEMP/wsc-native"
-        bazel build //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
+        bazel build --compilation_mode=opt //src/cli:wasmsign_cli_wasm --platforms=@rules_wasm_component//platforms:wasm32-wasip2
         cp bazel-bin/src/cli/wasmsign_cli.wasm "$RUNNER_TEMP/wsc-cli.wasm"
 
     - name: Install wasmtime
@@ -205,15 +205,16 @@ jobs:
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: scripts/run-wsc-cli-wasm.sh wasmtime "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"
 
-    # Expected failure, pinned: kiln 0.9.0 refuses the fused CLI as built here
-    # (fastbuild, 23 MB) with E03ED "Module file too large" (kiln#745; a 3.9 MB
-    # cargo --release build gets further and stops at E6590). The step passes only
-    # on exactly that failure. It goes red if kiln fails any other way, and
-    # red if kiln runs it, so the day #745 is fixed this step says so and gets
-    # turned into a plain run. Tarball digests are pinned from each release's
-    # SHA256SUMS.txt, which was cosign-verified against that repo's release
-    # workflow identity.
-    - name: wsc-cli.wasm under kiln (expected failure E03ED, kiln#745)
+    # Expected failure, pinned: kiln 0.9.0 refuses the fused CLI (opt, 6.8 MB)
+    # with E21A0 "unresolved imports": it provides no wasi:http or wasi:sockets,
+    # and not wasi:filesystem descriptor.sync (79 imports; kiln#745). Unoptimized
+    # builds stopped earlier, on E03ED (23 MB) or E6590 (3.9 MB cargo build).
+    # The step passes only on exactly that failure. It goes red if kiln fails
+    # any other way, and red if kiln runs it, so the day #745 is fixed this step
+    # says so and gets turned into a plain run. Tarball digests are pinned from
+    # each release's SHA256SUMS.txt, which was cosign-verified against that
+    # repo's release workflow identity.
+    - name: wsc-cli.wasm under kiln (expected failure E21A0, kiln#745)
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: |
         d="$RUNNER_TEMP/kiln-meld"
@@ -238,10 +239,10 @@ jobs:
         fi
         printf '%s\n' "$out" | sed 's/^::/  /'
         if grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out" \
-           && grep -q 'E03ED' <<<"$out"; then
-          echo "ok  kiln 0.9.0 still refuses the module with E03ED (kiln#745), as expected"
+           && grep -q 'E21A0' <<<"$out"; then
+          echo "ok  kiln 0.9.0 still refuses the module with E21A0, unresolved wasi:http/wasi:sockets imports (kiln#745), as expected"
         else
-          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E03ED); see the output above"
+          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E21A0); see the output above"
           exit 1
         fi
 

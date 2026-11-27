@@ -5,6 +5,17 @@ All notable changes to sigil are documented here. The project follows
 
 ## [Unreleased]
 
+### Changed
+
+- **`wsc-cli.wasm` is built optimized (`--compilation_mode=opt`): 6.8 MB
+  instead of 23.4 MB.** Up to 0.13.0 the release shipped a fastbuild
+  component. CI builds it the same way and runs it under wasmtime (keygen,
+  sign, verify, native cross-check, tamper control). kiln 0.9.0 now gets past
+  its size limits and refuses the module on 79 unresolved wasi:http,
+  wasi:sockets and wasi:filesystem imports (E21A0, kiln#745); CI pins that
+  failure. *Falsification:* the next release's `wsc-cli.wasm` is larger than
+  10 MB, or fails `scripts/run-wsc-cli-wasm.sh wasmtime`.
+
 ## [0.13.0] — 2026-11-27
 
 wsc reads meld-fused modules' attestation chain, trusts the operating
