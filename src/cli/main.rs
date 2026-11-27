@@ -648,7 +648,7 @@ fn start() -> Result<(), WSError> {
                     Arg::new("type")
                         .long("type")
                         .value_name("TYPE")
-                        .value_parser(["optimization", "composition", "instrumentation", "stripping", "custom"])
+                        .value_parser(["optimization", "composition", "instrumentation", "stripping", "fusion", "custom"])
                         .default_value("custom")
                         .help("Type of transformation"),
                 ),
@@ -1773,6 +1773,7 @@ fn handle_attest_command(matches: &clap::ArgMatches) -> Result<(), WSError> {
         "composition" => TransformationType::Composition,
         "instrumentation" => TransformationType::Instrumentation,
         "stripping" => TransformationType::Stripping,
+        "fusion" => TransformationType::Fusion,
         _ => TransformationType::Custom,
     };
 

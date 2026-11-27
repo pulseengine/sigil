@@ -5113,6 +5113,48 @@ mod tests {
         assert_eq!(info.public_keys[1].key, "key2");
     }
 
+    /// meld 0.69.0's default attestation (#396), byte for byte from a fused
+    /// module. It carries no attestation signature and no input signature
+    /// status, so each strict flag must reject it.
+    fn meld_0_69_fusion() -> TransformationAttestation {
+        TransformationAttestation::from_json(include_str!(
+            "../../../attestation/tests/fixtures/meld-0.69.0-fusion.json"
+        ))
+        .expect("meld 0.69.0 attestation must parse")
+    }
+
+    #[test]
+    fn meld_fusion_lenient_policy_accepts() {
+        let mut policy = ChainVerificationPolicy::default();
+        policy.mode = ChainVerificationMode::NoRootSignaturesRequired;
+        let result = verify_transformation_chain(&meld_0_69_fusion(), &policy);
+        assert!(result.valid, "{:?}", result.errors);
+        assert_eq!(result.tools_used, vec!["meld".to_string()]);
+    }
+
+    #[test]
+    fn meld_fusion_rejected_when_inputs_must_be_signed() {
+        let mut policy = ChainVerificationPolicy::default();
+        policy.mode = ChainVerificationMode::AllInputsSigned;
+        let result = verify_transformation_chain(&meld_0_69_fusion(), &policy);
+        assert!(!result.valid);
+    }
+
+    #[test]
+    fn meld_fusion_rejected_when_attestation_must_be_signed() {
+        let mut policy = ChainVerificationPolicy::default();
+        policy.mode = ChainVerificationMode::NoRootSignaturesRequired;
+        policy.verify_attestation_signatures = true;
+        policy.trusted_tools.insert(
+            "meld".to_string(),
+            TrustedToolInfo::any_version()
+                .with_public_key(TrustedPublicKey::ed25519("dummy", None)),
+        );
+        let result = verify_transformation_chain(&meld_0_69_fusion(), &policy);
+        assert!(!result.valid);
+        assert!(result.errors.iter().any(|e| e.contains("unsigned")), "{:?}", result.errors);
+    }
+
     #[test]
     fn test_chain_verification_with_attestation_signatures_unsigned() {
         // Create an unsigned attestation

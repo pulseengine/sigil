@@ -226,6 +226,9 @@ pub enum TransformationType {
     Instrumentation,
     /// Stripping (e.g., removing debug info)
     Stripping,
+    /// Fusion of one or more components into a single core module (meld).
+    /// meld's default build writes `"fusion"` (#396).
+    Fusion,
     /// Custom transformation
     Custom,
 }
@@ -237,6 +240,7 @@ impl std::fmt::Display for TransformationType {
             TransformationType::Composition => write!(f, "composition"),
             TransformationType::Instrumentation => write!(f, "instrumentation"),
             TransformationType::Stripping => write!(f, "stripping"),
+            TransformationType::Fusion => write!(f, "fusion"),
             TransformationType::Custom => write!(f, "custom"),
         }
     }
@@ -256,7 +260,11 @@ pub struct ArtifactDescriptor {
 }
 
 /// Status of a signature on an input artifact
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The default is `Unsigned`: an input record that does not state a status
+/// (meld's default attestation, #396) claims nothing, so it reads as unsigned
+/// and fails `verify-chain --require-signatures`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SignatureStatus {
     /// Signature was verified successfully
@@ -264,6 +272,7 @@ pub enum SignatureStatus {
     /// Signature exists but was not verified (e.g., missing public key)
     SignedUnverified,
     /// No signature present
+    #[default]
     Unsigned,
 }
 
@@ -384,13 +393,32 @@ pub struct AttestationSignature {
     pub signed_at: String,
 }
 
+impl AttestationSignature {
+    /// The value an attestation without an `attestation_signature` field
+    /// deserializes to: algorithm `unsigned`, empty signature. Chain
+    /// verification already treats exactly this as unsigned.
+    pub fn absent() -> Self {
+        AttestationSignature {
+            algorithm: "unsigned".to_string(),
+            signature: String::new(),
+            key_id: None,
+            public_key: None,
+            signer_identity: None,
+            certificate_chain: None,
+            rekor_uuid: None,
+            signed_at: String::new(),
+        }
+    }
+}
+
 /// An input artifact to a transformation, with signature and provenance info
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputArtifact {
     /// Descriptor of the input artifact
     pub artifact: ArtifactDescriptor,
 
-    /// Signature status of the input
+    /// Signature status of the input. Absent reads as `Unsigned` (#396).
+    #[serde(default)]
     pub signature_status: SignatureStatus,
 
     /// Signature information (if signed)
@@ -436,7 +464,10 @@ pub struct TransformationAttestation {
     /// Information about the transformation tool
     pub tool: ToolInfo,
 
-    /// Signature on this attestation
+    /// Signature on this attestation. Absent reads as unsigned (#396): meld's
+    /// default attestation carries no signature field, and an unsigned
+    /// attestation fails `verify-chain --require-attestation-signatures`.
+    #[serde(default = "AttestationSignature::absent")]
     pub attestation_signature: AttestationSignature,
 
     /// Additional metadata (e.g., optimization flags, composition strategy)
@@ -857,6 +888,60 @@ fn generate_uuid_v4() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The attestation meld 0.69.0's default build embeds, taken byte for byte
+    /// from a fused module (input path shortened to `guard.wasm`). #396.
+    const MELD_0_69_FUSION: &str = include_str!("../tests/fixtures/meld-0.69.0-fusion.json");
+
+    #[test]
+    fn meld_fusion_attestation_parses() {
+        let a = TransformationAttestation::from_json(MELD_0_69_FUSION)
+            .expect("meld 0.69.0 attestation must parse");
+        assert_eq!(a.transformation_type, TransformationType::Fusion);
+        assert_eq!(a.tool.name, "meld");
+        assert_eq!(a.tool.version, "0.69.0");
+        assert_eq!(
+            a.output.hash,
+            "c49fa911c988992356130d567df0307bf02c3238312278279ccf576eff6cf26d"
+        );
+        assert_eq!(a.inputs.len(), 1);
+        // meld states no input signature status: it must read as unsigned.
+        assert_eq!(a.inputs[0].signature_status, SignatureStatus::Unsigned);
+        // meld carries no attestation signature: it must read as unsigned.
+        assert_eq!(a.attestation_signature.algorithm, "unsigned");
+        assert!(a.attestation_signature.signature.is_empty());
+        // meld's metadata object survives as the generic map.
+        assert_eq!(a.metadata["memory_strategy"], "multi");
+    }
+
+    #[test]
+    fn fusion_round_trips_and_displays() {
+        assert_eq!(TransformationType::Fusion.to_string(), "fusion");
+        let json = serde_json::to_string(&TransformationType::Fusion).unwrap();
+        assert_eq!(json, "\"fusion\"");
+        let back: TransformationType = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, TransformationType::Fusion);
+    }
+
+    #[test]
+    fn unknown_transformation_type_still_rejected() {
+        let bad = MELD_0_69_FUSION.replace("\"fusion\"", "\"teleportation\"");
+        let err = TransformationAttestation::from_json(&bad).unwrap_err();
+        assert!(err.to_string().contains("unknown variant `teleportation`"), "{err}");
+    }
+
+    #[test]
+    fn explicit_signature_fields_still_win_over_defaults() {
+        let mut v: serde_json::Value = serde_json::from_str(MELD_0_69_FUSION).unwrap();
+        v["inputs"][0]["signature_status"] = "verified".into();
+        v["attestation_signature"] = serde_json::json!({
+            "algorithm": "ed25519", "signature": "c2ln", "signed_at": "2026-11-27T10:37:59Z"
+        });
+        let a: TransformationAttestation = serde_json::from_value(v).unwrap();
+        assert_eq!(a.inputs[0].signature_status, SignatureStatus::Verified);
+        assert_eq!(a.attestation_signature.algorithm, "ed25519");
+        assert_eq!(a.attestation_signature.signature, "c2ln");
+    }
 
     #[test]
     fn test_builder_basic() {
