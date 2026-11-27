@@ -205,13 +205,14 @@ jobs:
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: scripts/run-wsc-cli-wasm.sh wasmtime "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"
 
-    # Advisory until kiln runs it: kiln 0.9.0 stops on the fused CLI with E6590
-    # (kiln#745; see also kiln#480). The step never fails the job. It reports
-    # the outcome as an annotation either way, so a pass is visible and the
-    # step can then become blocking. Tarball digests are pinned from each
-    # release's SHA256SUMS.txt, which was cosign-verified against that repo's
-    # release workflow identity.
-    - name: wsc-cli.wasm under kiln (advisory, kiln#745)
+    # Expected failure, pinned: kiln 0.9.0 stops on the fused CLI with E6590
+    # "Foundation bounded capacity exceeded" (kiln#745). The step passes only
+    # on exactly that failure. It goes red if kiln fails any other way, and
+    # red if kiln runs it, so the day #745 is fixed this step says so and gets
+    # turned into a plain run. Tarball digests are pinned from each release's
+    # SHA256SUMS.txt, which was cosign-verified against that repo's release
+    # workflow identity.
+    - name: wsc-cli.wasm under kiln (expected failure E6590, kiln#745)
       if: matrix.build-system == 'bazel' && matrix.os == 'ubuntu-24.04'
       run: |
         d="$RUNNER_TEMP/kiln-meld"
@@ -229,10 +230,18 @@ jobs:
         mkdir -p "$d/bin"
         ln -s "$(find "$d" -type f -name kiln -perm -u+x | head -1)" "$d/bin/kiln"
         ln -s "$(find "$d" -type f -name meld -perm -u+x | head -1)" "$d/bin/meld"
-        if PATH="$d/bin:$PATH" scripts/run-wsc-cli-wasm.sh kiln "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native"; then
-          echo "::notice title=kiln runs wsc-cli.wasm::the advisory kiln leg passed; make this step blocking"
+        if out="$(PATH="$d/bin:$PATH" scripts/run-wsc-cli-wasm.sh kiln "$RUNNER_TEMP/wsc-cli.wasm" "$RUNNER_TEMP/wsc-native" 2>&1)"; then
+          printf '%s\n' "$out" | sed 's/^::/  /'
+          echo "::error title=kiln#745 looks fixed::wsc-cli.wasm now runs under kiln; replace this expected failure with a plain run"
+          exit 1
+        fi
+        printf '%s\n' "$out" | sed 's/^::/  /'
+        if grep -q '::error::wsc-cli.wasm keygen failed under kiln' <<<"$out" \
+           && grep -q 'E6590' <<<"$out"; then
+          echo "ok  kiln 0.9.0 still fails keygen with E6590 (kiln#745), as expected"
         else
-          echo "::warning title=kiln advisory::wsc-cli.wasm does not run under kiln 0.9.0 (kiln#745); not blocking"
+          echo "::error title=kiln failed differently::not the pinned kiln#745 failure (keygen, E6590); see the output above"
+          exit 1
         fi
 
     # Audit 2026-04-30 finding C-7 (partial): Bazel CI now ATTEMPTS to
