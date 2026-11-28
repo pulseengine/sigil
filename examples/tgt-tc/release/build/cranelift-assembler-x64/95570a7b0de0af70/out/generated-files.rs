@@ -1,3 +1,0 @@
-vec![
-  "/Users/r/git/pulseengine/sigil-wt-wt/examples/wasmtime-loader/../tgt-tc/release/build/cranelift-assembler-x64/95570a7b0de0af70/out/assembler.rs".into(),
-]
