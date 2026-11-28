@@ -102,3 +102,80 @@ fn modified_module_fails_in_every_mode() {
         );
     }
 }
+
+/// A module fused by meld 0.72.0, the first release whose output.hash covers
+/// every byte except the attestation section (meld#701, option A of #396).
+/// Source and regeneration steps: fixtures/meld-0.72.0-fused.input.wat.
+const MELD_0_72_FUSED: &[u8] = include_bytes!("fixtures/meld-0.72.0-fused.wasm");
+
+/// Write MELD_0_72_FUSED with one bit flipped at `at`, or unchanged for None.
+fn meld_fixture(dir: &Path, name: &str, at: Option<usize>) -> PathBuf {
+    let mut bytes = MELD_0_72_FUSED.to_vec();
+    if let Some(at) = at {
+        bytes[at] ^= 1;
+    }
+    let out = dir.join(name);
+    std::fs::write(&out, bytes).unwrap();
+    out
+}
+
+/// Offset of the first byte after `needle` in the fixture.
+fn after(needle: &[u8]) -> usize {
+    MELD_0_72_FUSED
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .expect("needle present in the meld fixture")
+        + needle.len()
+}
+
+// rivet: verifies REQ-39
+// rivet: verifies REQ-43
+#[test]
+fn meld_0_72_fused_module_verifies() {
+    let dir = workdir("meld-ok");
+    let (ok, text) = verify_chain(&meld_fixture(&dir, "fused.wasm", None), &[]);
+    assert!(ok, "meld 0.72.0's unmodified fused module must verify: {text}");
+}
+
+// rivet: verifies REQ-39
+// rivet: verifies REQ-43
+#[test]
+fn meld_0_72_component_provenance_byte_flip_is_rejected() {
+    // meld 0.69.0 left component-provenance out of output.hash; 0.72.0 covers
+    // it. One bit flipped in its payload must break the binding.
+    let dir = workdir("meld-prov");
+    let at = after(b"component-provenance") + 4;
+    let (ok, text) = verify_chain(&meld_fixture(&dir, "prov.wasm", Some(at)), &[]);
+    assert!(!ok, "a component-provenance byte flip was accepted: {text}");
+    assert!(text.contains("does not match the module"), "failed, but not on the hash binding: {text}");
+}
+
+// rivet: verifies REQ-39
+// rivet: verifies REQ-43
+#[test]
+fn meld_0_72_code_byte_flip_is_rejected() {
+    // The fused body of `add`: local.get 0, local.get 1, i32.add (0x6a), end.
+    // 0x6a -> 0x6b (i32.sub) keeps the module valid.
+    let dir = workdir("meld-code");
+    let at = after(&[0x20, 0x00, 0x20, 0x01]);
+    assert_eq!(MELD_0_72_FUSED[at], 0x6a);
+    let (ok, text) = verify_chain(&meld_fixture(&dir, "code.wasm", Some(at)), &[]);
+    assert!(!ok, "a code byte flip was accepted: {text}");
+    assert!(text.contains("does not match the module"), "failed, but not on the hash binding: {text}");
+}
+
+// rivet: verifies REQ-43
+#[test]
+fn meld_0_72_unsigned_attestation_rejected_when_signatures_required() {
+    // meld's attestation is unsigned, so the hash binding cannot cover the
+    // attestation itself: an edit inside it is caught only by requiring
+    // attestation signatures.
+    let dir = workdir("meld-unsigned");
+    let at = after(b"\"imports_resolved\":");
+    for (name, flip) in [("fused.wasm", None), ("att.wasm", Some(at))] {
+        let (ok, text) =
+            verify_chain(&meld_fixture(&dir, name, flip), &["--require-attestation-signatures"]);
+        assert!(!ok, "{name}: an unsigned meld attestation passed --require-attestation-signatures: {text}");
+        assert!(text.contains("unsigned"), "{name}: failed, but not on the missing signature: {text}");
+    }
+}
