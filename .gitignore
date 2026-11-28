@@ -25,6 +25,8 @@ profiles/
 
 # WASM artifacts (for development)
 *.wasm
+# Test fixtures: committed modules whose bytes the tests depend on.
+!src/cli/tests/fixtures/*.wasm
 
 # Key files
 *.key
