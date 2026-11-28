@@ -1,3 +1,0 @@
-cargo::rerun-if-changed=build.rs
-cargo::rustc-env=WSC_BUILD_TIMESTAMP=1795308838
-cargo::rustc-check-cfg=cfg(kani)

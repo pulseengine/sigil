@@ -74,3 +74,6 @@ __pycache__/
 
 # Lean build output (lake)
 lean/.lake/
+
+# Cargo target directories under examples/ (e.g. CARGO_TARGET_DIR=examples/tgt-*)
+examples/tgt-*/

@@ -11,7 +11,7 @@ design.
 ## Cerisier vocabulary recap (one screen)
 
 Recall from [docs/security/attestation-trust-formalization.md](attestation-trust-formalization.md)
-and `/Users/r/tmp/cerisier-work/cerisier-notes.md`:
+and the Cerisier paper's own definitions (working notes, not in this repository):
 
 - **Sealing predicate `P_i`** for each enclave identity `i`, registered
   by the verifier *before* execution, capturing the semantic invariant
@@ -113,7 +113,7 @@ ad-hoc "trust both" or "trust newest" policies.
 
 ## Composition with TrustMee
 
-TrustMee (`/Users/r/tmp/cerisier-work/trustmee-notes.md`) verifies
+TrustMee verifies
 single-shot attestation results: a TEE hardware quote plus a signed
 Wasm verification component is reduced to a signed EAR (EAT
 Attestation Result). Where Cerisier reasons about a *chain* of sealed
