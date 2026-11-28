@@ -5,6 +5,23 @@ All notable changes to sigil are documented here. The project follows
 
 ## [Unreleased]
 
+### Added
+
+- **`verify-chain` is tested against a meld 0.72.0 fused module.** meld
+  0.72.0's `output.hash` covers every byte except the attestation section
+  (meld#701). The fixture is a 1,106-byte module whose input `.wat` and
+  regeneration command are committed with it. The tests are:
+  - the unmodified module verifies;
+  - one bit flipped in `component-provenance`, or in the code section, is
+    rejected on the hash binding;
+  - with `--require-attestation-signatures`, the module is rejected because
+    meld's attestation is unsigned.
+
+  Edits inside an unsigned attestation are caught only in that signed mode.
+  *Falsification:* a meld 0.72.x fused module that `verify-chain` rejects
+  unmodified, or accepts with any byte outside its attestation section
+  changed.
+
 ### Changed
 
 - **`wsc-cli.wasm` is built optimized (`--compilation_mode=opt`): 6.8 MB
